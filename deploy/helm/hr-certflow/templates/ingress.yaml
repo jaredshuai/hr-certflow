@@ -1,0 +1,48 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "hr-certflow.fullname" . }}-strip-prefix
+  labels:
+    {{- include "hr-certflow.labels" . | nindent 4 }}
+spec:
+  stripPrefix:
+    prefixes:
+      - {{ .Values.ingress.pathPrefix | quote }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hr-certflow.fullname" . }}
+  labels:
+    {{- include "hr-certflow.labels" . | nindent 4 }}
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-strip-prefix@kubernetescrd" .Release.Namespace (include "hr-certflow.fullname" .) | quote }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  rules:
+    - {{- if .Values.ingress.host }}
+      host: {{ .Values.ingress.host | quote }}
+      {{- end }}
+      http:
+        paths:
+          - path: {{ printf "%s/api" .Values.ingress.pathPrefix | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hr-certflow.fullname" . }}-api
+                port:
+                  name: http
+          - path: {{ .Values.ingress.pathPrefix | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hr-certflow.fullname" . }}-web
+                port:
+                  name: http
+{{- end }}

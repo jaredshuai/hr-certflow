@@ -1,0 +1,78 @@
+# hr-certflow shared-k3s v1 onboarding request.
+# This is an infra input document, not an application manifest to apply directly.
+project:
+  id: hr-certflow
+  repo: https://github.com/jaredshuai/hr-certflow.git
+  namespaces:
+    dev: hr-certflow-dev
+    release: hr-certflow-release
+  urls:
+    dev: http://10.34.200.180/hr-certflow/
+    release: http://10.34.200.180/hr-certflow-release/
+
+runtime:
+  backend:
+    framework: FastAPI
+    port: 8000
+    healthPath: /api/v1/health
+  frontend:
+    framework: Umi Max / Ant Design Pro
+    port: 80
+  worker: Celery worker
+  scheduler: Celery Beat
+
+dependencies:
+  data:
+    - PostgreSQL dev/release database and user
+    - Redis dev/release instance or DB
+    - S3-compatible object storage bucket/prefix
+  external:
+    - Dify workflow endpoint and API key
+    - WeCom/Feishu/DingTalk webhook or SMTP
+
+infraToProvision:
+  secrets:
+    - hr-certflow-runtime-secrets
+    - ghcr-pull-secret
+  appProject:
+    allowedRepo: https://github.com/jaredshuai/hr-certflow.git
+    allowedNamespaces:
+      - hr-certflow-dev
+      - hr-certflow-release
+  kubeconfigs:
+    - namespace-scoped observer kubeconfig
+    - namespace-scoped deployer/bootstrap kubeconfig if platform approves bootstrap flow
+
+runtimeSecretKeys:
+  - DATABASE_URL
+  - REDIS_URL
+  - S3_ACCESS_KEY_ID
+  - S3_SECRET_ACCESS_KEY
+  - DIFY_API_KEY
+  - WECOM_WEBHOOK_URL
+  - FEISHU_WEBHOOK_URL
+  - DINGTALK_WEBHOOK_URL
+  - SMTP_USERNAME
+  - SMTP_PASSWORD
+
+configMapKeys:
+  - APP_NAME
+  - APP_ENV
+  - APP_TIMEZONE
+  - AUTO_CREATE_TABLES
+  - API_CORS_ORIGINS
+  - S3_ENDPOINT_URL
+  - S3_PUBLIC_ENDPOINT_URL
+  - S3_REGION
+  - S3_BUCKET
+  - S3_FORCE_PATH_STYLE
+  - DIFY_BASE_URL
+  - DIFY_WORKFLOW_ID
+
+smoke:
+  dev:
+    web: http://10.34.200.180/hr-certflow/
+    api: http://10.34.200.180/hr-certflow/api/v1/health
+  release:
+    web: http://10.34.200.180/hr-certflow-release/
+    api: http://10.34.200.180/hr-certflow-release/api/v1/health

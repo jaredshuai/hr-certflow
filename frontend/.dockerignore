@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.umi/
+.umi-production/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*

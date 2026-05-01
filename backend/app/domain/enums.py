@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class EmploymentStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    ON_LEAVE = "ON_LEAVE"
+    LEFT = "LEFT"
+
+
+class CertificateStatus(StrEnum):
+    DRAFT = "DRAFT"
+    PENDING_REVIEW = "PENDING_REVIEW"
+    ACTIVE = "ACTIVE"
+    EXPIRING = "EXPIRING"
+    EXPIRED = "EXPIRED"
+    RENEWED = "RENEWED"
+    REPLACED = "REPLACED"
+    ARCHIVED = "ARCHIVED"
+
+
+class DocumentStatus(StrEnum):
+    UPLOADED = "UPLOADED"
+    PARSING = "PARSING"
+    PENDING_REVIEW = "PENDING_REVIEW"
+    CONFIRMED = "CONFIRMED"
+    FAILED = "FAILED"
+    ARCHIVED = "ARCHIVED"
+
+
+class ReviewStatus(StrEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    NEEDS_INFO = "NEEDS_INFO"
+
+
+class ReminderTaskStatus(StrEnum):
+    PENDING = "PENDING"
+    FIRST_SENT = "FIRST_SENT"
+    WAITING_FEEDBACK = "WAITING_FEEDBACK"
+    SECOND_SENT = "SECOND_SENT"
+    ESCALATED = "ESCALATED"
+    RESOLVED = "RESOLVED"
+    CLOSED = "CLOSED"
+
+
+class ReminderEventType(StrEnum):
+    FIRST_REMINDER = "FIRST_REMINDER"
+    SECOND_REMINDER = "SECOND_REMINDER"
+    ESCALATION = "ESCALATION"
+    FEEDBACK = "FEEDBACK"
+    CLOSED = "CLOSED"
+    FAILED = "FAILED"
+
+
+class FeedbackStatus(StrEnum):
+    NOTIFIED_EMPLOYEE = "NOTIFIED_EMPLOYEE"
+    PROCESSING = "PROCESSING"
+    RENEWED = "RENEWED"
+    NO_ACTION_REQUIRED = "NO_ACTION_REQUIRED"
+    EMPLOYEE_LEFT = "EMPLOYEE_LEFT"
+    IGNORED = "IGNORED"

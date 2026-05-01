@@ -1,0 +1,141 @@
+x-backend-environment: &backend-environment
+  APP_NAME: ${APP_NAME:-HR CertFlow}
+  APP_ENV: ${APP_ENV:-local}
+  APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+  AUTO_CREATE_TABLES: ${AUTO_CREATE_TABLES:-true}
+  API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:8001}
+  DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hr_certflow:hr_certflow@postgres:5432/hr_certflow}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://object-storage:9000}
+  S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-hr-certflow}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-hr_certflow}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-hr_certflow_secret}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+  DIFY_BASE_URL: ${DIFY_BASE_URL:-}
+  DIFY_API_KEY: ${DIFY_API_KEY:-}
+  DIFY_WORKFLOW_ID: ${DIFY_WORKFLOW_ID:-certificate-extraction}
+  WECOM_WEBHOOK_URL: ${WECOM_WEBHOOK_URL:-}
+  FEISHU_WEBHOOK_URL: ${FEISHU_WEBHOOK_URL:-}
+  DINGTALK_WEBHOOK_URL: ${DINGTALK_WEBHOOK_URL:-}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hr_certflow
+      POSTGRES_USER: hr_certflow
+      POSTGRES_PASSWORD: hr_certflow
+    ports:
+      - "${POSTGRES_HOST_PORT:-15432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hr_certflow -d hr_certflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_HOST_PORT:-16379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  object-storage:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: hr_certflow
+      MINIO_ROOT_PASSWORD: hr_certflow_secret
+    ports:
+      - "${S3_HOST_PORT:-9000}:9000"
+      - "${S3_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - object-storage-data:/data
+
+  object-storage-init:
+    image: quay.io/minio/mc:latest
+    depends_on:
+      object-storage:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://object-storage:9000 hr_certflow hr_certflow_secret; do sleep 2; done;
+      mc mb --ignore-existing local/hr-certflow;
+      mc anonymous set none local/hr-certflow;
+      "
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      <<: *backend-environment
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      object-storage:
+        condition: service_started
+      object-storage-init:
+        condition: service_completed_successfully
+
+  celery-worker:
+    build:
+      context: ./backend
+    environment:
+      <<: *backend-environment
+    command: celery -A app.celery_app.celery_app worker --loglevel=info
+    volumes:
+      - ./backend:/app
+    depends_on:
+      api:
+        condition: service_started
+
+  celery-beat:
+    build:
+      context: ./backend
+    environment:
+      <<: *backend-environment
+    command: celery -A app.celery_app.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    volumes:
+      - ./backend:/app
+    depends_on:
+      celery-worker:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      - "${FRONTEND_HOST_PORT:-8001}:8001"
+    environment:
+      PORT: 8001
+      API_BASE_URL: http://api:8000
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  redis-data:
+  object-storage-data:
+  frontend-node-modules:

@@ -1,0 +1,30 @@
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: #f4f6f5;
+}
+
+.ant-pro-page-container-children-container {
+  padding-block-start: 16px;
+}
+
+.certflow-page-band {
+  background: #ffffff;
+  border: 1px solid #e5e8e6;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.certflow-upload-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .certflow-upload-grid {
+    grid-template-columns: 1fr;
+  }
+}

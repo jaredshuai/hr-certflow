@@ -1,0 +1,25 @@
+config:
+  APP_ENV: dev
+  AUTO_CREATE_TABLES: "false"
+  API_CORS_ORIGINS: http://10.34.200.180
+  S3_BUCKET: hr-certflow-dev
+
+images:
+  api:
+    repository: ghcr.io/jaredshuai/hr-certflow-api
+    tag: latest
+  web:
+    repository: ghcr.io/jaredshuai/hr-certflow-web
+    tag: latest
+
+ingress:
+  pathPrefix: /hr-certflow
+
+api:
+  replicas: 1
+web:
+  replicas: 1
+worker:
+  replicas: 1
+beat:
+  replicas: 1

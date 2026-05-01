@@ -1,0 +1,20 @@
+{
+  "name": "hr-certflow-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "max dev",
+    "build": "max build",
+    "lint": "max lint"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.5.1",
+    "@ant-design/pro-components": "^2.8.0",
+    "@umijs/max": "^4.3.31",
+    "antd": "^5.21.4",
+    "dayjs": "^1.11.13"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2"
+  }
+}

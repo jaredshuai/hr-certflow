@@ -1,0 +1,84 @@
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets:
+  - name: ghcr-pull-secret
+
+runtimeSecretName: hr-certflow-runtime-secrets
+
+config:
+  APP_NAME: HR CertFlow
+  APP_ENV: dev
+  APP_TIMEZONE: Asia/Shanghai
+  AUTO_CREATE_TABLES: "false"
+  API_CORS_ORIGINS: http://10.34.200.180
+  S3_ENDPOINT_URL: ""
+  S3_PUBLIC_ENDPOINT_URL: ""
+  S3_REGION: us-east-1
+  S3_BUCKET: hr-certflow-dev
+  S3_FORCE_PATH_STYLE: "true"
+  DIFY_BASE_URL: ""
+  DIFY_WORKFLOW_ID: certificate-extraction
+
+images:
+  api:
+    repository: ghcr.io/jaredshuai/hr-certflow-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  web:
+    repository: ghcr.io/jaredshuai/hr-certflow-web
+    tag: latest
+    pullPolicy: IfNotPresent
+
+api:
+  replicas: 1
+  port: 8000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+web:
+  replicas: 1
+  port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+worker:
+  replicas: 1
+  concurrency: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+beat:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+migrations:
+  enabled: true
+
+ingress:
+  enabled: true
+  className: traefik
+  host: ""
+  pathPrefix: /hr-certflow
+  annotations: {}

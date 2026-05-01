@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - release
+      image_tag:
+        description: Image tag to publish. Defaults to current short SHA.
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-promote:
+    name: Build images and update GitOps values
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_env: ${{ steps.meta.outputs.deploy_env }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      web_url: ${{ steps.meta.outputs.web_url }}
+      api_url: ${{ steps.meta.outputs.api_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            DEPLOY_ENV="${{ inputs.environment }}"
+            IMAGE_TAG="${{ inputs.image_tag }}"
+          else
+            DEPLOY_ENV="release"
+            IMAGE_TAG="${GITHUB_REF_NAME}"
+          fi
+
+          if [[ -z "${IMAGE_TAG}" ]]; then
+            IMAGE_TAG="${GITHUB_SHA::12}"
+          fi
+
+          API_REPOSITORY="ghcr.io/${{ github.repository }}-api"
+          WEB_REPOSITORY="ghcr.io/${{ github.repository }}-web"
+
+          if [[ "${DEPLOY_ENV}" == "release" ]]; then
+            WEB_URL="${{ vars.RELEASE_WEB_URL || 'http://10.34.200.180/hr-certflow-release/' }}"
+            API_URL="${WEB_URL%/}/api/v1/health"
+          else
+            WEB_URL="${{ vars.DEV_WEB_URL || 'http://10.34.200.180/hr-certflow/' }}"
+            API_URL="${WEB_URL%/}/api/v1/health"
+          fi
+
+          {
+            echo "deploy_env=${DEPLOY_ENV}"
+            echo "image_tag=${IMAGE_TAG}"
+            echo "api_repository=${API_REPOSITORY}"
+            echo "web_repository=${WEB_REPOSITORY}"
+            echo "web_url=${WEB_URL}"
+            echo "api_url=${API_URL}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta.outputs.api_repository }}:${{ steps.meta.outputs.image_tag }}
+
+      - name: Build and push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          target: production
+          push: true
+          tags: ${{ steps.meta.outputs.web_repository }}:${{ steps.meta.outputs.image_tag }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Update GitOps values
+        run: |
+          python -m pip install pyyaml
+          python scripts/update_gitops_image_tags.py \
+            --values "deploy/gitops/${{ steps.meta.outputs.deploy_env }}/values.yaml" \
+            --api-repository "${{ steps.meta.outputs.api_repository }}" \
+            --web-repository "${{ steps.meta.outputs.web_repository }}" \
+            --tag "${{ steps.meta.outputs.image_tag }}"
+
+      - name: Commit promotion
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "deploy/gitops/${{ steps.meta.outputs.deploy_env }}/values.yaml"
+          if git diff --cached --quiet; then
+            echo "No GitOps values changes to commit."
+          else
+            git commit -m "chore(release): promote ${{ steps.meta.outputs.deploy_env }} ${{ steps.meta.outputs.image_tag }} [skip ci]"
+            git push
+          fi
+
+  smoke:
+    name: Shared k3s smoke
+    needs: build-and-promote
+    if: ${{ vars.SHARED_K3S_SMOKE_ENABLED == 'true' }}
+    runs-on: [self-hosted, kb, shared-k3s-deployer]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Smoke web and API
+        run: |
+          python scripts/smoke_http.py \
+            --web-url "${{ needs.build-and-promote.outputs.web_url }}" \
+            --api-url "${{ needs.build-and-promote.outputs.api_url }}"
