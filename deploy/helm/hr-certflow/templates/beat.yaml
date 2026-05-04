@@ -25,11 +25,12 @@ spec:
           image: "{{ .Values.images.api.repository }}:{{ .Values.images.api.tag }}"
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
           command:
-            - celery
-            - -A
-            - app.celery_app.celery_app
-            - beat
-            - --loglevel=info
+            - sh
+            - -c
+            - >-
+              exec celery -A app.celery_app.celery_app beat
+              --loglevel=info
+              --schedule="/tmp/${CELERY_NAMESPACE}-celerybeat-schedule"
           envFrom:
             - configMapRef:
                 name: {{ include "hr-certflow.fullname" . }}-config

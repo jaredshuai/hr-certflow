@@ -25,12 +25,17 @@ spec:
           image: "{{ .Values.images.api.repository }}:{{ .Values.images.api.tag }}"
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
           command:
-            - celery
-            - -A
-            - app.celery_app.celery_app
-            - worker
-            - --loglevel=info
-            - --concurrency={{ .Values.worker.concurrency }}
+            - sh
+            - -c
+            - >-
+              exec celery -A app.celery_app.celery_app worker
+              --loglevel=info
+              --concurrency={{ .Values.worker.concurrency }}
+              -Q "${CELERY_QUEUE}"
+              --hostname="${CELERY_NAMESPACE}@%h"
+              --without-gossip
+              --without-mingle
+              --without-heartbeat
           envFrom:
             - configMapRef:
                 name: {{ include "hr-certflow.fullname" . }}-config

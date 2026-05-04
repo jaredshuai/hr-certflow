@@ -5,7 +5,14 @@ x-backend-environment: &backend-environment
   AUTO_CREATE_TABLES: ${AUTO_CREATE_TABLES:-true}
   API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:8001}
   DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hr_certflow:hr_certflow@postgres:5432/hr_certflow}
-  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  REDIS_URL: ${REDIS_URL:-redis://<redis-user>:<redis-password>@<redis-host>:6379/0}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-}
+  CELERY_NAMESPACE: ${CELERY_NAMESPACE:-hr-certflow-local}
+  CELERY_QUEUE: ${CELERY_QUEUE:-hr-certflow-local}
+  CELERY_ROUTING_KEY: ${CELERY_ROUTING_KEY:-hr-certflow-local}
+  CELERY_REDIS_HASH_TAG: ${CELERY_REDIS_HASH_TAG:-hr-certflow-local}
+  CELERY_REDIS_PREFIX: "${CELERY_REDIS_PREFIX:-hr-certflow-local:}"
   S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://object-storage:9000}
   S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
   S3_REGION: ${S3_REGION:-us-east-1}
@@ -98,7 +105,11 @@ services:
       context: ./backend
     environment:
       <<: *backend-environment
-    command: celery -A app.celery_app.celery_app worker --loglevel=info
+    command: >
+      sh -c 'celery -A app.celery_app.celery_app worker
+      --loglevel=info
+      -Q "$${CELERY_QUEUE}"
+      --hostname="$${CELERY_NAMESPACE}@%h"'
     volumes:
       - ./backend:/app
     depends_on:
@@ -110,7 +121,10 @@ services:
       context: ./backend
     environment:
       <<: *backend-environment
-    command: celery -A app.celery_app.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    command: >
+      sh -c 'celery -A app.celery_app.celery_app beat
+      --loglevel=info
+      --schedule="/tmp/$${CELERY_NAMESPACE}-celerybeat-schedule"'
     volumes:
       - ./backend:/app
     depends_on:

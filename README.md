@@ -85,6 +85,8 @@ The chart assumes infra has already provisioned:
 - namespace-scoped runtime service account `hr-certflow-runtime`
 - AppProject allowlist for this repo and the two namespaces
 
+Redis note: shared-k3s Redis connection details are injected by infra through runtime secrets. Dev/release use per-environment standalone Redis broker/result backends plus different `CELERY_NAMESPACE`, `CELERY_QUEUE`, and key prefixes. Do not deploy either environment on the default queue `celery`.
+
 Release packaging uses:
 
 - API image: `ghcr.io/jaredshuai/hr-certflow-api:<tag>`

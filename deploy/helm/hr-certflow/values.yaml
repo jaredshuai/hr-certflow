@@ -12,6 +12,11 @@ config:
   APP_TIMEZONE: Asia/Shanghai
   AUTO_CREATE_TABLES: "false"
   API_CORS_ORIGINS: http://10.34.200.180
+  CELERY_NAMESPACE: hr-certflow-dev
+  CELERY_QUEUE: hr-certflow-dev
+  CELERY_ROUTING_KEY: hr-certflow-dev
+  CELERY_REDIS_HASH_TAG: hr-certflow-dev
+  CELERY_REDIS_PREFIX: "hr-certflow-dev:"
   S3_ENDPOINT_URL: ""
   S3_PUBLIC_ENDPOINT_URL: ""
   S3_REGION: us-east-1

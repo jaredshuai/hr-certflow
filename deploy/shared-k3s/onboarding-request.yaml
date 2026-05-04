@@ -24,7 +24,7 @@ runtime:
 dependencies:
   data:
     - PostgreSQL dev/release database and user
-    - Redis dev/release instance or DB
+    - Per-environment standalone Redis broker/result backend credentials injected through runtime secrets, with Celery queue/prefix isolation
     - S3-compatible object storage bucket/prefix
   external:
     - Dify workflow endpoint and API key
@@ -46,6 +46,8 @@ infraToProvision:
 runtimeSecretKeys:
   - DATABASE_URL
   - REDIS_URL
+  - CELERY_BROKER_URL
+  - CELERY_RESULT_BACKEND
   - S3_ACCESS_KEY_ID
   - S3_SECRET_ACCESS_KEY
   - DIFY_API_KEY
@@ -61,6 +63,11 @@ configMapKeys:
   - APP_TIMEZONE
   - AUTO_CREATE_TABLES
   - API_CORS_ORIGINS
+  - CELERY_NAMESPACE
+  - CELERY_QUEUE
+  - CELERY_ROUTING_KEY
+  - CELERY_REDIS_HASH_TAG
+  - CELERY_REDIS_PREFIX
   - S3_ENDPOINT_URL
   - S3_PUBLIC_ENDPOINT_URL
   - S3_REGION
@@ -73,6 +80,22 @@ smoke:
   dev:
     web: http://10.34.200.180/hr-certflow/
     api: http://10.34.200.180/hr-certflow/api/v1/health
+    celeryRedis:
+      envFrom:
+        - secret: hr-certflow-runtime-secrets
+        - configMap: hr-certflow-config
+      commands:
+        - python -m app.smoke.celery_redis_isolation selftest
+        - python -m app.smoke.celery_redis_isolation send
+        - python -m app.smoke.celery_redis_isolation assert-keys
   release:
     web: http://10.34.200.180/hr-certflow-release/
     api: http://10.34.200.180/hr-certflow-release/api/v1/health
+    celeryRedis:
+      envFrom:
+        - secret: hr-certflow-runtime-secrets
+        - configMap: hr-certflow-config
+      commands:
+        - python -m app.smoke.celery_redis_isolation selftest
+        - python -m app.smoke.celery_redis_isolation send
+        - python -m app.smoke.celery_redis_isolation assert-keys
