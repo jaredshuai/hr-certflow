@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+import time
+from typing import Any
+
+
+DEFAULT_DEPLOYMENTS = ("hr-certflow-api", "hr-certflow-web", "hr-certflow-worker", "hr-certflow-beat")
+
+
+def kubectl(args: list[str], *, input_text: str | None = None) -> str:
+    completed = subprocess.run(
+        ["kubectl", *args],
+        input=input_text,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"kubectl {' '.join(args)} failed\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}")
+    return completed.stdout
+
+
+def deployment_images(namespace: str, deployment: str) -> list[str]:
+    payload = kubectl(["-n", namespace, "get", "deployment", deployment, "-o", "json"])
+    data = json.loads(payload)
+    containers = data["spec"]["template"]["spec"].get("containers") or []
+    return [container["image"] for container in containers]
+
+
+def image_has_tag(image: str, tag: str) -> bool:
+    return image.endswith(f":{tag}") or f":{tag}@" in image
+
+
+def wait_for_deployment_tag(namespace: str, deployment: str, tag: str, deadline: float, poll_interval: int) -> list[str]:
+    last_images: list[str] = []
+    while time.monotonic() < deadline:
+        last_images = deployment_images(namespace, deployment)
+        if last_images and all(image_has_tag(image, tag) for image in last_images):
+            return last_images
+        time.sleep(poll_interval)
+    raise RuntimeError(f"{deployment} did not reach image tag {tag}; last images: {last_images}")
+
+
+def rollout_status(namespace: str, deployment: str, timeout_seconds: int) -> None:
+    kubectl(
+        [
+            "-n",
+            namespace,
+            "rollout",
+            "status",
+            f"deployment/{deployment}",
+            f"--timeout={timeout_seconds}s",
+        ]
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Wait for hr-certflow Kubernetes deployments to reach an image tag")
+    parser.add_argument("--namespace", required=True)
+    parser.add_argument("--image-tag", required=True)
+    parser.add_argument("--deployment", action="append", dest="deployments")
+    parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--poll-interval", type=int, default=10)
+    args = parser.parse_args()
+
+    deployments = args.deployments or list(DEFAULT_DEPLOYMENTS)
+    deadline = time.monotonic() + args.timeout
+    results: list[dict[str, Any]] = []
+
+    for deployment in deployments:
+        images = wait_for_deployment_tag(args.namespace, deployment, args.image_tag, deadline, args.poll_interval)
+        remaining = max(1, int(deadline - time.monotonic()))
+        rollout_status(args.namespace, deployment, remaining)
+        results.append({"deployment": deployment, "images": images})
+
+    print(json.dumps({"ok": True, "namespace": args.namespace, "image_tag": args.image_tag, "results": results}))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(f"rollout wait failed: {exc}", file=sys.stderr)
+        raise SystemExit(1)

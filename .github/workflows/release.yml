@@ -35,6 +35,7 @@ jobs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
       web_url: ${{ steps.meta.outputs.web_url }}
       api_url: ${{ steps.meta.outputs.api_url }}
+      namespace: ${{ steps.meta.outputs.namespace }}
     steps:
       - uses: actions/checkout@v4
 
@@ -62,9 +63,11 @@ jobs:
           if [[ "${DEPLOY_ENV}" == "release" ]]; then
             WEB_URL="${{ vars.RELEASE_WEB_URL || 'http://10.34.200.180/hr-certflow-release/' }}"
             API_URL="${WEB_URL%/}/api/v1/health"
+            NAMESPACE="hr-certflow-release"
           else
             WEB_URL="${{ vars.DEV_WEB_URL || 'http://10.34.200.180/hr-certflow/' }}"
             API_URL="${WEB_URL%/}/api/v1/health"
+            NAMESPACE="hr-certflow-dev"
           fi
 
           {
@@ -74,6 +77,7 @@ jobs:
             echo "web_repository=${WEB_REPOSITORY}"
             echo "web_url=${WEB_URL}"
             echo "api_url=${API_URL}"
+            echo "namespace=${NAMESPACE}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
@@ -128,6 +132,10 @@ jobs:
     needs: build-and-promote
     if: ${{ vars.SHARED_K3S_SMOKE_ENABLED == 'true' }}
     runs-on: [self-hosted, kb, shared-k3s-deployer]
+    env:
+      DEPLOY_ENV: ${{ needs.build-and-promote.outputs.deploy_env }}
+      IMAGE_TAG: ${{ needs.build-and-promote.outputs.image_tag }}
+      NAMESPACE: ${{ needs.build-and-promote.outputs.namespace }}
     steps:
       - uses: actions/checkout@v4
 
@@ -135,8 +143,54 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Configure kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+          DEV_KUBECONFIG_B64: ${{ secrets.DEV_KUBECONFIG_B64 }}
+          RELEASE_KUBECONFIG_B64: ${{ secrets.RELEASE_KUBECONFIG_B64 }}
+        shell: bash
+        run: |
+          if [[ "${DEPLOY_ENV}" == "release" ]]; then
+            SELECTED_KUBECONFIG="${RELEASE_KUBECONFIG_B64:-${KUBECONFIG_B64:-}}"
+          else
+            SELECTED_KUBECONFIG="${DEV_KUBECONFIG_B64:-${KUBECONFIG_B64:-}}"
+          fi
+
+          if [[ -z "${SELECTED_KUBECONFIG}" ]]; then
+            echo "::error::Missing kubeconfig secret for ${DEPLOY_ENV}"
+            exit 1
+          fi
+
+          mkdir -p "${RUNNER_TEMP}/kube"
+          printf '%s' "${SELECTED_KUBECONFIG}" | base64 -d > "${RUNNER_TEMP}/kube/config"
+          chmod 600 "${RUNNER_TEMP}/kube/config"
+          echo "KUBECONFIG=${RUNNER_TEMP}/kube/config" >> "${GITHUB_ENV}"
+
+      - name: Wait for Kubernetes rollout
+        run: |
+          python scripts/wait_k8s_rollout.py \
+            --namespace "${NAMESPACE}" \
+            --image-tag "${IMAGE_TAG}"
+
       - name: Smoke web and API
         run: |
           python scripts/smoke_http.py \
             --web-url "${{ needs.build-and-promote.outputs.web_url }}" \
             --api-url "${{ needs.build-and-promote.outputs.api_url }}"
+
+      - name: Smoke Celery and Redis
+        run: |
+          python scripts/run_k8s_celery_smoke.py \
+            --namespace "${NAMESPACE}"
+
+      - name: Write release summary
+        if: always()
+        run: |
+          {
+            echo "### hr-certflow release smoke"
+            echo "- Environment: \`${DEPLOY_ENV}\`"
+            echo "- Namespace: \`${NAMESPACE}\`"
+            echo "- Image tag: \`${IMAGE_TAG}\`"
+            echo "- Web URL: ${{ needs.build-and-promote.outputs.web_url }}"
+            echo "- API URL: ${{ needs.build-and-promote.outputs.api_url }}"
+          } >> "${GITHUB_STEP_SUMMARY}"

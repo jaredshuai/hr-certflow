@@ -93,6 +93,7 @@ Release packaging uses:
 - Web image: `ghcr.io/jaredshuai/hr-certflow-web:<tag>`
 
 CI and promotion workflows are in `.github/workflows/`. The release workflow builds images, updates GitOps values, and can run shared-k3s smoke when `SHARED_K3S_SMOKE_ENABLED=true`; it does not create platform resources or secrets.
+The shared-k3s smoke gate waits for API/Web/Worker/Beat deployments to reach the promoted image tag, then runs HTTP checks and Celery/Redis smoke through temporary Kubernetes Jobs.
 
 See [docs/shared-k3s-onboarding.md](docs/shared-k3s-onboarding.md) for the full onboarding handoff.
 

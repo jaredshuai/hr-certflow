@@ -62,6 +62,22 @@ SHARED_K3S_SMOKE_ENABLED=false
 
 The release workflow can build and push GHCR images and update GitOps values. It does not create namespaces, AppProject, Argo CD Applications, runtime secrets, or registry pull secrets.
 
+When `SHARED_K3S_SMOKE_ENABLED=true`, the release workflow also runs on the shared-k3s deployer runner and expects a kubeconfig secret. It accepts either a generic `KUBECONFIG_B64` secret or environment-specific `DEV_KUBECONFIG_B64` / `RELEASE_KUBECONFIG_B64` secrets.
+
+Release smoke gate:
+
+```text
+Build and push API/Web images
+Update deploy/gitops/<env>/values.yaml
+Wait until API/Web/Worker/Beat deployments use the promoted image tag
+Wait for Kubernetes rollout status
+Run HTTP web/API smoke
+Run Celery/Redis smoke in temporary Kubernetes Jobs
+Delete temporary smoke Jobs
+```
+
+The workflow intentionally does not write Redis URLs, passwords, tokens, or kubeconfig contents to logs.
+
 ## Redis / Celery Isolation
 
 Infra provides per-environment standalone Redis broker/result backends. The application still keeps Celery queue, routing, and key prefix values environment-specific so dev/release never share the default `celery` queue or naked Celery keys.
