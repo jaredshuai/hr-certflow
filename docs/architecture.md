@@ -18,14 +18,16 @@ Ant Design Pro
 
 | Layer | MVP Choice | Boundary |
 | --- | --- | --- |
-| Frontend | Ant Design Pro / Umi Max | HR CRUD, upload review, reminders, audit views |
-| Backend | FastAPI | business state, RBAC, validation, Dify calls, notifications |
+| Frontend | Ant Design Pro / Umi Max on Node.js 24 LTS + TypeScript 6.x | HR CRUD, upload review, reminders, audit views |
+| Backend | FastAPI on Python 3.12+ with uv / ruff / ty / pytest | business state, RBAC, validation, Dify calls, notifications |
 | Database | PostgreSQL | only source of business truth |
 | Cache/queue | Redis | Celery broker, locks, idempotency, temporary state |
 | Files | S3-compatible object storage | certificate originals, PDFs, thumbnails, AI raw snapshots |
 | AI | Dify + multimodal model | image/PDF to structured JSON candidates |
 | Scheduler | Celery + Celery Beat | expiry scans, retryable notification jobs |
 | Notifications | WeCom / Feishu / DingTalk / email | HR-first notification route |
+
+See [engineering-baseline.md](engineering-baseline.md) for the runtime and validation tooling baseline. `antd` is not the expected blocker for Node.js 24 LTS or TypeScript 6.x; validate compatibility through Umi Max build and lint output.
 
 ## Component Boundaries
 

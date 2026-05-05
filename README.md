@@ -22,6 +22,7 @@ Paperless-ngx, RAGFlow, n8n, and Temporal are intentionally outside the MVP main
 - Temporal: optional long-running workflow engine when reminder lifecycles become complex.
 
 See [docs/architecture.md](docs/architecture.md) for the architecture decision record.
+See [docs/engineering-baseline.md](docs/engineering-baseline.md) for the Node.js, TypeScript, uv, ruff, ty, and pytest baseline.
 
 ## Repository Layout
 
@@ -39,22 +40,24 @@ Copy the environment example first:
 cp .env.example .env
 ```
 
-Start the local stack:
+Backend checks use uv:
 
 ```bash
-docker compose up --build
+uv sync --project backend --extra dev
+uv run --project backend --extra dev ruff check backend/app backend/tests backend/migrations scripts
+uv run --project backend --extra dev ty check backend/app
+uv run --project backend --extra dev pytest backend/tests -q
 ```
 
-Default services:
+Frontend checks use Node.js 24 LTS:
 
-- Frontend: http://localhost:8001
-- API: http://localhost:8000
-- API docs: http://localhost:8000/docs
-- PostgreSQL: localhost:15432
-- Redis: localhost:16379
-- S3-compatible dev storage: localhost:9000
+```bash
+cd frontend
+npm ci
+npm run build
+```
 
-The compose file uses a local S3-compatible development service. Production should point the same S3 settings at OSS, COS, S3, OBS, R2, Garage, SeaweedFS, Ceph RGW, or another approved S3-compatible target.
+Production should point S3 settings at OSS, COS, S3, OBS, R2, Garage, SeaweedFS, Ceph RGW, or another approved S3-compatible target.
 
 ## shared-k3s Deployment
 

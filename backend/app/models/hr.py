@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from enum import Enum as PythonEnum
 from typing import Any
 
 from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text
@@ -20,7 +21,7 @@ from app.domain.enums import (
 )
 
 
-def enum_values(enum_cls: type) -> list[str]:
+def enum_values(enum_cls: type[PythonEnum]) -> list[str]:
     return [member.value for member in enum_cls]
 
 
