@@ -24,6 +24,9 @@ dev = [
     "ruff>=0.6.9",
 ]
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"
