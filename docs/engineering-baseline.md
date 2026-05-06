@@ -71,7 +71,7 @@ Baseline:
 
 Workflows set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` so GitHub-hosted and self-hosted jobs exercise the same Node 24 JavaScript action runtime baseline. This is separate from the frontend application runtime selected by `actions/setup-node`.
 
-Dependabot is enabled for GitHub Actions, frontend npm dependencies, backend uv dependencies, and backend/frontend Docker base images. TypeScript is intentionally held below 7 because the project baseline is TypeScript 6.x.
+Dependabot is enabled for GitHub Actions, frontend npm dependencies, backend uv dependencies, and backend/frontend Docker base images. TypeScript is intentionally held below 7 because the project baseline is TypeScript 6.x. Docker base image updates are also held to the runtime baseline: Node.js stays on 24.x and Python stays on 3.12.x until this document, CI, Dockerfiles, and smoke gates are deliberately moved together.
 
 ## Compatibility Policy
 

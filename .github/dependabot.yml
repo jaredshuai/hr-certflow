@@ -55,6 +55,10 @@ updates:
       backend-docker:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "python"
+        versions:
+          - ">=3.13"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "docker"
@@ -68,4 +72,8 @@ updates:
       frontend-docker:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "node"
+        versions:
+          - ">=25"
     open-pull-requests-limit: 5
