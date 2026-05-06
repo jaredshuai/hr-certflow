@@ -62,6 +62,18 @@ gh run view <run-id> --repo jaredshuai/hr-certflow --json conclusion,jobs,url
 gh run view <run-id> --repo jaredshuai/hr-certflow --log
 ```
 
+Use the standalone smoke workflow when infra has changed live state and the image tag does not need to be rebuilt:
+
+```bash
+gh workflow run shared-k3s-smoke.yml \
+  --repo jaredshuai/hr-certflow \
+  --ref main \
+  -f environment=<dev|release> \
+  -f image_tag=<tag>
+```
+
+This workflow only waits for live Deployments, runs HTTP smoke, and runs Celery/Redis smoke. It does not build images, push tags, or update GitOps values.
+
 If the rollout step fails because live Deployments stay on an older image tag, do not promote release. Ask infra to inspect Argo CD sync state, ResourceQuota, Deployments, ReplicaSets, Pods, and Events in `hr-certflow-dev`.
 
 Infra handoff template for this failure mode:
@@ -116,6 +128,7 @@ Release smoke expects:
 - Redis keys only under `hr-certflow-release:`
 
 If the release Argo CD Application is manual, infra must sync it after the release values commit is present on `main`.
+After infra syncs release, rerun `shared-k3s-smoke.yml` with the same release image tag instead of rerunning the full release workflow.
 
 ## Rollback
 

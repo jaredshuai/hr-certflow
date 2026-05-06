@@ -45,6 +45,11 @@ def component_from_deployment(deployment: str) -> str:
 def print_rollout_diagnostics(namespace: str, deployment: str) -> None:
     component = component_from_deployment(deployment)
     checks = [
+        (
+            "namespace workload overview",
+            ["-n", namespace, "get", "deployment,replicaset,pod,service,ingress", "-o", "wide"],
+        ),
+        ("traefik middlewares", ["-n", namespace, "get", "middleware", "-o", "wide"]),
         ("deployment", ["-n", namespace, "get", "deployment", deployment, "-o", "wide"]),
         ("deployment describe", ["-n", namespace, "describe", "deployment", deployment]),
         (

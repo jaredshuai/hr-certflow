@@ -1,0 +1,113 @@
+name: Shared k3s Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - release
+      image_tag:
+        description: Image tag expected in live Deployments
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  smoke:
+    name: Shared k3s smoke
+    if: ${{ vars.SHARED_K3S_SMOKE_ENABLED == 'true' }}
+    runs-on: [self-hosted, kb, shared-k3s-deployer]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Resolve smoke metadata
+        id: meta
+        shell: bash
+        run: |
+          DEPLOY_ENV="${{ inputs.environment }}"
+          IMAGE_TAG="${{ inputs.image_tag }}"
+
+          if [[ "${DEPLOY_ENV}" == "release" ]]; then
+            WEB_URL="${{ vars.RELEASE_WEB_URL || 'http://10.34.200.180/hr-certflow-release/' }}"
+            API_URL="${WEB_URL%/}/api/v1/health"
+            NAMESPACE="hr-certflow-release"
+          else
+            WEB_URL="${{ vars.DEV_WEB_URL || 'http://10.34.200.180/hr-certflow/' }}"
+            API_URL="${WEB_URL%/}/api/v1/health"
+            NAMESPACE="hr-certflow-dev"
+          fi
+
+          {
+            echo "deploy_env=${DEPLOY_ENV}"
+            echo "image_tag=${IMAGE_TAG}"
+            echo "web_url=${WEB_URL}"
+            echo "api_url=${API_URL}"
+            echo "namespace=${NAMESPACE}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Configure kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+          DEV_KUBECONFIG_B64: ${{ secrets.DEV_KUBECONFIG_B64 }}
+          RELEASE_KUBECONFIG_B64: ${{ secrets.RELEASE_KUBECONFIG_B64 }}
+          DEPLOY_ENV: ${{ steps.meta.outputs.deploy_env }}
+        shell: bash
+        run: |
+          if [[ "${DEPLOY_ENV}" == "release" ]]; then
+            SELECTED_KUBECONFIG="${RELEASE_KUBECONFIG_B64:-${KUBECONFIG_B64:-}}"
+          else
+            SELECTED_KUBECONFIG="${DEV_KUBECONFIG_B64:-${KUBECONFIG_B64:-}}"
+          fi
+
+          if [[ -z "${SELECTED_KUBECONFIG}" ]]; then
+            echo "::error::Missing kubeconfig secret for ${DEPLOY_ENV}"
+            exit 1
+          fi
+
+          mkdir -p "${RUNNER_TEMP}/kube"
+          printf '%s' "${SELECTED_KUBECONFIG}" | base64 -d > "${RUNNER_TEMP}/kube/config"
+          chmod 600 "${RUNNER_TEMP}/kube/config"
+          echo "KUBECONFIG=${RUNNER_TEMP}/kube/config" >> "${GITHUB_ENV}"
+
+      - name: Wait for Kubernetes rollout
+        run: |
+          python scripts/wait_k8s_rollout.py \
+            --namespace "${{ steps.meta.outputs.namespace }}" \
+            --image-tag "${{ steps.meta.outputs.image_tag }}"
+
+      - name: Smoke web and API
+        run: |
+          python scripts/smoke_http.py \
+            --web-url "${{ steps.meta.outputs.web_url }}" \
+            --api-url "${{ steps.meta.outputs.api_url }}"
+
+      - name: Smoke Celery and Redis
+        run: |
+          python scripts/run_k8s_celery_smoke.py \
+            --namespace "${{ steps.meta.outputs.namespace }}"
+
+      - name: Write smoke summary
+        if: always()
+        run: |
+          {
+            echo "### hr-certflow shared-k3s smoke"
+            echo "- Environment: \`${{ steps.meta.outputs.deploy_env }}\`"
+            echo "- Namespace: \`${{ steps.meta.outputs.namespace }}\`"
+            echo "- Image tag: \`${{ steps.meta.outputs.image_tag }}\`"
+            echo "- Web URL: ${{ steps.meta.outputs.web_url }}"
+            echo "- API URL: ${{ steps.meta.outputs.api_url }}"
+          } >> "${GITHUB_STEP_SUMMARY}"
