@@ -54,6 +54,7 @@ Frontend checks use Node.js 24 LTS:
 ```bash
 cd frontend
 npm ci
+npm run lint
 npm run build
 ```
 

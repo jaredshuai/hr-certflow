@@ -24,5 +24,5 @@ uv sync --project backend --extra dev
 uv run --project backend --extra dev ruff check backend/app backend/tests backend/migrations scripts
 uv run --project backend --extra dev ty check backend/app
 uv run --project backend --extra dev pytest backend/tests -q
-cd frontend && npm ci && npm run build
+cd frontend && npm ci && npm run lint && npm run build
 ```

@@ -21,10 +21,11 @@ Required validation after frontend dependency or runtime changes:
 ```bash
 cd frontend
 npm ci
+npm run lint
 npm run build
 ```
 
-Current required frontend gate is build. `npm run lint` is not a CI gate yet because the Umi lint stack still needs explicit ESLint/stylelint configuration for this repo. When frontend lint is promoted to a required gate, it must run under Node.js 24 and TypeScript 6 before the dependency change is considered complete.
+Frontend lint is a required CI gate and uses the Umi-provided ESLint/stylelint presets in `.eslintrc.cjs` and `.stylelintrc.cjs`.
 
 ## Backend
 
