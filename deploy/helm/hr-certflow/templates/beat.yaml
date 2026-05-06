@@ -10,8 +10,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: {{ .Values.beat.strategy.maxSurge | quote }}
-      maxUnavailable: {{ .Values.beat.strategy.maxUnavailable | quote }}
+      maxSurge: {{ include "hr-certflow.intOrPercent" .Values.beat.strategy.maxSurge }}
+      maxUnavailable: {{ include "hr-certflow.intOrPercent" .Values.beat.strategy.maxUnavailable }}
   selector:
     matchLabels:
       {{- include "hr-certflow.selectorLabels" . | nindent 6 }}

@@ -27,3 +27,12 @@ shared-k3s.io/project: hr-certflow
 app.kubernetes.io/name: {{ include "hr-certflow.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
+
+{{- define "hr-certflow.intOrPercent" -}}
+{{- $value := toString . -}}
+{{- if regexMatch "^[0-9]+$" $value -}}
+{{- $value -}}
+{{- else -}}
+{{- $value | quote -}}
+{{- end -}}
+{{- end -}}

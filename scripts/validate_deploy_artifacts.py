@@ -67,14 +67,39 @@ def validate_values(env_name: str, path: Path) -> None:
         require(image.get("tag"), f"{path}: images.{image_name}.tag is required")
 
 
+def validate_helm_templates(chart_dir: Path) -> None:
+    helper_path = chart_dir / "templates" / "_helpers.tpl"
+    require(helper_path.exists(), f"{helper_path}: missing Helm helper template")
+    helper_text = helper_path.read_text(encoding="utf-8")
+    require("define \"hr-certflow.intOrPercent\"" in helper_text, f"{helper_path}: missing intOrPercent helper")
+
+    for template_name in ("api.yaml", "web.yaml", "worker.yaml", "beat.yaml"):
+        template_path = chart_dir / "templates" / template_name
+        text = template_path.read_text(encoding="utf-8")
+        require(
+            "maxSurge: {{ include \"hr-certflow.intOrPercent\"" in text,
+            f"{template_path}: maxSurge must render through intOrPercent",
+        )
+        require(
+            "maxUnavailable: {{ include \"hr-certflow.intOrPercent\"" in text,
+            f"{template_path}: maxUnavailable must render through intOrPercent",
+        )
+        require(
+            "maxSurge: {{ .Values." not in text and "maxUnavailable: {{ .Values." not in text,
+            f"{template_path}: strategy values must not be rendered directly",
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate hr-certflow deploy values")
     parser.add_argument("--dev-values", type=Path, default=Path("deploy/gitops/dev/values.yaml"))
     parser.add_argument("--release-values", type=Path, default=Path("deploy/gitops/release/values.yaml"))
+    parser.add_argument("--chart-dir", type=Path, default=Path("deploy/helm/hr-certflow"))
     args = parser.parse_args()
 
     validate_values("dev", args.dev_values)
     validate_values("release", args.release_values)
+    validate_helm_templates(args.chart_dir)
     print("deploy artifacts ok")
     return 0
 
