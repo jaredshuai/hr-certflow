@@ -24,6 +24,50 @@ def kubectl(args: list[str], *, input_text: str | None = None) -> str:
     return completed.stdout
 
 
+def kubectl_diagnostic(args: list[str], *, max_lines: int = 160) -> str:
+    completed = subprocess.run(
+        ["kubectl", *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
+    lines = output.splitlines()
+    if len(lines) > max_lines:
+        return "\n".join([f"... truncated to last {max_lines} lines ...", *lines[-max_lines:]])
+    return output
+
+
+def component_from_deployment(deployment: str) -> str:
+    return deployment.rsplit("-", 1)[-1]
+
+
+def print_rollout_diagnostics(namespace: str, deployment: str) -> None:
+    component = component_from_deployment(deployment)
+    checks = [
+        ("deployment", ["-n", namespace, "get", "deployment", deployment, "-o", "wide"]),
+        ("deployment describe", ["-n", namespace, "describe", "deployment", deployment]),
+        (
+            "replicasets and pods",
+            [
+                "-n",
+                namespace,
+                "get",
+                "replicaset,pod",
+                "-l",
+                f"app.kubernetes.io/component={component}",
+                "-o",
+                "wide",
+            ],
+        ),
+        ("recent events", ["-n", namespace, "get", "events", "--sort-by=.lastTimestamp"]),
+    ]
+    print(f"rollout diagnostics for {namespace}/{deployment}", file=sys.stderr)
+    for title, args in checks:
+        print(f"\n--- {title}: kubectl {' '.join(args)} ---", file=sys.stderr)
+        print(kubectl_diagnostic(args), file=sys.stderr)
+
+
 def deployment_images(namespace: str, deployment: str) -> list[str]:
     payload = kubectl(["-n", namespace, "get", "deployment", deployment, "-o", "json"])
     data = json.loads(payload)
@@ -72,10 +116,14 @@ def main() -> int:
     results: list[dict[str, Any]] = []
 
     for deployment in deployments:
-        images = wait_for_deployment_tag(args.namespace, deployment, args.image_tag, deadline, args.poll_interval)
-        remaining = max(1, int(deadline - time.monotonic()))
-        rollout_status(args.namespace, deployment, remaining)
-        results.append({"deployment": deployment, "images": images})
+        try:
+            images = wait_for_deployment_tag(args.namespace, deployment, args.image_tag, deadline, args.poll_interval)
+            remaining = max(1, int(deadline - time.monotonic()))
+            rollout_status(args.namespace, deployment, remaining)
+            results.append({"deployment": deployment, "images": images})
+        except Exception:
+            print_rollout_diagnostics(args.namespace, deployment)
+            raise
 
     print(json.dumps({"ok": True, "namespace": args.namespace, "image_tag": args.image_tag, "results": results}))
     return 0
