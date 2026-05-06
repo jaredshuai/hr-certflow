@@ -8,7 +8,7 @@ import {
   ProFormSelect,
   ProFormText,
 } from '@ant-design/pro-components';
-import { Button, Divider, Form, Space, Tag, Upload, message } from 'antd';
+import { Button, Divider, Form, Input, Space, Tag, Upload, message } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { listResource, postResource } from '@/services/api';
@@ -60,6 +60,7 @@ export default function UploadRecognitionPage() {
   const [reviewTaskId, setReviewTaskId] = useState<string>();
   const [documentStatus, setDocumentStatus] = useState('未上传');
   const [recognitionStatus, setRecognitionStatus] = useState('未识别');
+  const [recognitionActor, setRecognitionActor] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [extractionResult, setExtractionResult] = useState<AiExtractionResult>();
 
@@ -85,9 +86,11 @@ export default function UploadRecognitionPage() {
     return review;
   }
 
-  async function recognizeDocument(targetDocumentId: string) {
+  async function recognizeDocument(targetDocumentId: string, actor: string) {
     setRecognitionStatus('识别中');
-    const result = await postResource<AiExtractionResult>(`/documents/${targetDocumentId}/recognize`);
+    const result = await postResource<AiExtractionResult>(
+      `/documents/${targetDocumentId}/recognize?user=${encodeURIComponent(actor)}`,
+    );
     setExtractionResult(result);
     setRecognitionStatus('待人工确认');
     setDocumentStatus('PENDING_REVIEW');
@@ -109,6 +112,11 @@ export default function UploadRecognitionPage() {
   async function uploadAndRecognize() {
     if (!selectedFile) {
       message.warning('请先选择证书图片或 PDF');
+      return;
+    }
+    const actor = recognitionActor.trim();
+    if (!actor) {
+      message.warning('请先填写识别操作人');
       return;
     }
 
@@ -136,7 +144,7 @@ export default function UploadRecognitionPage() {
 
       setDocumentId(intent.document_id);
       setDocumentStatus('UPLOADED');
-      await recognizeDocument(intent.document_id);
+      await recognizeDocument(intent.document_id, actor);
       message.success('上传和识别已完成，请复核后确认');
     } catch (error) {
       setRecognitionStatus('识别失败');
@@ -151,9 +159,14 @@ export default function UploadRecognitionPage() {
       message.warning('请先上传文件');
       return;
     }
+    const actor = recognitionActor.trim();
+    if (!actor) {
+      message.warning('请先填写识别操作人');
+      return;
+    }
     setSubmitting(true);
     try {
-      await recognizeDocument(documentId);
+      await recognizeDocument(documentId, actor);
       message.success('重新识别已完成');
     } catch (error) {
       setRecognitionStatus('识别失败');
@@ -225,6 +238,12 @@ export default function UploadRecognitionPage() {
           <Divider />
 
           <Space style={{ marginBottom: 16 }}>
+            <Input
+              addonBefore="识别操作人"
+              value={recognitionActor}
+              onChange={(event) => setRecognitionActor(event.target.value)}
+              style={{ width: 220 }}
+            />
             <Button type="primary" icon={<UploadOutlined />} loading={submitting} onClick={uploadAndRecognize}>
               上传并识别
             </Button>

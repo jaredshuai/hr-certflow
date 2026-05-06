@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -85,7 +86,7 @@ def create_upload_intent(
 @router.post("/{document_id}/recognize", response_model=AiExtractionResultRead)
 async def recognize_document(
     document_id: UUID,
-    user: str = "system",
+    user: Annotated[str, Query(min_length=1, max_length=128)],
     db: Session = Depends(get_db),
 ) -> AiExtractionResult:
     document = db.get(CertificateDocument, document_id)
@@ -131,7 +132,11 @@ async def recognize_document(
         action="certificate_document.recognize",
         resource_type="certificate_document",
         resource_id=str(document.id),
-        after={"ai_result_id": str(result.id), "workflow_run_id": extraction.workflow_run_id},
+        after={
+            "ai_result_id": str(result.id),
+            "workflow_run_id": extraction.workflow_run_id,
+            "user": user,
+        },
     )
     db.commit()
     db.refresh(result)

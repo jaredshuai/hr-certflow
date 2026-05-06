@@ -6,13 +6,14 @@ from collections.abc import Generator
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from sqlalchemy import delete, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.api.routes.reminders import create_feedback
 from app.core.config import Settings
 from app.db.session import SessionLocal, engine
-from app.domain.enums import CertificateStatus, ReminderTaskStatus
+from app.domain.enums import CertificateStatus, FeedbackStatus, ReminderTaskStatus
 from app.models import (
     AiExtractionResult,
     AuditLog,
@@ -26,6 +27,7 @@ from app.models import (
     ReminderTask,
     ReviewTask,
 )
+from app.schemas.reminders import FeedbackCreate
 from app.services.certificates import replace_active_certificates
 from app.services.notifications import NotificationRouter
 from app.services.reminder_service import dispatch_due_reminder_notifications
@@ -145,6 +147,31 @@ def test_dispatch_reminder_does_not_advance_when_smtp_settings_are_missing(db_se
     assert events[0].channel == "email"
     assert events[0].sent_at is None
     assert events[0].error == "smtp_missing_or_no_recipients"
+
+
+def test_hr_feedback_records_real_actor_and_event_source(db_session: Session) -> None:
+    task = _create_pending_reminder_task(db_session)
+
+    feedback = create_feedback(
+        task.id,
+        FeedbackCreate(
+            status=FeedbackStatus.NOTIFIED_EMPLOYEE,
+            content="已通知员工准备续证材料",
+            created_by="Alice HR",
+        ),
+        db_session,
+    )
+
+    events = list(
+        db_session.scalars(
+            select(ReminderEvent).where(ReminderEvent.reminder_task_id == task.id)
+        ).all()
+    )
+    assert feedback.created_by == "Alice HR"
+    assert task.status == ReminderTaskStatus.WAITING_FEEDBACK
+    assert len(events) == 1
+    assert events[0].channel == "hr_feedback"
+    assert events[0].recipient == "Alice HR"
 
 
 def _create_master_data(db_session: Session) -> tuple[Employee, CertificateType]:
