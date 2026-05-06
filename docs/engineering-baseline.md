@@ -50,6 +50,8 @@ uv run --project backend --extra dev pytest backend/tests -q
 
 CI must use the same command family. Do not add a parallel pip-only install path for backend checks unless it is a temporary diagnostic.
 
+Backend Docker images must also install runtime dependencies with `uv sync --locked` from `backend/uv.lock`. Keep `pip install` out of the production Dockerfile unless it is a short-lived diagnostic with a clear removal plan.
+
 ## GitHub Actions
 
 Baseline:
