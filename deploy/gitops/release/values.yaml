@@ -11,10 +11,10 @@ config:
 images:
   api:
     repository: ghcr.io/jaredshuai/hr-certflow-api
-    tag: e0054d5
+    tag: 219387c
   web:
     repository: ghcr.io/jaredshuai/hr-certflow-web
-    tag: e0054d5
+    tag: 219387c
 ingress:
   pathPrefix: /hr-certflow
 api:
