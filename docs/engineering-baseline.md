@@ -60,7 +60,7 @@ Baseline:
 | Checkout | `actions/checkout@v6` |
 | Python setup | `actions/setup-python@v6` |
 | Node setup | `actions/setup-node@v6` |
-| uv setup | `astral-sh/setup-uv@v8` |
+| uv setup | `astral-sh/setup-uv@v8.1.0` |
 | Helm setup | `azure/setup-helm@v5` |
 | Docker build actions | `docker/setup-buildx-action@v4`, `docker/login-action@v4`, `docker/build-push-action@v7` |
 
