@@ -1,5 +1,4 @@
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
-import { request as umiRequest } from '@umijs/max';
 
 function resolveApiBasePath(): string {
   if (process.env.API_BASE_PATH) {
@@ -49,7 +48,3 @@ export const layout: RunTimeLayoutConfig = () => ({
     },
   },
 });
-
-export async function apiGet<T>(url: string): Promise<T> {
-  return umiRequest<T>(url);
-}
