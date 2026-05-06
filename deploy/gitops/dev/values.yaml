@@ -1,25 +1,22 @@
 config:
   APP_ENV: dev
-  AUTO_CREATE_TABLES: "false"
+  AUTO_CREATE_TABLES: 'false'
   API_CORS_ORIGINS: http://10.34.200.180
   CELERY_NAMESPACE: hr-certflow-dev
   CELERY_QUEUE: hr-certflow-dev
   CELERY_ROUTING_KEY: hr-certflow-dev
   CELERY_REDIS_HASH_TAG: hr-certflow-dev
-  CELERY_REDIS_PREFIX: "hr-certflow-dev:"
+  CELERY_REDIS_PREFIX: 'hr-certflow-dev:'
   S3_BUCKET: hr-certflow-dev
-
 images:
   api:
     repository: ghcr.io/jaredshuai/hr-certflow-api
-    tag: latest
+    tag: 789bb304bf1a
   web:
     repository: ghcr.io/jaredshuai/hr-certflow-web
-    tag: latest
-
+    tag: 789bb304bf1a
 ingress:
   pathPrefix: /hr-certflow
-
 api:
   replicas: 1
 web:
