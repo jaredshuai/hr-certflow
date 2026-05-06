@@ -33,6 +33,7 @@ interface CertificateFormValues {
   valid_from?: unknown;
   valid_to?: unknown;
   review_date?: unknown;
+  reviewed_by?: string;
   notes?: string;
 }
 
@@ -179,7 +180,7 @@ export default function UploadRecognitionPage() {
       valid_from: formatDateValue(values.valid_from),
       valid_to: formatDateValue(values.valid_to),
       review_date: formatDateValue(values.review_date),
-      reviewed_by: 'hr',
+      reviewed_by: values.reviewed_by!.trim(),
       notes: values.notes,
     };
 
@@ -288,6 +289,7 @@ export default function UploadRecognitionPage() {
             <ProFormDatePicker name="valid_from" label="有效开始" />
             <ProFormDatePicker name="valid_to" label="有效截止" />
             <ProFormDatePicker name="review_date" label="复审日期" />
+            <ProFormText name="reviewed_by" label="复核人" rules={[{ required: true, message: '请输入复核人' }]} />
             <ProFormText name="notes" label="复核备注" />
           </ProForm>
         </ProCard>

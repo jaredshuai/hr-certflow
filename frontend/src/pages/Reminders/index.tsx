@@ -1,5 +1,5 @@
 import { PageContainer, ProTable, type ActionType, type ProColumns } from '@ant-design/pro-components';
-import { Button, Space, Tag, message } from 'antd';
+import { Button, Input, Space, Tag, message } from 'antd';
 import { useRef, useState } from 'react';
 
 import { listResource, postResource } from '@/services/api';
@@ -27,14 +27,21 @@ const feedbackActions: Array<{ label: string; status: FeedbackStatus; content: s
 export default function RemindersPage() {
   const actionRef = useRef<ActionType>();
   const [submittingId, setSubmittingId] = useState<string>();
+  const [feedbackActor, setFeedbackActor] = useState('');
 
   async function submitFeedback(record: ReminderTask, status: FeedbackStatus, content: string) {
+    const actor = feedbackActor.trim();
+    if (!actor) {
+      message.warning('请先填写反馈人');
+      return;
+    }
+
     setSubmittingId(`${record.id}:${status}`);
     try {
       await postResource(`/reminders/tasks/${record.id}/feedback`, {
         status,
         content,
-        created_by: 'hr',
+        created_by: actor,
       });
       message.success('HR 反馈已记录');
       actionRef.current?.reload();
@@ -89,7 +96,18 @@ export default function RemindersPage() {
           data: await listResource<ReminderTask>('/reminders/tasks'),
           success: true,
         })}
-        toolbar={{ title: '到期提醒闭环' }}
+        toolbar={{
+          title: '到期提醒闭环',
+          actions: [
+            <Input
+              key="feedback-actor"
+              addonBefore="反馈人"
+              value={feedbackActor}
+              onChange={(event) => setFeedbackActor(event.target.value)}
+              style={{ width: 180 }}
+            />,
+          ],
+        }}
         search={{ labelWidth: 88 }}
       />
     </PageContainer>

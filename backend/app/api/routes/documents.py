@@ -85,7 +85,7 @@ def create_upload_intent(
 @router.post("/{document_id}/recognize", response_model=AiExtractionResultRead)
 async def recognize_document(
     document_id: UUID,
-    user: str = "hr",
+    user: str = "system",
     db: Session = Depends(get_db),
 ) -> AiExtractionResult:
     document = db.get(CertificateDocument, document_id)

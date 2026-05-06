@@ -4,6 +4,7 @@ import {
   ProFormDatePicker,
   ProFormSelect,
   ProFormText,
+  ProFormTextArea,
   ProTable,
   type ActionType,
   type ProColumns,
@@ -25,6 +26,7 @@ interface ReviewFormValues {
   valid_from?: unknown;
   valid_to?: unknown;
   review_date?: unknown;
+  reviewed_by?: string;
   notes?: string;
 }
 
@@ -45,9 +47,11 @@ function formatDateValue(value: unknown): string | undefined {
 export default function ReviewQueuePage() {
   const actionRef = useRef<ActionType>();
   const [form] = Form.useForm<ReviewFormValues>();
+  const [rejectForm] = Form.useForm<{ reviewed_by?: string; notes?: string }>();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [certificateTypes, setCertificateTypes] = useState<CertificateType[]>([]);
   const [currentReview, setCurrentReview] = useState<ReviewTask>();
+  const [rejectingReview, setRejectingReview] = useState<ReviewTask>();
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -84,6 +88,7 @@ export default function ReviewQueuePage() {
       valid_from: textValue(output, 'valid_from'),
       valid_to: textValue(output, 'valid_to'),
       review_date: textValue(output, 'review_date'),
+      reviewed_by: undefined,
       notes: record.notes,
     });
   }
@@ -101,7 +106,7 @@ export default function ReviewQueuePage() {
       valid_from: formatDateValue(values.valid_from),
       valid_to: formatDateValue(values.valid_to),
       review_date: formatDateValue(values.review_date),
-      reviewed_by: 'hr',
+      reviewed_by: values.reviewed_by!.trim(),
       notes: values.notes,
     };
 
@@ -118,26 +123,33 @@ export default function ReviewQueuePage() {
     }
   }
 
-  function rejectReview(record: ReviewTask) {
-    Modal.confirm({
-      title: '驳回复核任务',
-      content: `确认驳回 ${record.document_original_filename || record.document_id} 的识别结果？`,
-      okText: '驳回',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
-        await postResource<ReviewTask, { status: 'REJECTED'; reviewed_by: string; notes: string }>(
-          `/reviews/${record.id}/reject`,
-          {
-            status: 'REJECTED',
-            reviewed_by: 'hr',
-            notes: 'HR 驳回识别结果',
-          },
-        );
-        message.success('复核任务已驳回');
-        actionRef.current?.reload();
-      },
-    });
+  function openRejectModal(record: ReviewTask) {
+    setRejectingReview(record);
+    rejectForm.resetFields();
+    rejectForm.setFieldsValue({ notes: '识别结果不符合证书入库要求' });
+  }
+
+  async function submitRejectReview() {
+    if (!rejectingReview) return;
+    const values = await rejectForm.validateFields();
+    setSubmitting(true);
+    try {
+      await postResource<ReviewTask, { status: 'REJECTED'; reviewed_by: string; notes?: string }>(
+        `/reviews/${rejectingReview.id}/reject`,
+        {
+          status: 'REJECTED',
+          reviewed_by: values.reviewed_by!.trim(),
+          notes: values.notes,
+        },
+      );
+      message.success('复核任务已驳回');
+      setRejectingReview(undefined);
+      actionRef.current?.reload();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '复核驳回失败');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const columns: ProColumns<ReviewTask>[] = [
@@ -160,7 +172,7 @@ export default function ReviewQueuePage() {
           <Button size="small" type="link" onClick={() => openApproveModal(record)}>
             复核
           </Button>
-          <Button size="small" type="link" danger onClick={() => rejectReview(record)}>
+          <Button size="small" type="link" danger onClick={() => openRejectModal(record)}>
             驳回
           </Button>
         </Space>
@@ -220,7 +232,24 @@ export default function ReviewQueuePage() {
           <ProFormDatePicker name="valid_from" label="有效开始" />
           <ProFormDatePicker name="valid_to" label="有效截止" />
           <ProFormDatePicker name="review_date" label="复审日期" />
+          <ProFormText name="reviewed_by" label="复核人" rules={[{ required: true, message: '请输入复核人' }]} />
           <ProFormText name="notes" label="复核备注" />
+        </ProForm>
+      </Modal>
+
+      <Modal
+        title="驳回复核任务"
+        open={Boolean(rejectingReview)}
+        onCancel={() => setRejectingReview(undefined)}
+        onOk={() => void submitRejectReview()}
+        confirmLoading={submitting}
+        okText="驳回"
+        okButtonProps={{ danger: true }}
+        destroyOnClose
+      >
+        <ProForm form={rejectForm} submitter={false} layout="horizontal" labelCol={{ span: 5 }}>
+          <ProFormText name="reviewed_by" label="复核人" rules={[{ required: true, message: '请输入复核人' }]} />
+          <ProFormTextArea name="notes" label="驳回原因" />
         </ProForm>
       </Modal>
     </PageContainer>

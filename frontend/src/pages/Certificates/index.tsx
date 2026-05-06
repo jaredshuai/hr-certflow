@@ -96,7 +96,7 @@ export default function CertificatesPage() {
   function openCreateModal() {
     setCurrentCertificate(undefined);
     form.resetFields();
-    form.setFieldsValue({ status: 'ACTIVE', confirmed_by: 'hr' });
+    form.setFieldsValue({ status: 'ACTIVE' });
     setModalOpen(true);
   }
 
@@ -113,7 +113,7 @@ export default function CertificatesPage() {
       valid_to: record.valid_to,
       review_date: record.review_date,
       status: record.status,
-      confirmed_by: record.confirmed_by || 'hr',
+      confirmed_by: record.confirmed_by,
     });
     setModalOpen(true);
   }
