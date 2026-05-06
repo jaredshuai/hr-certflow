@@ -16,7 +16,7 @@ images:
     repository: ghcr.io/jaredshuai/hr-certflow-web
     tag: e0054d5
 ingress:
-  pathPrefix: /hr-certflow-release
+  pathPrefix: /hr-certflow
 api:
   replicas: 2
 web:
