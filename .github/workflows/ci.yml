@@ -16,6 +16,20 @@ jobs:
   backend:
     name: Backend lint and tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: hr_certflow
+          POSTGRES_USER: hr_certflow
+          POSTGRES_PASSWORD: hr_certflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hr_certflow -d hr_certflow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v6
 
@@ -37,9 +51,17 @@ jobs:
       - name: Ty
         run: uv run --project backend --extra dev ty check backend/app
 
+      - name: Alembic upgrade
+        working-directory: backend
+        env:
+          AUTO_CREATE_TABLES: "false"
+          DATABASE_URL: postgresql+psycopg://hr_certflow:hr_certflow@localhost:5432/hr_certflow
+        run: uv run --project . --extra dev alembic upgrade head
+
       - name: Pytest
         env:
           AUTO_CREATE_TABLES: "false"
+          DATABASE_URL: postgresql+psycopg://hr_certflow:hr_certflow@localhost:5432/hr_certflow
         run: uv run --project backend --extra dev pytest backend/tests -q
 
   frontend:

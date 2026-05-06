@@ -45,12 +45,15 @@ Backend validation commands:
 uv sync --project backend --extra dev
 uv run --project backend --extra dev ruff check backend/app backend/tests backend/migrations scripts
 uv run --project backend --extra dev ty check backend/app
+cd backend && uv run --project . --extra dev alembic upgrade head
 uv run --project backend --extra dev pytest backend/tests -q
 ```
 
 CI must use the same command family. Do not add a parallel pip-only install path for backend checks unless it is a temporary diagnostic.
 
 Backend Docker images must also install runtime dependencies with `uv sync --locked` from `backend/uv.lock`. Keep `pip install` out of the production Dockerfile unless it is a short-lived diagnostic with a clear removal plan.
+
+Alembic is the production schema path. CI runs `alembic upgrade head` against a PostgreSQL service with `AUTO_CREATE_TABLES=false`; release workloads must not rely on automatic table creation.
 
 ## GitHub Actions
 
@@ -67,6 +70,8 @@ Baseline:
 | Docker build actions | `docker/setup-buildx-action@v4`, `docker/login-action@v4`, `docker/build-push-action@v7` |
 
 Workflows set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` so GitHub-hosted and self-hosted jobs exercise the same Node 24 JavaScript action runtime baseline. This is separate from the frontend application runtime selected by `actions/setup-node`.
+
+Dependabot is enabled for GitHub Actions, frontend npm dependencies, backend uv dependencies, and backend/frontend Docker base images. TypeScript is intentionally held below 7 because the project baseline is TypeScript 6.x.
 
 ## Compatibility Policy
 
