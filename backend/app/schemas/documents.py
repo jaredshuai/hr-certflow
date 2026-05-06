@@ -82,13 +82,13 @@ class ReviewApproveCreate(BaseModel):
     valid_from: date | None = None
     valid_to: date | None = None
     review_date: date | None = None
-    reviewed_by: str = Field(default="hr", min_length=1, max_length=128)
+    reviewed_by: str = Field(min_length=1, max_length=128)
     notes: str | None = None
 
 
 class ReviewRejectCreate(BaseModel):
     status: ReviewStatus = ReviewStatus.REJECTED
-    reviewed_by: str = Field(default="hr", min_length=1, max_length=128)
+    reviewed_by: str = Field(min_length=1, max_length=128)
     notes: str | None = None
 
 
