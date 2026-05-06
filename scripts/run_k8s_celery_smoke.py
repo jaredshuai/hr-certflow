@@ -9,18 +9,24 @@ from typing import Any
 
 
 DEFAULT_COMMANDS = ("selftest", "send", "assert-keys")
+DEFAULT_KUBECTL_TIMEOUT_SECONDS = 45
 
 
-def kubectl(args: list[str], *, input_text: str | None = None) -> str:
-    completed = subprocess.run(
-        ["kubectl", *args],
-        input=input_text,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+def kubectl(args: list[str], *, input_text: str | None = None, timeout_seconds: int = DEFAULT_KUBECTL_TIMEOUT_SECONDS) -> str:
+    command = ["kubectl", f"--request-timeout={timeout_seconds}s", *args]
+    try:
+        completed = subprocess.run(
+            command,
+            input=input_text,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout_seconds + 5,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"{' '.join(command)} timed out after {timeout_seconds + 5}s") from exc
     if completed.returncode != 0:
-        raise RuntimeError(f"kubectl {' '.join(args)} failed\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}")
+        raise RuntimeError(f"{' '.join(command)} failed\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}")
     return completed.stdout
 
 
@@ -119,12 +125,25 @@ def safe_job_logs(namespace: str, name: str) -> str:
 
 
 def delete_job(namespace: str, name: str) -> None:
-    subprocess.run(
-        ["kubectl", "-n", namespace, "delete", "job", name, "--ignore-not-found=true"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        subprocess.run(
+            [
+                "kubectl",
+                f"--request-timeout={DEFAULT_KUBECTL_TIMEOUT_SECONDS}s",
+                "-n",
+                namespace,
+                "delete",
+                "job",
+                name,
+                "--ignore-not-found=true",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=DEFAULT_KUBECTL_TIMEOUT_SECONDS + 5,
+        )
+    except subprocess.TimeoutExpired:
+        return
 
 
 def run_smoke_command(args: argparse.Namespace, image: str, command: str) -> dict[str, Any]:

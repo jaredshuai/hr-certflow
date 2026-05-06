@@ -9,28 +9,39 @@ from typing import Any
 
 
 DEFAULT_DEPLOYMENTS = ("hr-certflow-api", "hr-certflow-web", "hr-certflow-worker", "hr-certflow-beat")
+DEFAULT_KUBECTL_TIMEOUT_SECONDS = 45
 
 
-def kubectl(args: list[str], *, input_text: str | None = None) -> str:
-    completed = subprocess.run(
-        ["kubectl", *args],
-        input=input_text,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+def kubectl(args: list[str], *, input_text: str | None = None, timeout_seconds: int = DEFAULT_KUBECTL_TIMEOUT_SECONDS) -> str:
+    command = ["kubectl", f"--request-timeout={timeout_seconds}s", *args]
+    try:
+        completed = subprocess.run(
+            command,
+            input=input_text,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout_seconds + 5,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"{' '.join(command)} timed out after {timeout_seconds + 5}s") from exc
     if completed.returncode != 0:
-        raise RuntimeError(f"kubectl {' '.join(args)} failed\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}")
+        raise RuntimeError(f"{' '.join(command)} failed\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}")
     return completed.stdout
 
 
 def kubectl_diagnostic(args: list[str], *, max_lines: int = 160) -> str:
-    completed = subprocess.run(
-        ["kubectl", *args],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    command = ["kubectl", f"--request-timeout={DEFAULT_KUBECTL_TIMEOUT_SECONDS}s", *args]
+    try:
+        completed = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=DEFAULT_KUBECTL_TIMEOUT_SECONDS + 5,
+        )
+    except subprocess.TimeoutExpired:
+        return f"{' '.join(command)} timed out after {DEFAULT_KUBECTL_TIMEOUT_SECONDS + 5}s"
     output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
     lines = output.splitlines()
     if len(lines) > max_lines:
@@ -102,7 +113,8 @@ def rollout_status(namespace: str, deployment: str, timeout_seconds: int) -> Non
             "status",
             f"deployment/{deployment}",
             f"--timeout={timeout_seconds}s",
-        ]
+        ],
+        timeout_seconds=timeout_seconds + 10,
     )
 
 
