@@ -7,6 +7,11 @@ metadata:
     app.kubernetes.io/component: web
 spec:
   replicas: {{ .Values.web.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.web.strategy.maxSurge | quote }}
+      maxUnavailable: {{ .Values.web.strategy.maxUnavailable | quote }}
   selector:
     matchLabels:
       {{- include "hr-certflow.selectorLabels" . | nindent 6 }}

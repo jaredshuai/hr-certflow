@@ -38,48 +38,67 @@ images:
 api:
   replicas: 1
   port: 8000
+  strategy:
+    maxSurge: 0
+    maxUnavailable: 1
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      cpu: 500m
+      memory: 512Mi
 
 web:
   replicas: 1
   port: 80
+  strategy:
+    maxSurge: 0
+    maxUnavailable: 1
   resources:
     requests:
       cpu: 50m
       memory: 64Mi
     limits:
-      cpu: 500m
+      cpu: 250m
       memory: 256Mi
 
 worker:
   replicas: 1
   concurrency: 2
+  strategy:
+    maxSurge: 0
+    maxUnavailable: 1
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      cpu: 500m
+      memory: 512Mi
 
 beat:
   replicas: 1
+  strategy:
+    maxSurge: 0
+    maxUnavailable: 1
   resources:
     requests:
       cpu: 50m
       memory: 128Mi
     limits:
-      cpu: 500m
-      memory: 512Mi
+      cpu: 250m
+      memory: 256Mi
 
 migrations:
   enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 ingress:
   enabled: true

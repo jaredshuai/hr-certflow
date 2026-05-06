@@ -31,4 +31,6 @@ spec:
                 name: {{ include "hr-certflow.fullname" . }}-config
             - secretRef:
                 name: {{ .Values.runtimeSecretName }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
 {{- end }}
