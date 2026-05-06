@@ -15,6 +15,15 @@ const statusColor: Record<string, string> = {
   CLOSED: 'default',
 };
 
+const feedbackActions: Array<{ label: string; status: FeedbackStatus; content: string; danger?: boolean }> = [
+  { label: '已通知', status: 'NOTIFIED_EMPLOYEE', content: 'HR 已通知员工' },
+  { label: '办理中', status: 'PROCESSING', content: '员工证书正在办理' },
+  { label: '已换证', status: 'RENEWED', content: '员工已完成换证' },
+  { label: '无需处理', status: 'NO_ACTION_REQUIRED', content: 'HR 确认无需处理' },
+  { label: '员工离职', status: 'EMPLOYEE_LEFT', content: '员工已离职，关闭提醒' },
+  { label: '忽略', status: 'IGNORED', content: 'HR 忽略本次提醒', danger: true },
+];
+
 export default function RemindersPage() {
   const actionRef = useRef<ActionType>();
   const [submittingId, setSubmittingId] = useState<string>();
@@ -50,25 +59,21 @@ export default function RemindersPage() {
     {
       title: 'HR 反馈',
       valueType: 'option',
-      width: 220,
+      width: 420,
       render: (_, record) => (
-        <Space>
-          <Button
-            size="small"
-            type="link"
-            loading={submittingId === `${record.id}:NOTIFIED_EMPLOYEE`}
-            onClick={() => void submitFeedback(record, 'NOTIFIED_EMPLOYEE', 'HR 已通知员工')}
-          >
-            已通知
-          </Button>
-          <Button
-            size="small"
-            type="link"
-            loading={submittingId === `${record.id}:RENEWED`}
-            onClick={() => void submitFeedback(record, 'RENEWED', '员工已完成换证')}
-          >
-            已换证
-          </Button>
+        <Space wrap>
+          {feedbackActions.map((action) => (
+            <Button
+              key={action.status}
+              size="small"
+              type="link"
+              danger={action.danger}
+              loading={submittingId === `${record.id}:${action.status}`}
+              onClick={() => void submitFeedback(record, action.status, action.content)}
+            >
+              {action.label}
+            </Button>
+          ))}
         </Space>
       ),
     },

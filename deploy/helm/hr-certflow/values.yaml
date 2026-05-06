@@ -24,6 +24,8 @@ config:
   S3_FORCE_PATH_STYLE: "true"
   DIFY_BASE_URL: ""
   DIFY_WORKFLOW_ID: certificate-extraction
+  NOTIFICATION_HR_RECIPIENTS: ""
+  SMTP_STARTTLS: "true"
 
 images:
   api:

@@ -43,12 +43,15 @@ export interface CertificateType {
   issuing_authority?: string;
   default_validity_months?: number;
   force_manual_review: boolean;
+  description?: string;
 }
 
 export interface EmployeeCertificate {
   id: string;
   employee_id: string;
   certificate_type_id: string;
+  source_document_id?: string;
+  replaced_by_id?: string;
   certificate_no?: string;
   holder_name: string;
   issuing_authority?: string;
@@ -57,6 +60,8 @@ export interface EmployeeCertificate {
   valid_to?: string;
   review_date?: string;
   status: CertificateStatus;
+  confirmed_by?: string;
+  confirmed_at?: string;
 }
 
 export interface ReminderTask {

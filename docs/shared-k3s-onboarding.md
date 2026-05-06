@@ -46,7 +46,7 @@ The Helm chart uses a namespaced Traefik `Middleware` to strip only the project 
 - Per-environment standalone Redis broker/result backend endpoint and credentials, injected only through runtime secrets.
 - S3 bucket/prefix for dev and release
 - Dify endpoint, workflow id, and API key
-- Notification webhook / SMTP credentials
+- Notification webhook / SMTP credentials and HR recipient configuration
 - Namespace-scoped observer/deployer kubeconfigs
 - AppProject allowlist for only this repo and the two namespaces
 

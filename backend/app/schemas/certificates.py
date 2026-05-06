@@ -18,6 +18,14 @@ class CertificateTypeCreate(BaseModel):
     description: str | None = None
 
 
+class CertificateTypeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    issuing_authority: str | None = Field(default=None, max_length=255)
+    default_validity_months: int | None = Field(default=None, ge=1)
+    force_manual_review: bool | None = None
+    description: str | None = None
+
+
 class CertificateTypeRead(ORMModel):
     id: UUID
     code: str
@@ -42,6 +50,21 @@ class EmployeeCertificateCreate(BaseModel):
     valid_to: date | None = None
     review_date: date | None = None
     status: CertificateStatus = CertificateStatus.ACTIVE
+    confirmed_by: str | None = Field(default=None, max_length=128)
+
+
+class EmployeeCertificateUpdate(BaseModel):
+    employee_id: UUID | None = None
+    certificate_type_id: UUID | None = None
+    source_document_id: UUID | None = None
+    certificate_no: str | None = Field(default=None, max_length=128)
+    holder_name: str | None = Field(default=None, min_length=1, max_length=128)
+    issuing_authority: str | None = Field(default=None, max_length=255)
+    issue_date: date | None = None
+    valid_from: date | None = None
+    valid_to: date | None = None
+    review_date: date | None = None
+    status: CertificateStatus | None = None
     confirmed_by: str | None = Field(default=None, max_length=128)
 
 

@@ -40,11 +40,13 @@ class Settings(BaseSettings):
     wecom_webhook_url: str | None = None
     feishu_webhook_url: str | None = None
     dingtalk_webhook_url: str | None = None
+    notification_hr_recipients: str = ""
 
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None
     smtp_password: str | None = None
+    smtp_starttls: bool = True
     mail_from: str | None = None
 
     upload_prefix: str = Field(default="certificates", min_length=1)
@@ -52,6 +54,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.api_cors_origins.split(",") if origin.strip()]
+
+    @property
+    def notification_hr_recipient_list(self) -> list[str]:
+        return [recipient.strip() for recipient in self.notification_hr_recipients.split(",") if recipient.strip()]
 
     @property
     def resolved_celery_broker_url(self) -> str:
