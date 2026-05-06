@@ -64,6 +64,31 @@ gh run view <run-id> --repo jaredshuai/hr-certflow --log
 
 If the rollout step fails because live Deployments stay on an older image tag, do not promote release. Ask infra to inspect Argo CD sync state, ResourceQuota, Deployments, ReplicaSets, Pods, and Events in `hr-certflow-dev`.
 
+Infra handoff template for this failure mode:
+
+```text
+Please recover only the shared-k3s live rollout state for namespace `<namespace>`.
+Do not modify the application repository.
+
+Failed GitHub Release run:
+- Run: `<run-id>`
+- Environment: `<dev|release>`
+- Expected image tag: `<image-tag>`
+
+Observed evidence:
+- The release workflow built and pushed API/Web images successfully.
+- GitOps values were promoted to `<image-tag>`.
+- Migration Jobs may have pulled the new API image, but one or more Deployments still show an older image tag.
+- Deployment describe may still show older resource limits or an older rolling update strategy.
+- Deployment conditions may include `ReplicaFailure=True FailedCreate` or `Progressing=False ProgressDeadlineExceeded`.
+- Events may show old ReplicaSets failing with `exceeded quota`.
+
+Please inspect Argo CD application state, Deployment, ReplicaSet, Pod, Event, and ResourceQuota for `<namespace>`.
+Clear or advance the stuck rollout so API/Web/Worker/Beat can converge to `<image-tag>`.
+Return Argo sync/health/revision, workload readiness, current Deployment images, HTTP smoke, and Celery smoke.
+Do not output secrets, kubeconfigs, Redis URLs, tokens, or passwords.
+```
+
 ## Release Promotion
 
 Only promote a tag to release after the same tag has passed dev smoke.
@@ -135,4 +160,3 @@ Rules:
 - Docker base images stay on Node.js 24 and Python 3.12.x until the baseline is deliberately changed.
 - Nginx patch/minor base image updates may be merged after CI is green and deployment smoke is not already investigating another change.
 - Re-run dev promotion after merging any dependency PR that changes build/runtime images.
-
