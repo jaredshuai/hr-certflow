@@ -17,6 +17,13 @@ export type ReminderTaskStatus =
   | 'RESOLVED'
   | 'CLOSED';
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'NEEDS_INFO';
+export type FeedbackStatus =
+  | 'NOTIFIED_EMPLOYEE'
+  | 'PROCESSING'
+  | 'RENEWED'
+  | 'NO_ACTION_REQUIRED'
+  | 'EMPLOYEE_LEFT'
+  | 'IGNORED';
 
 export interface Employee {
   id: string;
@@ -48,6 +55,7 @@ export interface EmployeeCertificate {
   issue_date?: string;
   valid_from?: string;
   valid_to?: string;
+  review_date?: string;
   status: CertificateStatus;
 }
 
@@ -72,4 +80,47 @@ export interface ReviewTask {
   notes?: string;
   created_at: string;
   updated_at: string;
+  document_original_filename?: string;
+  ai_output_json?: Record<string, unknown>;
+  ai_confidence?: number;
+}
+
+export interface UploadIntent {
+  document_id: string;
+  storage_bucket: string;
+  storage_key: string;
+  upload_url: string;
+  public_read_url?: string;
+}
+
+export interface AiExtractionResult {
+  id: string;
+  document_id: string;
+  workflow_run_id?: string;
+  model_name?: string;
+  output_json: Record<string, unknown>;
+  raw_text?: string;
+  suspicious_points: string[];
+  confidence?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReviewApprovePayload {
+  employee_id: string;
+  certificate_type_id: string;
+  certificate_no?: string;
+  holder_name: string;
+  issuing_authority?: string;
+  issue_date?: string;
+  valid_from?: string;
+  valid_to?: string;
+  review_date?: string;
+  reviewed_by: string;
+  notes?: string;
+}
+
+export interface ReviewDecision {
+  review_task: ReviewTask;
+  certificate?: EmployeeCertificate;
 }

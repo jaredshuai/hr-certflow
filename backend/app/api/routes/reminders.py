@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models import Feedback, ReminderPolicy, ReminderTask
+from app.domain.enums import FeedbackStatus, ReminderEventType, ReminderTaskStatus
+from app.models import Feedback, ReminderEvent, ReminderPolicy, ReminderTask
 from app.schemas.reminders import (
     FeedbackCreate,
     FeedbackRead,
@@ -67,13 +69,46 @@ def create_feedback(
         **payload.model_dump(),
     )
     db.add(feedback)
+    now = datetime.now(UTC)
+    before = ReminderTaskRead.model_validate(reminder_task).model_dump(mode="json")
+    reminder_task.last_event_at = now
+    if payload.status in {FeedbackStatus.NOTIFIED_EMPLOYEE, FeedbackStatus.PROCESSING}:
+        reminder_task.status = ReminderTaskStatus.WAITING_FEEDBACK
+    elif payload.status == FeedbackStatus.RENEWED:
+        reminder_task.status = ReminderTaskStatus.RESOLVED
+        reminder_task.resolved_at = now
+        reminder_task.closed_reason = "renewed"
+    elif payload.status in {
+        FeedbackStatus.NO_ACTION_REQUIRED,
+        FeedbackStatus.EMPLOYEE_LEFT,
+        FeedbackStatus.IGNORED,
+    }:
+        reminder_task.status = ReminderTaskStatus.CLOSED
+        reminder_task.resolved_at = now
+        reminder_task.closed_reason = payload.status.value
+
+    db.add(
+        ReminderEvent(
+            reminder_task_id=reminder_task.id,
+            event_type=ReminderEventType.FEEDBACK,
+            channel="system",
+            recipient=payload.created_by,
+            payload=payload.model_dump(mode="json"),
+            sent_at=now,
+        )
+    )
     db.flush()
     record_audit(
         db,
         action="reminder_task.feedback.create",
         resource_type="reminder_task",
         resource_id=str(reminder_task.id),
-        after=payload.model_dump(mode="json"),
+        before=before,
+        after={
+            "feedback": payload.model_dump(mode="json"),
+            "task_status": reminder_task.status.value,
+            "closed_reason": reminder_task.closed_reason,
+        },
     )
     db.commit()
     db.refresh(feedback)

@@ -10,3 +10,10 @@ export async function createResource<T, P>(url: string, data: P): Promise<T> {
     data,
   });
 }
+
+export async function postResource<T, P = unknown>(url: string, data?: P): Promise<T> {
+  return request<T>(url, {
+    method: 'POST',
+    data,
+  });
+}

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from app.domain.enums import DocumentStatus, ReviewStatus
+from app.schemas.certificates import EmployeeCertificateRead
 from app.schemas.common import ORMModel
 
 
@@ -66,3 +67,31 @@ class ReviewTaskRead(ORMModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+    document_original_filename: str | None = None
+    ai_output_json: dict | None = None
+    ai_confidence: float | None = None
+
+
+class ReviewApproveCreate(BaseModel):
+    employee_id: UUID
+    certificate_type_id: UUID
+    certificate_no: str | None = Field(default=None, max_length=128)
+    holder_name: str = Field(min_length=1, max_length=128)
+    issuing_authority: str | None = Field(default=None, max_length=255)
+    issue_date: date | None = None
+    valid_from: date | None = None
+    valid_to: date | None = None
+    review_date: date | None = None
+    reviewed_by: str = Field(default="hr", min_length=1, max_length=128)
+    notes: str | None = None
+
+
+class ReviewRejectCreate(BaseModel):
+    status: ReviewStatus = ReviewStatus.REJECTED
+    reviewed_by: str = Field(default="hr", min_length=1, max_length=128)
+    notes: str | None = None
+
+
+class ReviewDecisionRead(BaseModel):
+    review_task: ReviewTaskRead
+    certificate: EmployeeCertificateRead | None = None

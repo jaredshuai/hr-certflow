@@ -125,6 +125,18 @@ class ReviewTask(TimestampMixin, Base):
     document: Mapped[CertificateDocument] = relationship(back_populates="review_tasks")
     ai_result: Mapped[AiExtractionResult | None] = relationship(back_populates="review_tasks")
 
+    @property
+    def document_original_filename(self) -> str | None:
+        return self.document.original_filename if self.document else None
+
+    @property
+    def ai_output_json(self) -> dict[str, Any] | None:
+        return self.ai_result.output_json if self.ai_result else None
+
+    @property
+    def ai_confidence(self) -> float | None:
+        return float(self.ai_result.confidence) if self.ai_result and self.ai_result.confidence is not None else None
+
 
 class EmployeeCertificate(TimestampMixin, Base):
     __tablename__ = "employee_certificate"
