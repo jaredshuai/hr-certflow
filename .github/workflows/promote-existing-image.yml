@@ -1,0 +1,135 @@
+name: Promote Existing Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - release
+      image_tag:
+        description: Existing GHCR image tag to promote or roll back to
+        required: true
+        type: string
+      operation:
+        description: Audit label for the GitOps commit
+        required: true
+        default: promote
+        type: choice
+        options:
+          - promote
+          - rollback
+
+permissions:
+  contents: write
+  packages: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  promote:
+    name: Update GitOps values
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_env: ${{ steps.meta.outputs.deploy_env }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Resolve promotion metadata
+        id: meta
+        shell: bash
+        run: |
+          DEPLOY_ENV="${{ inputs.environment }}"
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          OPERATION="${{ inputs.operation }}"
+
+          if [[ ! "${IMAGE_TAG}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::Invalid Docker tag: ${IMAGE_TAG}"
+            exit 1
+          fi
+
+          case "${DEPLOY_ENV}" in
+            dev|release)
+              ;;
+            *)
+              echo "::error::Unsupported environment: ${DEPLOY_ENV}"
+              exit 1
+              ;;
+          esac
+
+          API_REPOSITORY="ghcr.io/${{ github.repository }}-api"
+          WEB_REPOSITORY="ghcr.io/${{ github.repository }}-web"
+
+          {
+            echo "deploy_env=${DEPLOY_ENV}"
+            echo "image_tag=${IMAGE_TAG}"
+            echo "operation=${OPERATION}"
+            echo "api_repository=${API_REPOSITORY}"
+            echo "web_repository=${WEB_REPOSITORY}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify existing image tags
+        shell: bash
+        run: |
+          docker manifest inspect "${{ steps.meta.outputs.api_repository }}:${{ steps.meta.outputs.image_tag }}" >/dev/null
+          docker manifest inspect "${{ steps.meta.outputs.web_repository }}:${{ steps.meta.outputs.image_tag }}" >/dev/null
+
+      - name: Update GitOps values
+        run: |
+          python -m pip install pyyaml
+          python scripts/update_gitops_image_tags.py \
+            --values "deploy/gitops/${{ steps.meta.outputs.deploy_env }}/values.yaml" \
+            --api-repository "${{ steps.meta.outputs.api_repository }}" \
+            --web-repository "${{ steps.meta.outputs.web_repository }}" \
+            --tag "${{ steps.meta.outputs.image_tag }}"
+
+      - name: Commit GitOps promotion
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "deploy/gitops/${{ steps.meta.outputs.deploy_env }}/values.yaml"
+          if git diff --cached --quiet; then
+            echo "No GitOps values changes to commit."
+          else
+            git commit -m "chore(release): ${{ steps.meta.outputs.operation }} ${{ steps.meta.outputs.deploy_env }} ${{ steps.meta.outputs.image_tag }} [skip ci]"
+            git push
+          fi
+
+      - name: Write promotion summary
+        if: always()
+        run: |
+          {
+            echo "### hr-certflow existing image promotion"
+            echo "- Operation: \`${{ steps.meta.outputs.operation }}\`"
+            echo "- Environment: \`${{ steps.meta.outputs.deploy_env }}\`"
+            echo "- Image tag: \`${{ steps.meta.outputs.image_tag }}\`"
+            echo "- Rebuilt images: \`false\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  smoke:
+    name: Shared k3s smoke
+    needs: promote
+    if: ${{ vars.SHARED_K3S_SMOKE_ENABLED == 'true' }}
+    uses: ./.github/workflows/shared-k3s-smoke.yml
+    with:
+      environment: ${{ needs.promote.outputs.deploy_env }}
+      image_tag: ${{ needs.promote.outputs.image_tag }}
+    secrets: inherit

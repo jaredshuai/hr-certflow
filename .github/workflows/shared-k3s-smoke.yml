@@ -15,6 +15,16 @@ on:
         description: Image tag expected in live Deployments
         required: true
         type: string
+  workflow_call:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: string
+      image_tag:
+        description: Image tag expected in live Deployments
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -41,15 +51,22 @@ jobs:
           DEPLOY_ENV="${{ inputs.environment }}"
           IMAGE_TAG="${{ inputs.image_tag }}"
 
-          if [[ "${DEPLOY_ENV}" == "release" ]]; then
-            WEB_URL="${{ vars.RELEASE_WEB_URL || 'http://10.34.200.180/hr-certflow-release/' }}"
-            API_URL="${WEB_URL%/}/api/v1/health"
-            NAMESPACE="hr-certflow-release"
-          else
-            WEB_URL="${{ vars.DEV_WEB_URL || 'http://10.34.200.180/hr-certflow/' }}"
-            API_URL="${WEB_URL%/}/api/v1/health"
-            NAMESPACE="hr-certflow-dev"
-          fi
+          case "${DEPLOY_ENV}" in
+            release)
+              WEB_URL="${{ vars.RELEASE_WEB_URL || 'http://10.34.200.180/hr-certflow-release/' }}"
+              API_URL="${WEB_URL%/}/api/v1/health"
+              NAMESPACE="hr-certflow-release"
+              ;;
+            dev)
+              WEB_URL="${{ vars.DEV_WEB_URL || 'http://10.34.200.180/hr-certflow/' }}"
+              API_URL="${WEB_URL%/}/api/v1/health"
+              NAMESPACE="hr-certflow-dev"
+              ;;
+            *)
+              echo "::error::Unsupported environment: ${DEPLOY_ENV}"
+              exit 1
+              ;;
+          esac
 
           {
             echo "deploy_env=${DEPLOY_ENV}"

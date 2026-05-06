@@ -34,7 +34,9 @@ The Helm chart uses a namespaced Traefik `Middleware` to strip only the project 
 - Release values: `deploy/gitops/release/values.yaml`
 - Infra request: `deploy/shared-k3s/onboarding-request.yaml`
 - CI: `.github/workflows/ci.yml`
-- Release/promotion: `.github/workflows/release.yml`
+- Build-and-promote: `.github/workflows/release.yml`
+- Existing-image promotion and rollback: `.github/workflows/promote-existing-image.yml`
+- Live smoke only: `.github/workflows/shared-k3s-smoke.yml`
 
 ## Infra-Owned Prerequisites
 
@@ -60,7 +62,7 @@ RELEASE_WEB_URL=http://10.34.200.180/hr-certflow-release/
 SHARED_K3S_SMOKE_ENABLED=false
 ```
 
-The release workflow can build and push GHCR images and update GitOps values. It does not create namespaces, AppProject, Argo CD Applications, runtime secrets, or registry pull secrets.
+The release workflow can build and push GHCR images and update GitOps values. The existing-image workflow updates GitOps values for an already-published GHCR tag without rebuilding or repushing images; use it for release promotion after dev smoke and for rollback. Neither workflow creates namespaces, AppProject, Argo CD Applications, runtime secrets, or registry pull secrets.
 
 When `SHARED_K3S_SMOKE_ENABLED=true`, the release workflow also runs on the shared-k3s deployer runner and expects a kubeconfig secret. It accepts either a generic `KUBECONFIG_B64` secret or environment-specific `DEV_KUBECONFIG_B64` / `RELEASE_KUBECONFIG_B64` secrets.
 

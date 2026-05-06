@@ -8,6 +8,7 @@ Project side owns:
 
 - Building API and web images in GHCR.
 - Updating `deploy/gitops/dev/values.yaml` and `deploy/gitops/release/values.yaml`.
+- Promoting or rolling back to an existing GHCR image tag without rebuilding that tag.
 - Running shared-k3s smoke from GitHub Actions.
 - Keeping release evidence in workflow runs and pull requests.
 
@@ -74,6 +75,19 @@ gh workflow run shared-k3s-smoke.yml \
 
 This workflow only waits for live Deployments, runs HTTP smoke, and runs Celery/Redis smoke. It does not build images, push tags, or update GitOps values.
 
+Use the existing-image workflow when the image tag already exists in GHCR and GitOps values are the only intended change:
+
+```bash
+gh workflow run promote-existing-image.yml \
+  --repo jaredshuai/hr-certflow \
+  --ref main \
+  -f environment=<dev|release> \
+  -f image_tag=<existing-tag> \
+  -f operation=<promote|rollback>
+```
+
+This workflow verifies that both API and web image tags already exist, updates the target GitOps values file, commits the change if needed, and then runs the shared-k3s smoke gate. It does not rebuild or repush images.
+
 If the rollout step fails because live Deployments stay on an older image tag, do not promote release. Ask infra to inspect Argo CD sync state, ResourceQuota, Deployments, ReplicaSets, Pods, and Events in `hr-certflow-dev`.
 
 Infra handoff template for this failure mode:
@@ -106,17 +120,18 @@ Do not output secrets, kubeconfigs, Redis URLs, tokens, or passwords.
 Only promote a tag to release after the same tag has passed dev smoke.
 
 ```bash
-gh workflow run release.yml \
+gh workflow run promote-existing-image.yml \
   --repo jaredshuai/hr-certflow \
   --ref main \
   -f environment=release \
-  -f image_tag=<dev-validated-tag>
+  -f image_tag=<dev-validated-tag> \
+  -f operation=promote
 ```
 
-The workflow updates `deploy/gitops/release/values.yaml` and commits:
+The workflow updates `deploy/gitops/release/values.yaml` without rebuilding the image and commits:
 
 ```text
-chore(release): promote release <tag> [skip ci]
+chore(release): promote release <dev-validated-tag> [skip ci]
 ```
 
 Release smoke expects:
@@ -135,14 +150,15 @@ After infra syncs release, rerun `shared-k3s-smoke.yml` with the same release im
 Rollback is a GitOps values promotion to the last known-good image tag.
 
 ```bash
-gh workflow run release.yml \
+gh workflow run promote-existing-image.yml \
   --repo jaredshuai/hr-certflow \
   --ref main \
   -f environment=<dev|release> \
-  -f image_tag=<last-known-good-tag>
+  -f image_tag=<last-known-good-tag> \
+  -f operation=rollback
 ```
 
-After rollback, run the same smoke gate for the affected environment. Do not edit Kubernetes live resources directly from the application repository to perform rollback.
+The rollback workflow verifies that the last-known-good API and web image tags already exist before it changes GitOps values. After the values change, it runs the same smoke gate for the affected environment. Do not use `release.yml` for rollback because it rebuilds and pushes images. Do not edit Kubernetes live resources directly from the application repository to perform rollback.
 
 ## Current Runtime Notes
 
