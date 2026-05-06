@@ -16,6 +16,7 @@ export type ReminderTaskStatus =
   | 'ESCALATED'
   | 'RESOLVED'
   | 'CLOSED';
+export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'NEEDS_INFO';
 
 export interface Employee {
   id: string;
@@ -57,4 +58,18 @@ export interface ReminderTask {
   trigger_date: string;
   due_date?: string;
   closed_reason?: string;
+}
+
+export interface ReviewTask {
+  id: string;
+  document_id: string;
+  ai_result_id?: string;
+  status: ReviewStatus;
+  assigned_to?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  decision_payload?: Record<string, unknown>;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
 }

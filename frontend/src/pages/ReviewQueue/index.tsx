@@ -1,17 +1,12 @@
 import { PageContainer, ProTable, type ProColumns } from '@ant-design/pro-components';
 import { Button, Space, Tag } from 'antd';
 
-interface ReviewRow {
-  id: string;
-  document: string;
-  reason: string;
-  status: 'PENDING' | 'NEEDS_INFO';
-  created_at: string;
-}
+import { listResource } from '@/services/api';
+import type { ReviewTask } from '@/types/domain';
 
-const columns: ProColumns<ReviewRow>[] = [
-  { title: '文件', dataIndex: 'document' },
-  { title: '复核原因', dataIndex: 'reason' },
+const columns: ProColumns<ReviewTask>[] = [
+  { title: '文档 ID', dataIndex: 'document_id', ellipsis: true },
+  { title: '复核备注', dataIndex: 'notes', ellipsis: true, renderText: (value) => value || '-' },
   {
     title: '状态',
     dataIndex: 'status',
@@ -39,20 +34,12 @@ const columns: ProColumns<ReviewRow>[] = [
 export default function ReviewQueuePage() {
   return (
     <PageContainer title="待复核队列">
-      <ProTable<ReviewRow>
+      <ProTable<ReviewTask>
         rowKey="id"
         columns={columns}
         search={false}
         request={async () => ({
-          data: [
-            {
-              id: 'sample-1',
-              document: '安全生产资格证-张三.pdf',
-              reason: '姓名匹配失败 / 低可信结果',
-              status: 'PENDING',
-              created_at: new Date().toISOString(),
-            },
-          ],
+          data: await listResource<ReviewTask>('/reviews'),
           success: true,
         })}
         toolbar={{ title: 'AI 识别后等待 HR 确认的证书' }}
