@@ -74,13 +74,13 @@ deploy/shared-k3s/onboarding-request.yaml Infra onboarding input
 
 Expected shared-k3s URLs:
 
-- Dev: http://10.34.200.180/hr-certflow/
-- Release: http://10.34.200.180/hr-certflow-release/
+- Dev: http://10.34.200.180/hr-certflow-dev/
+- Release: http://10.34.200.180/hr-certflow/
 
 Smoke endpoints:
 
-- Web: `GET /hr-certflow/` or `GET /hr-certflow-release/`
-- API: `GET /hr-certflow/api/v1/health` or `GET /hr-certflow-release/api/v1/health`
+- Web: `GET /hr-certflow-dev/` or `GET /hr-certflow/`
+- API: `GET /hr-certflow-dev/api/v1/health` or `GET /hr-certflow/api/v1/health`
 
 The chart assumes infra has already provisioned:
 
@@ -99,6 +99,7 @@ Release packaging uses:
 
 CI and promotion workflows are in `.github/workflows/`. The release workflow builds images, updates GitOps values, and can run shared-k3s smoke when `SHARED_K3S_SMOKE_ENABLED=true`; it does not create platform resources or secrets. The `Promote Existing Image` workflow updates GitOps values for an existing GHCR tag without rebuilding or repushing images, which is the preferred path for release promotion after dev smoke and for rollback. The `Shared k3s Smoke` workflow reruns the same live smoke for an existing image tag without rebuilding or pushing images.
 The shared-k3s smoke gate waits for API/Web/Worker/Beat deployments to reach the promoted image tag, then runs HTTP checks and Celery/Redis smoke through temporary Kubernetes Jobs.
+End-to-end release automation requires the platform release Argo CD Application to sync the release GitOps values automatically, or an infra-approved narrow sync permission for the workflow. Runtime secrets still stay platform-owned.
 
 See [docs/shared-k3s-onboarding.md](docs/shared-k3s-onboarding.md) for the full onboarding handoff.
 See [docs/release-runbook.md](docs/release-runbook.md) for the release operating procedure.

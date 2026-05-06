@@ -50,8 +50,8 @@ The GitHub Actions smoke job verifies:
 
 - API, web, worker, and beat deployments reach the promoted image tag.
 - Kubernetes rollout status succeeds.
-- `GET http://10.34.200.180/hr-certflow/` returns success.
-- `GET http://10.34.200.180/hr-certflow/api/v1/health` returns success.
+- `GET http://10.34.200.180/hr-certflow-dev/` returns success.
+- `GET http://10.34.200.180/hr-certflow-dev/api/v1/health` returns success.
 - Celery/Redis smoke succeeds through temporary Kubernetes Jobs.
 - Celery keys stay under the environment prefix and do not use naked `celery` keys.
 
@@ -134,16 +134,19 @@ The workflow updates `deploy/gitops/release/values.yaml` without rebuilding the 
 chore(release): promote release <dev-validated-tag> [skip ci]
 ```
 
+This is intended to be a one-command automated release path: the workflow writes the release GitOps value, Argo CD converges the release namespace, then the same workflow runs release smoke. It should not require a separate AI/operator to relay a manual sync after infra enables the release sync capability.
+
 Release smoke expects:
 
-- `GET http://10.34.200.180/hr-certflow-release/`
-- `GET http://10.34.200.180/hr-certflow-release/api/v1/health`
+- `GET http://10.34.200.180/hr-certflow/`
+- `GET http://10.34.200.180/hr-certflow/api/v1/health`
 - Celery probe `actual_env=release`
 - Worker hostname and routing key containing `hr-certflow-release`
 - Redis keys only under `hr-certflow-release:`
 
-If the release Argo CD Application is manual, infra must sync it after the release values commit is present on `main`.
-After infra syncs release, rerun `shared-k3s-smoke.yml` with the same release image tag instead of rerunning the full release workflow.
+For an automated release path, infra must either enable automated sync on the `hr-certflow-release` Argo CD Application or grant the shared-k3s deployer workflow a narrow, audited way to sync only that Application. Without one of those platform-side controls, the workflow can update GitOps values and run smoke, but it cannot make release converge without a human/infra sync step.
+
+After release sync is automated, `promote-existing-image.yml` becomes the normal release promotion and rollback entrypoint: it updates release values, waits for live Deployments to reach the requested tag, then runs HTTP and Celery/Redis smoke.
 
 ## Rollback
 
@@ -164,8 +167,8 @@ The rollback workflow verifies that the last-known-good API and web image tags a
 
 - Dev namespace: `hr-certflow-dev`
 - Release namespace: `hr-certflow-release`
-- Dev ingress path: `/hr-certflow/`
-- Release ingress path: `/hr-certflow-release/`
+- Dev ingress path: `/hr-certflow-dev/`
+- Release ingress path: `/hr-certflow/`
 - Worker command includes `--without-gossip --without-mingle --without-heartbeat`.
 - Workers consume only `-Q ${CELERY_QUEUE}`.
 - Beat schedule file is environment-specific.

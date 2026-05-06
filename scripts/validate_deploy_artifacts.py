@@ -11,12 +11,12 @@ EXPECTED = {
     "dev": {
         "app_env": "dev",
         "namespace": "hr-certflow-dev",
-        "path_prefix": "/hr-certflow",
+        "path_prefix": "/hr-certflow-dev",
     },
     "release": {
         "app_env": "release",
         "namespace": "hr-certflow-release",
-        "path_prefix": "/hr-certflow-release",
+        "path_prefix": "/hr-certflow",
     },
 }
 

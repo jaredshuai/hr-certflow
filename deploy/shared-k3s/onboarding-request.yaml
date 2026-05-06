@@ -7,8 +7,8 @@ project:
     dev: hr-certflow-dev
     release: hr-certflow-release
   urls:
-    dev: http://10.34.200.180/hr-certflow/
-    release: http://10.34.200.180/hr-certflow-release/
+    dev: http://10.34.200.180/hr-certflow-dev/
+    release: http://10.34.200.180/hr-certflow/
 
 runtime:
   backend:
@@ -42,6 +42,13 @@ infraToProvision:
   kubeconfigs:
     - namespace-scoped observer kubeconfig
     - namespace-scoped deployer/bootstrap kubeconfig if platform approves bootstrap flow
+  releaseAutomation:
+    desiredState: automated release rollout after GitOps values promotion
+    requirement: enable automated sync on the hr-certflow-release Argo CD Application, or grant the workflow a narrow audited sync capability for only that Application
+    guardrails:
+      - release workflow must not receive plaintext runtime secrets
+      - release smoke must pass on web, API health, and Celery/Redis before the promotion is accepted
+      - rollback must use the existing-image promotion workflow with operation=rollback
 
 runtimeSecretKeys:
   - DATABASE_URL
@@ -83,8 +90,8 @@ configMapKeys:
 
 smoke:
   dev:
-    web: http://10.34.200.180/hr-certflow/
-    api: http://10.34.200.180/hr-certflow/api/v1/health
+    web: http://10.34.200.180/hr-certflow-dev/
+    api: http://10.34.200.180/hr-certflow-dev/api/v1/health
     celeryRedis:
       envFrom:
         - secret: hr-certflow-runtime-secrets
@@ -94,8 +101,8 @@ smoke:
         - python -m app.smoke.celery_redis_isolation send
         - python -m app.smoke.celery_redis_isolation assert-keys
   release:
-    web: http://10.34.200.180/hr-certflow-release/
-    api: http://10.34.200.180/hr-certflow-release/api/v1/health
+    web: http://10.34.200.180/hr-certflow/
+    api: http://10.34.200.180/hr-certflow/api/v1/health
     celeryRedis:
       envFrom:
         - secret: hr-certflow-runtime-secrets

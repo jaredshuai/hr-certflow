@@ -53,12 +53,12 @@ jobs:
 
           case "${DEPLOY_ENV}" in
             release)
-              WEB_URL="${{ vars.RELEASE_WEB_URL || 'http://10.34.200.180/hr-certflow-release/' }}"
+              WEB_URL="${{ vars.RELEASE_WEB_URL || 'http://10.34.200.180/hr-certflow/' }}"
               API_URL="${WEB_URL%/}/api/v1/health"
               NAMESPACE="hr-certflow-release"
               ;;
             dev)
-              WEB_URL="${{ vars.DEV_WEB_URL || 'http://10.34.200.180/hr-certflow/' }}"
+              WEB_URL="${{ vars.DEV_WEB_URL || 'http://10.34.200.180/hr-certflow-dev/' }}"
               API_URL="${WEB_URL%/}/api/v1/health"
               NAMESPACE="hr-certflow-dev"
               ;;

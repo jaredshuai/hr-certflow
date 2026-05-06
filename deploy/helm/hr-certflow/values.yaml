@@ -106,5 +106,5 @@ ingress:
   enabled: true
   className: traefik
   host: ""
-  pathPrefix: /hr-certflow
+  pathPrefix: /hr-certflow-dev
   annotations: {}

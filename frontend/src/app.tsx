@@ -9,7 +9,7 @@ function resolveApiBasePath(): string {
     return '/api/v1';
   }
 
-  const match = window.location.pathname.match(/^\/(hr-certflow(?:-release)?)(\/|$)/);
+  const match = window.location.pathname.match(/^\/(hr-certflow(?:-dev|-release)?)(\/|$)/);
   if (!match) {
     return '/api/v1';
   }

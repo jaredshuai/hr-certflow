@@ -5,8 +5,8 @@
 - Project ID: `hr-certflow`
 - Repo: `https://github.com/jaredshuai/hr-certflow.git`
 - Namespaces: `hr-certflow-dev`, `hr-certflow-release`
-- Dev URL: `http://10.34.200.180/hr-certflow/`
-- Release URL: `http://10.34.200.180/hr-certflow-release/`
+- Dev URL: `http://10.34.200.180/hr-certflow-dev/`
+- Release URL: `http://10.34.200.180/hr-certflow/`
 
 ## Runtime
 
@@ -20,12 +20,12 @@
 ## Smoke
 
 - API health: `GET /api/v1/health`
-- Dev web: `GET /hr-certflow/`
-- Dev API: `GET /hr-certflow/api/v1/health`
-- Release web: `GET /hr-certflow-release/`
-- Release API: `GET /hr-certflow-release/api/v1/health`
+- Dev web: `GET /hr-certflow-dev/`
+- Dev API: `GET /hr-certflow-dev/api/v1/health`
+- Release web: `GET /hr-certflow/`
+- Release API: `GET /hr-certflow/api/v1/health`
 
-The Helm chart uses a namespaced Traefik `Middleware` to strip only the project path prefix. The API request `/hr-certflow/api/v1/health` becomes `/api/v1/health` before it reaches FastAPI.
+The Helm chart uses a namespaced Traefik `Middleware` to strip only the project path prefix. The API request `/hr-certflow-dev/api/v1/health` or `/hr-certflow/api/v1/health` becomes `/api/v1/health` before it reaches FastAPI.
 
 ## Project-Owned Artifacts
 
@@ -57,14 +57,18 @@ Do not commit real runtime secrets to this repo.
 Recommended variables:
 
 ```text
-DEV_WEB_URL=http://10.34.200.180/hr-certflow/
-RELEASE_WEB_URL=http://10.34.200.180/hr-certflow-release/
+DEV_WEB_URL=http://10.34.200.180/hr-certflow-dev/
+RELEASE_WEB_URL=http://10.34.200.180/hr-certflow/
 SHARED_K3S_SMOKE_ENABLED=false
 ```
+
+If these GitHub repository variables already exist from an older onboarding pass, update them when the ingress paths change. Workflow defaults are only used when the variables are unset.
 
 The release workflow can build and push GHCR images and update GitOps values. The existing-image workflow updates GitOps values for an already-published GHCR tag without rebuilding or repushing images; use it for release promotion after dev smoke and for rollback. Neither workflow creates namespaces, AppProject, Argo CD Applications, runtime secrets, or registry pull secrets.
 
 When `SHARED_K3S_SMOKE_ENABLED=true`, the release workflow also runs on the shared-k3s deployer runner and expects a kubeconfig secret. It accepts either a generic `KUBECONFIG_B64` secret or environment-specific `DEV_KUBECONFIG_B64` / `RELEASE_KUBECONFIG_B64` secrets.
+
+Release can be fully automated after infra enables automated sync on the `hr-certflow-release` Argo CD Application, or grants the workflow a narrow audited sync capability for only that Application. Until then, project workflows can commit release GitOps values and run smoke, but a manual Argo CD sync remains the live rollout step.
 
 Release smoke gate:
 
