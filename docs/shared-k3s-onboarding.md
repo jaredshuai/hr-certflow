@@ -78,6 +78,8 @@ Delete temporary smoke Jobs
 
 The workflow intentionally does not write Redis URLs, passwords, tokens, or kubeconfig contents to logs.
 
+The project release procedure is documented in [release-runbook.md](release-runbook.md). Use it for dev promotion, release promotion, rollback, smoke evidence, and the temporary shared-k3s runner exception.
+
 ## Redis / Celery Isolation
 
 Infra provides per-environment standalone Redis broker/result backends. The application still keeps Celery queue, routing, and key prefix values environment-specific so dev/release never share the default `celery` queue or naked Celery keys.

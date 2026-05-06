@@ -23,6 +23,7 @@ Paperless-ngx, RAGFlow, n8n, and Temporal are intentionally outside the MVP main
 
 See [docs/architecture.md](docs/architecture.md) for the architecture decision record.
 See [docs/engineering-baseline.md](docs/engineering-baseline.md) for the Node.js, TypeScript, uv, ruff, ty, and pytest baseline.
+See [docs/release-runbook.md](docs/release-runbook.md) for dev/release promotion, smoke, rollback, and no-secret operating rules.
 
 ## Repository Layout
 
@@ -100,6 +101,7 @@ CI and promotion workflows are in `.github/workflows/`. The release workflow bui
 The shared-k3s smoke gate waits for API/Web/Worker/Beat deployments to reach the promoted image tag, then runs HTTP checks and Celery/Redis smoke through temporary Kubernetes Jobs.
 
 See [docs/shared-k3s-onboarding.md](docs/shared-k3s-onboarding.md) for the full onboarding handoff.
+See [docs/release-runbook.md](docs/release-runbook.md) for the release operating procedure.
 
 ## MVP Business Boundary
 
