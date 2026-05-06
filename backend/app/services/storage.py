@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import mimetypes
 import re
 import uuid
@@ -69,3 +70,18 @@ class ObjectStorage:
             upload_url=upload_url,
             public_read_url=public_read_url,
         )
+
+    def put_json_snapshot(self, *, key: str, payload: object) -> str:
+        client = self._client()
+        client.put_object(
+            Bucket=self.settings.s3_bucket,
+            Key=key,
+            Body=json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8"),
+            ContentType="application/json; charset=utf-8",
+        )
+        return key
+
+    def build_ai_raw_response_key(self, document_id: str, workflow_run_id: str | None) -> str:
+        today = datetime.now(UTC).strftime("%Y/%m/%d")
+        run_part = re.sub(r"[^A-Za-z0-9._-]+", "-", workflow_run_id or "workflow").strip("-")
+        return f"{self.settings.upload_prefix}/ai-responses/{today}/{document_id}-{run_part}-{uuid.uuid4()}.json"

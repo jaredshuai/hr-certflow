@@ -97,6 +97,7 @@ async def recognize_document(
     public_base = settings.s3_public_endpoint_url or settings.s3_endpoint_url
     if not public_base:
         raise HTTPException(status_code=400, detail="S3 public endpoint is not configured")
+    storage = ObjectStorage(settings)
 
     document.status = DocumentStatus.PARSING
     db.commit()
@@ -105,6 +106,10 @@ async def recognize_document(
     client = DifyClient(settings)
     extraction = await client.run_certificate_extraction(
         DifyExtractionRequest(file_url=file_url, document_id=str(document.id), user=user)
+    )
+    raw_response_key = storage.put_json_snapshot(
+        key=storage.build_ai_raw_response_key(str(document.id), extraction.workflow_run_id),
+        payload=extraction.raw_response,
     )
 
     result = AiExtractionResult(
@@ -115,6 +120,7 @@ async def recognize_document(
         raw_text=extraction.output.get("raw_text"),
         suspicious_points=extraction.output.get("suspicious_points") or [],
         confidence=extraction.output.get("confidence"),
+        raw_response_key=raw_response_key,
     )
     db.add(result)
     db.flush()
@@ -135,6 +141,7 @@ async def recognize_document(
         after={
             "ai_result_id": str(result.id),
             "workflow_run_id": extraction.workflow_run_id,
+            "raw_response_key": raw_response_key,
             "user": user,
         },
     )
