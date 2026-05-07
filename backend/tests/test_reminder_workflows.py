@@ -29,7 +29,7 @@ from app.models import (
 )
 from app.schemas.reminders import FeedbackCreate
 from app.services.certificates import replace_active_certificates
-from app.services.notifications import NotificationRouter
+from app.services.notifications import NotificationMessage, NotificationRouter
 from app.services.reminder_service import dispatch_due_reminder_notifications
 
 
@@ -147,6 +147,28 @@ def test_dispatch_reminder_does_not_advance_when_smtp_settings_are_missing(db_se
     assert events[0].channel == "email"
     assert events[0].sent_at is None
     assert events[0].error == "smtp_missing_or_no_recipients"
+
+
+def test_webhook_payloads_match_provider_contract() -> None:
+    router = NotificationRouter(Settings())
+    message = NotificationMessage(
+        title="证书即将到期提醒",
+        content="员工：张三\n证书：安全生产资格证",
+        recipients=[],
+    )
+
+    assert router._webhook_payload("wecom", message) == {
+        "msgtype": "text",
+        "text": {"content": "证书即将到期提醒\n员工：张三\n证书：安全生产资格证"},
+    }
+    assert router._webhook_payload("dingtalk", message) == {
+        "msgtype": "text",
+        "text": {"content": "证书即将到期提醒\n员工：张三\n证书：安全生产资格证"},
+    }
+    assert router._webhook_payload("feishu", message) == {
+        "msg_type": "text",
+        "content": {"text": "证书即将到期提醒\n员工：张三\n证书：安全生产资格证"},
+    }
 
 
 def test_hr_feedback_records_real_actor_and_event_source(db_session: Session) -> None:

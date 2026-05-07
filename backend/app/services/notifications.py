@@ -50,14 +50,25 @@ class NotificationRouter:
         return results
 
     async def _send_webhook(self, channel: str, webhook_url: str, message: NotificationMessage) -> dict:
-        payload = {
-            "msgtype": "text",
-            "text": {"content": f"{message.title}\n{message.content}"},
-        }
+        payload = self._webhook_payload(channel, message)
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.post(webhook_url, json=payload)
             response.raise_for_status()
             return {"channel": channel, "status": "sent", "response": response.text[:500]}
+
+    def _webhook_payload(self, channel: str, message: NotificationMessage) -> dict:
+        text = f"{message.title}\n{message.content}"
+        if channel in {"wecom", "dingtalk"}:
+            return {
+                "msgtype": "text",
+                "text": {"content": text},
+            }
+        if channel == "feishu":
+            return {
+                "msg_type": "text",
+                "content": {"text": text},
+            }
+        raise ValueError(f"Unsupported webhook channel: {channel}")
 
     async def _send_email(self, message: NotificationMessage) -> dict:
         email = EmailMessage()

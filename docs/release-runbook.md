@@ -134,7 +134,7 @@ The workflow updates `deploy/gitops/release/values.yaml` without rebuilding the 
 chore(release): promote release <dev-validated-tag> [skip ci]
 ```
 
-This is intended to be a one-command automated release path: the workflow writes the release GitOps value, Argo CD converges the release namespace, then the same workflow runs release smoke. It should not require a separate AI/operator to relay a manual sync after infra enables the release sync capability.
+This is the normal one-command automated release path: the workflow writes the release GitOps value, Argo CD automated sync converges the release namespace, then the same workflow runs release smoke. It does not require a separate AI/operator to relay a manual sync.
 
 Release smoke expects:
 
@@ -144,9 +144,7 @@ Release smoke expects:
 - Worker hostname and routing key containing `hr-certflow-release`
 - Redis keys only under `hr-certflow-release:`
 
-For an automated release path, infra must either enable automated sync on the `hr-certflow-release` Argo CD Application or grant the shared-k3s deployer workflow a narrow, audited way to sync only that Application. Without one of those platform-side controls, the workflow can update GitOps values and run smoke, but it cannot make release converge without a human/infra sync step.
-
-After release sync is automated, `promote-existing-image.yml` becomes the normal release promotion and rollback entrypoint: it updates release values, waits for live Deployments to reach the requested tag, then runs HTTP and Celery/Redis smoke.
+`promote-existing-image.yml` is the normal release promotion and rollback entrypoint: it updates release values, waits for live Deployments to reach the requested tag, then runs HTTP and Celery/Redis smoke.
 
 ## Rollback
 

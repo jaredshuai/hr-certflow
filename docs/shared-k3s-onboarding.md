@@ -59,7 +59,7 @@ Recommended variables:
 ```text
 DEV_WEB_URL=http://10.34.200.180/hr-certflow-dev/
 RELEASE_WEB_URL=http://10.34.200.180/hr-certflow/
-SHARED_K3S_SMOKE_ENABLED=false
+SHARED_K3S_SMOKE_ENABLED=true
 ```
 
 If these GitHub repository variables already exist from an older onboarding pass, update them when the ingress paths change. Workflow defaults are only used when the variables are unset.
@@ -68,7 +68,7 @@ The release workflow can build and push GHCR images and update GitOps values. Th
 
 When `SHARED_K3S_SMOKE_ENABLED=true`, the release workflow also runs on the shared-k3s deployer runner and expects a kubeconfig secret. It accepts either a generic `KUBECONFIG_B64` secret or environment-specific `DEV_KUBECONFIG_B64` / `RELEASE_KUBECONFIG_B64` secrets.
 
-Release can be fully automated after infra enables automated sync on the `hr-certflow-release` Argo CD Application, or grants the workflow a narrow audited sync capability for only that Application. Until then, project workflows can commit release GitOps values and run smoke, but a manual Argo CD sync remains the live rollout step.
+Release is automated through the `hr-certflow-release` Argo CD Application's automated sync. Project workflows commit release GitOps values, Argo CD converges the release namespace, and the same workflow runs smoke; no manual Argo CD sync is part of the normal path.
 
 Release smoke gate:
 
