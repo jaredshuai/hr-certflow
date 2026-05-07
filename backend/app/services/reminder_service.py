@@ -105,7 +105,7 @@ async def dispatch_due_reminder_notifications(
         now = datetime.now(UTC)
         has_sent = any(result.get("status") == "sent" for result in results)
         if has_sent:
-            _advance_task_state(task, event_type, now=now)
+            _advance_task_state(task, event_type, now=now, scan_date=scan_date)
         for result in results:
             db.add(
                 ReminderEvent(
@@ -165,17 +165,23 @@ def _next_event_type(task: ReminderTask, scan_date: date) -> ReminderEventType |
     return None
 
 
-def _advance_task_state(task: ReminderTask, event_type: ReminderEventType, *, now: datetime) -> None:
+def _advance_task_state(
+    task: ReminderTask,
+    event_type: ReminderEventType,
+    *,
+    now: datetime,
+    scan_date: date,
+) -> None:
     task.last_event_at = now
     policy = task.policy
     if event_type == ReminderEventType.FIRST_REMINDER:
         task.status = ReminderTaskStatus.WAITING_FEEDBACK
         second_after_days = policy.second_reminder_after_days if policy else 7
-        task.due_date = now.date() + timedelta(days=second_after_days)
+        task.due_date = scan_date + timedelta(days=second_after_days)
     elif event_type == ReminderEventType.SECOND_REMINDER:
         task.status = ReminderTaskStatus.SECOND_SENT
         escalation_after_days = policy.escalation_after_days if policy else 5
-        task.due_date = now.date() + timedelta(days=escalation_after_days)
+        task.due_date = scan_date + timedelta(days=escalation_after_days)
     elif event_type == ReminderEventType.ESCALATION:
         task.status = ReminderTaskStatus.ESCALATED
 
