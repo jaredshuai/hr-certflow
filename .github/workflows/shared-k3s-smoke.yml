@@ -36,7 +36,7 @@ jobs:
   smoke:
     name: Shared k3s smoke
     if: ${{ vars.SHARED_K3S_SMOKE_ENABLED == 'true' }}
-    runs-on: [self-hosted, k3s, shared-k3s-deployer]
+    runs-on: k3s-hr-certflow-deployer
     steps:
       - uses: actions/checkout@v6
 
