@@ -135,6 +135,8 @@ jobs:
     needs: build-and-promote
     if: ${{ vars.SHARED_K3S_SMOKE_ENABLED == 'true' }}
     runs-on: k3s-hr-certflow-deployer
+    environment:
+      name: ${{ needs.build-and-promote.outputs.deploy_env }}
     env:
       DEPLOY_ENV: ${{ needs.build-and-promote.outputs.deploy_env }}
       IMAGE_TAG: ${{ needs.build-and-promote.outputs.image_tag }}
