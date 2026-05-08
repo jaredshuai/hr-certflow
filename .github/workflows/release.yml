@@ -134,7 +134,7 @@ jobs:
     name: Shared k3s smoke
     needs: build-and-promote
     if: ${{ vars.SHARED_K3S_SMOKE_ENABLED == 'true' }}
-    runs-on: [self-hosted, kb, shared-k3s-deployer]
+    runs-on: [self-hosted, k3s, shared-k3s-deployer]
     env:
       DEPLOY_ENV: ${{ needs.build-and-promote.outputs.deploy_env }}
       IMAGE_TAG: ${{ needs.build-and-promote.outputs.image_tag }}
