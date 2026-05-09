@@ -79,7 +79,7 @@ def create_upload_intent(
         storage_bucket=intent.bucket,
         storage_key=intent.key,
         upload_url=intent.upload_url,
-        public_read_url=intent.public_read_url,
+        read_url=intent.read_url,
     )
 
 
@@ -94,15 +94,16 @@ async def recognize_document(
         raise HTTPException(status_code=404, detail="Document not found")
 
     settings = get_settings()
-    public_base = settings.s3_public_endpoint_url or settings.s3_endpoint_url
-    if not public_base:
-        raise HTTPException(status_code=400, detail="S3 public endpoint is not configured")
     storage = ObjectStorage(settings)
 
     document.status = DocumentStatus.PARSING
     db.commit()
 
-    file_url = f"{public_base.rstrip('/')}/{document.storage_bucket}/{document.storage_key}"
+    try:
+        file_url = storage.create_read_url(bucket=document.storage_bucket, key=document.storage_key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     client = DifyClient(settings)
     extraction = await client.run_certificate_extraction(
         DifyExtractionRequest(file_url=file_url, document_id=str(document.id), user=user)

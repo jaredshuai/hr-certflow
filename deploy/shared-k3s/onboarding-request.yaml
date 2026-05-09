@@ -25,9 +25,9 @@ dependencies:
   data:
     - PostgreSQL dev/release database and user
     - Per-environment standalone Redis broker/result backend credentials injected through runtime secrets, with Celery queue/prefix isolation
-    - S3-compatible object storage bucket/prefix
+    - Alibaba Cloud OSS bucket/prefix through the S3-compatible API
   external:
-    - Dify workflow endpoint and API key
+    - Shared Dify workflow-center endpoint and API key
     - WeCom/Feishu/DingTalk webhook or SMTP
 
 infraToProvision:
@@ -76,10 +76,12 @@ configMapKeys:
   - CELERY_REDIS_HASH_TAG
   - CELERY_REDIS_PREFIX
   - S3_ENDPOINT_URL
-  - S3_PUBLIC_ENDPOINT_URL
   - S3_REGION
   - S3_BUCKET
   - S3_FORCE_PATH_STYLE
+  - AWS_REQUEST_CHECKSUM_CALCULATION
+  - AWS_RESPONSE_CHECKSUM_VALIDATION
+  - UPLOAD_PREFIX
   - DIFY_BASE_URL
   - DIFY_WORKFLOW_ID
   - NOTIFICATION_HR_RECIPIENTS

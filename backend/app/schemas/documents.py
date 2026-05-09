@@ -22,7 +22,7 @@ class UploadIntentRead(BaseModel):
     storage_bucket: str
     storage_key: str
     upload_url: str
-    public_read_url: str | None = None
+    read_url: str | None = None
 
 
 class CertificateDocumentRead(ORMModel):

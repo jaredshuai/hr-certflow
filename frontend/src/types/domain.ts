@@ -95,7 +95,7 @@ export interface UploadIntent {
   storage_bucket: string;
   storage_key: string;
   upload_url: string;
-  public_read_url?: string;
+  read_url?: string;
 }
 
 export interface AiExtractionResult {

@@ -23,6 +23,7 @@ Paperless-ngx, RAGFlow, n8n, and Temporal are intentionally outside the MVP main
 
 See [docs/architecture.md](docs/architecture.md) for the architecture decision record.
 See [docs/engineering-baseline.md](docs/engineering-baseline.md) for the Node.js, TypeScript, uv, ruff, ty, and pytest baseline.
+See [docs/external-services.md](docs/external-services.md) for the Alibaba Cloud OSS, local cache, and shared Dify workflow-center contracts.
 See [docs/release-runbook.md](docs/release-runbook.md) for dev/release promotion, smoke, rollback, and no-secret operating rules.
 
 ## Repository Layout
@@ -31,6 +32,7 @@ See [docs/release-runbook.md](docs/release-runbook.md) for dev/release promotion
 backend/   FastAPI API, SQLAlchemy models, Dify/S3/notification adapters, Celery tasks
 frontend/  Ant Design Pro / Umi Max application shell and HR workflow pages
 docs/      Architecture and operating notes
+ai-workflows/ Source-controlled workflow definitions exported from Dify
 ```
 
 ## Local Development
@@ -59,7 +61,10 @@ npm run lint
 npm run build
 ```
 
-Production should point S3 settings at OSS, COS, S3, OBS, R2, Garage, SeaweedFS, Ceph RGW, or another approved S3-compatible target.
+Production should point S3 settings at the approved shared Alibaba Cloud OSS
+bucket, with project and environment isolation through object key prefixes.
+Certificate originals and AI raw-response snapshots are durable data in OSS;
+pod-local storage may only be a TTL cache that can be rebuilt from OSS.
 
 ## shared-k3s Deployment
 
@@ -116,7 +121,7 @@ FastAPI owns all business state:
 - HR feedback
 - audit log
 
-Dify only returns structured extraction candidates. Its output must be reviewed before creating or updating an `employee_certificate`.
+Dify is the shared AI workflow-center target for the MVP. It only returns structured extraction candidates. Its output must be reviewed before creating or updating an `employee_certificate`.
 
 ## First Implementation Targets
 

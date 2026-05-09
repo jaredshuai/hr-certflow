@@ -18,7 +18,7 @@ class UploadIntent:
     bucket: str
     key: str
     upload_url: str
-    public_read_url: str | None
+    read_url: str | None
 
 
 class ObjectStorage:
@@ -35,8 +35,13 @@ class ObjectStorage:
             region_name=self.settings.s3_region,
             aws_access_key_id=self.settings.s3_access_key_id,
             aws_secret_access_key=self.settings.s3_secret_access_key,
-            config=Config(s3={"addressing_style": "path" if self.settings.s3_force_path_style else "auto"}),
+            config=Config(s3={"addressing_style": "path" if self.settings.s3_force_path_style else "virtual"}),
         )
+
+    def _bucket(self) -> str:
+        if not self.settings.s3_bucket:
+            raise RuntimeError("S3_BUCKET is required for upload intents")
+        return self.settings.s3_bucket
 
     def build_certificate_key(self, original_filename: str) -> str:
         safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", original_filename).strip("-") or "certificate"
@@ -52,29 +57,48 @@ class ObjectStorage:
     ) -> UploadIntent:
         key = self.build_certificate_key(original_filename)
         detected_content_type = content_type or mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
+        bucket = self._bucket()
         client = self._client()
         upload_url = client.generate_presigned_url(
             "put_object",
             Params={
-                "Bucket": self.settings.s3_bucket,
+                "Bucket": bucket,
                 "Key": key,
                 "ContentType": detected_content_type,
             },
             ExpiresIn=expires_in,
         )
-        public_base = self.settings.s3_public_endpoint_url or self.settings.s3_endpoint_url
-        public_read_url = f"{public_base.rstrip('/')}/{self.settings.s3_bucket}/{key}" if public_base else None
+        read_url = client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": bucket,
+                "Key": key,
+            },
+            ExpiresIn=expires_in,
+        )
         return UploadIntent(
-            bucket=self.settings.s3_bucket,
+            bucket=bucket,
             key=key,
             upload_url=upload_url,
-            public_read_url=public_read_url,
+            read_url=read_url,
+        )
+
+    def create_read_url(self, *, bucket: str, key: str, expires_in: int = 900) -> str:
+        client = self._client()
+        return client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": bucket,
+                "Key": key,
+            },
+            ExpiresIn=expires_in,
         )
 
     def put_json_snapshot(self, *, key: str, payload: object) -> str:
+        bucket = self._bucket()
         client = self._client()
         client.put_object(
-            Bucket=self.settings.s3_bucket,
+            Bucket=bucket,
             Key=key,
             Body=json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8"),
             ContentType="application/json; charset=utf-8",

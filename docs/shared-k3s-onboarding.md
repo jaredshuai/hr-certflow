@@ -14,8 +14,8 @@
 - Frontend: Umi Max / Ant Design Pro static web on port `80` in Kubernetes
 - Worker: Celery worker
 - Scheduler: Celery Beat
-- Data dependencies: PostgreSQL, Redis, S3-compatible object storage
-- External dependencies: Dify workflow, WeCom/Feishu/DingTalk/email
+- Data dependencies: PostgreSQL, Redis, Alibaba Cloud OSS through the S3-compatible API
+- External dependencies: shared Dify workflow center, WeCom/Feishu/DingTalk/email
 
 ## Smoke
 
@@ -44,8 +44,8 @@ The Helm chart uses a namespaced Traefik `Middleware` to strip only the project 
 - `ghcr-pull-secret`
 - PostgreSQL dev/release database and account
 - Per-environment standalone Redis broker/result backend endpoint and credentials, injected only through runtime secrets.
-- S3 bucket/prefix for dev and release
-- Dify endpoint, workflow id, and API key
+- Alibaba Cloud OSS shared bucket and HR CertFlow prefix for dev and release
+- Shared Dify endpoint, workflow id, and API key
 - Notification webhook / SMTP credentials and HR recipient configuration
 - Namespace-scoped observer/deployer kubeconfigs
 - AppProject allowlist for only this repo and the two namespaces
@@ -132,3 +132,70 @@ The smoke verifies:
 - naked Celery keys such as `celery`, `_kombu.binding.celery`, `unacked`, and `celery-task-meta-*` are absent.
 
 If this smoke fails with `MOVED` or `CROSSSLOT`, the runtime is not using the expected standalone Redis endpoint.
+
+## Object Storage Contract
+
+Infra provides Alibaba Cloud OSS as the durable S3-compatible object storage
+target. The OSS bucket is shared infrastructure; project and environment
+isolation uses object key prefixes:
+
+| Environment | `S3_BUCKET` | `UPLOAD_PREFIX` | `S3_FORCE_PATH_STYLE` |
+| --- | --- | --- | --- |
+| dev | `jxccs-shared-infra-oss-cn-hangzhou` | `hr-certflow/dev/certificates` | `false` |
+| release | `jxccs-shared-infra-oss-cn-hangzhou` | `hr-certflow/release/certificates` | `false` |
+
+Required variables:
+
+```text
+S3_ENDPOINT_URL
+S3_REGION
+S3_BUCKET
+S3_FORCE_PATH_STYLE
+AWS_REQUEST_CHECKSUM_CALCULATION
+AWS_RESPONSE_CHECKSUM_VALIDATION
+UPLOAD_PREFIX
+S3_ACCESS_KEY_ID
+S3_SECRET_ACCESS_KEY
+```
+
+Rules:
+
+- Buckets stay private.
+- `S3_ENDPOINT_URL` must be reachable from the backend, HR users' browsers, and
+  the shared Dify workflow center because presigned URLs include the signed host.
+- RAM policy should scope HR CertFlow to
+  `jxccs-shared-infra-oss-cn-hangzhou/hr-certflow/*`, or separate dev and
+  release identities to the matching dev/release prefixes.
+- Browser upload uses presigned PUT URLs.
+- AI extraction should receive short-lived presigned GET URLs.
+- Pod-local storage is only a TTL cache for previews or temporary downloads.
+- The cache can be deleted at any time and must be rebuildable from OSS.
+- Do not run local S3 in shared-k3s as the file source of truth.
+
+## AI Workflow Contract
+
+Use the shared Dify deployment as the AI workflow center. HR CertFlow should be
+separated from other projects by Dify workspace or project account, workflow app,
+and API key.
+
+Required variables:
+
+```text
+DIFY_BASE_URL
+DIFY_API_KEY
+DIFY_WORKFLOW_ID
+```
+
+The first workflow is `certificate-extraction`.
+
+Input contract:
+
+```json
+{
+  "file_url": "short-lived presigned GET URL",
+  "document_id": "certificate_document id"
+}
+```
+
+Dify output remains candidate data. FastAPI still owns HR review, formal
+certificate creation, reminder state, and audit logs.

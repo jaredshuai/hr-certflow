@@ -26,12 +26,11 @@ class Settings(BaseSettings):
     celery_redis_prefix: str | None = None
 
     s3_endpoint_url: str | None = None
-    s3_public_endpoint_url: str | None = None
-    s3_region: str = "us-east-1"
-    s3_bucket: str = "hr-certflow"
+    s3_region: str = "cn-hangzhou"
+    s3_bucket: str | None = None
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
-    s3_force_path_style: bool = True
+    s3_force_path_style: bool = False
 
     dify_base_url: str | None = None
     dify_api_key: str | None = None
@@ -49,7 +48,7 @@ class Settings(BaseSettings):
     smtp_starttls: bool = True
     mail_from: str | None = None
 
-    upload_prefix: str = Field(default="certificates", min_length=1)
+    upload_prefix: str = Field(default="hr-certflow/local/certificates", min_length=1)
 
     @property
     def cors_origins(self) -> list[str]:

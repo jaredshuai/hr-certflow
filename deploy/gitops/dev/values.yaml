@@ -7,7 +7,13 @@ config:
   CELERY_ROUTING_KEY: hr-certflow-dev
   CELERY_REDIS_HASH_TAG: hr-certflow-dev
   CELERY_REDIS_PREFIX: 'hr-certflow-dev:'
-  S3_BUCKET: hr-certflow-dev
+  S3_ENDPOINT_URL: https://oss-cn-hangzhou.aliyuncs.com
+  S3_REGION: cn-hangzhou
+  S3_BUCKET: jxccs-shared-infra-oss-cn-hangzhou
+  S3_FORCE_PATH_STYLE: 'false'
+  AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+  AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+  UPLOAD_PREFIX: hr-certflow/dev/certificates
 images:
   api:
     repository: ghcr.io/jaredshuai/hr-certflow-api

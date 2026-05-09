@@ -13,13 +13,15 @@ x-backend-environment: &backend-environment
   CELERY_ROUTING_KEY: ${CELERY_ROUTING_KEY:-hr-certflow-local}
   CELERY_REDIS_HASH_TAG: ${CELERY_REDIS_HASH_TAG:-hr-certflow-local}
   CELERY_REDIS_PREFIX: "${CELERY_REDIS_PREFIX:-hr-certflow-local:}"
-  S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://object-storage:9000}
-  S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
-  S3_REGION: ${S3_REGION:-us-east-1}
-  S3_BUCKET: ${S3_BUCKET:-hr-certflow}
-  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-hr_certflow}
-  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-hr_certflow_secret}
-  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+  S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+  S3_REGION: ${S3_REGION:-cn-hangzhou}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+  AWS_REQUEST_CHECKSUM_CALCULATION: ${AWS_REQUEST_CHECKSUM_CALCULATION:-when_required}
+  AWS_RESPONSE_CHECKSUM_VALIDATION: ${AWS_RESPONSE_CHECKSUM_VALIDATION:-when_required}
+  UPLOAD_PREFIX: ${UPLOAD_PREFIX:-hr-certflow/local/certificates}
   DIFY_BASE_URL: ${DIFY_BASE_URL:-}
   DIFY_API_KEY: ${DIFY_API_KEY:-}
   DIFY_WORKFLOW_ID: ${DIFY_WORKFLOW_ID:-certificate-extraction}
@@ -56,30 +58,6 @@ services:
       timeout: 5s
       retries: 5
 
-  object-storage:
-    image: quay.io/minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: hr_certflow
-      MINIO_ROOT_PASSWORD: hr_certflow_secret
-    ports:
-      - "${S3_HOST_PORT:-9000}:9000"
-      - "${S3_CONSOLE_HOST_PORT:-9001}:9001"
-    volumes:
-      - object-storage-data:/data
-
-  object-storage-init:
-    image: quay.io/minio/mc:latest
-    depends_on:
-      object-storage:
-        condition: service_started
-    entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://object-storage:9000 hr_certflow hr_certflow_secret; do sleep 2; done;
-      mc mb --ignore-existing local/hr-certflow;
-      mc anonymous set none local/hr-certflow;
-      "
-
   api:
     build:
       context: ./backend
@@ -95,10 +73,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      object-storage:
-        condition: service_started
-      object-storage-init:
-        condition: service_completed_successfully
 
   celery-worker:
     build:
@@ -151,5 +125,4 @@ services:
 volumes:
   postgres-data:
   redis-data:
-  object-storage-data:
   frontend-node-modules:

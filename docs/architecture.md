@@ -22,8 +22,8 @@ Ant Design Pro
 | Backend | FastAPI on Python 3.12+ with uv / ruff / ty / pytest | business state, RBAC, validation, Dify calls, notifications |
 | Database | PostgreSQL | only source of business truth |
 | Cache/queue | Redis | Celery broker, locks, idempotency, temporary state |
-| Files | S3-compatible object storage | certificate originals, PDFs, thumbnails, AI raw snapshots |
-| AI | Dify + multimodal model | image/PDF to structured JSON candidates |
+| Files | Alibaba Cloud OSS through the S3-compatible API | certificate originals, PDFs, thumbnails, AI raw snapshots |
+| AI | Shared Dify workflow center + multimodal model | image/PDF to structured JSON candidates |
 | Scheduler | Celery + Celery Beat | expiry scans, retryable notification jobs |
 | Notifications | WeCom / Feishu / DingTalk / email | HR-first notification route |
 
@@ -48,7 +48,8 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
 
 ### Dify
 
-Dify only extracts structured candidates from a certificate file.
+Dify is the shared AI workflow center for the MVP and near-term platform
+standard. It only extracts structured candidates from a certificate file.
 
 Input:
 
@@ -74,6 +75,11 @@ model_name
 
 Dify does not own employee matching, de-duplication, state transitions, reminders, or audit logs.
 
+Workflow definitions should be exported as Dify DSL/YAML and reviewed in Git so
+developer agents can modify AI flows through normal code-review and promotion
+paths. Different software projects should be separated by Dify workspace or
+project account, app, and API key.
+
 ### PostgreSQL
 
 PostgreSQL stores the canonical business data:
@@ -94,12 +100,18 @@ New certificates do not overwrite old certificates. The old record moves to `REP
 
 ### Object Storage
 
-The architecture depends on S3-compatible object storage, not a specific product. Store:
+The first production object storage target is Alibaba Cloud OSS using the
+S3-compatible API. Store:
 
 - certificate images
 - PDFs
 - thumbnails
 - raw Dify response snapshots
+
+OSS is the durable cold tier. Pod-local storage may only be used as a TTL cache
+for thumbnails, previews, or temporary downloads. Cache entries must be safe to
+delete and recoverable from OSS. Do not deploy a local S3 service in shared-k3s
+as the primary certificate file store.
 
 ### Paperless-ngx
 
@@ -189,7 +201,7 @@ CLOSED
 - PostgreSQL
 - Redis
 - S3-compatible object storage
-- Dify
+- shared Dify workflow center
 - Celery + Celery Beat
 - HR-first notifications
 
