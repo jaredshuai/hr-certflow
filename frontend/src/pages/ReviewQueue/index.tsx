@@ -12,6 +12,12 @@ import {
 import { Button, Form, Modal, Space, Tag, message } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 
+import {
+  ExtractionQualitySummary,
+  buildExtractionQuality,
+  extractionSuspiciousPoints,
+  outputText,
+} from '@/components/ExtractionQualitySummary';
 import { listResource, postResource } from '@/services/api';
 import type { CertificateType, Employee, ReviewApprovePayload, ReviewDecision, ReviewTask } from '@/types/domain';
 
@@ -28,11 +34,6 @@ interface ReviewFormValues {
   review_date?: unknown;
   reviewed_by?: string;
   notes?: string;
-}
-
-function textValue(output: Record<string, unknown> | undefined, key: string): string | undefined {
-  const value = output?.[key];
-  return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
 function formatDateValue(value: unknown): string | undefined {
@@ -71,8 +72,8 @@ export default function ReviewQueuePage() {
 
   function openApproveModal(record: ReviewTask) {
     const output = record.ai_output_json;
-    const holderName = textValue(output, 'holder_name');
-    const certificateName = textValue(output, 'certificate_name');
+    const holderName = outputText(output, 'holder_name');
+    const certificateName = outputText(output, 'certificate_name');
     const matchedEmployee = employees.find((employee) => employee.name === holderName);
     const matchedCertificateType = certificateTypes.find((certificateType) => certificateType.name === certificateName);
 
@@ -82,12 +83,12 @@ export default function ReviewQueuePage() {
       certificate_type_id: matchedCertificateType?.id,
       holder_name: holderName,
       certificate_name: certificateName,
-      certificate_no: textValue(output, 'certificate_no'),
-      issuing_authority: textValue(output, 'issuing_authority'),
-      issue_date: textValue(output, 'issue_date'),
-      valid_from: textValue(output, 'valid_from'),
-      valid_to: textValue(output, 'valid_to'),
-      review_date: textValue(output, 'review_date'),
+      certificate_no: outputText(output, 'certificate_no'),
+      issuing_authority: outputText(output, 'issuing_authority'),
+      issue_date: outputText(output, 'issue_date'),
+      valid_from: outputText(output, 'valid_from'),
+      valid_to: outputText(output, 'valid_to'),
+      review_date: outputText(output, 'review_date'),
       reviewed_by: undefined,
       notes: record.notes,
     });
@@ -155,6 +156,21 @@ export default function ReviewQueuePage() {
   const columns: ProColumns<ReviewTask>[] = [
     { title: '文件', dataIndex: 'document_original_filename', ellipsis: true, renderText: (value) => value || '-' },
     { title: '文档 ID', dataIndex: 'document_id', ellipsis: true },
+    {
+      title: 'AI 字段',
+      dataIndex: 'ai_output_json',
+      width: 220,
+      render: (_, record) => <ExtractionQualitySummary output={record.ai_output_json} compact />,
+    },
+    {
+      title: '疑点',
+      dataIndex: 'ai_output_json',
+      ellipsis: true,
+      render: (_, record) => {
+        const suspiciousPoints = extractionSuspiciousPoints(record.ai_output_json);
+        return suspiciousPoints.length > 0 ? suspiciousPoints.join('；') : '-';
+      },
+    },
     { title: '复核备注', dataIndex: 'notes', ellipsis: true, renderText: (value) => value || '-' },
     {
       title: '状态',
@@ -169,7 +185,12 @@ export default function ReviewQueuePage() {
       width: 160,
       render: (_, record) => (
         <Space>
-          <Button size="small" type="link" onClick={() => openApproveModal(record)}>
+          <Button
+            size="small"
+            type="link"
+            danger={!buildExtractionQuality(record.ai_output_json).complete}
+            onClick={() => openApproveModal(record)}
+          >
             复核
           </Button>
           <Button size="small" type="link" danger onClick={() => openRejectModal(record)}>
@@ -203,6 +224,9 @@ export default function ReviewQueuePage() {
         destroyOnClose
         width={760}
       >
+        <div style={{ marginBottom: 16 }}>
+          <ExtractionQualitySummary output={currentReview?.ai_output_json} />
+        </div>
         <ProForm form={form} submitter={false} layout="horizontal" labelCol={{ span: 5 }}>
           <ProFormSelect
             name="employee_id"

@@ -11,6 +11,7 @@ import {
 import { Button, Divider, Form, Input, Space, Tag, Upload, message } from 'antd';
 import { useEffect, useState } from 'react';
 
+import { ExtractionQualitySummary, outputText } from '@/components/ExtractionQualitySummary';
 import { listResource, postResource } from '@/services/api';
 import type {
   AiExtractionResult,
@@ -35,11 +36,6 @@ interface CertificateFormValues {
   review_date?: unknown;
   reviewed_by?: string;
   notes?: string;
-}
-
-function outputText(output: Record<string, unknown>, key: string): string | undefined {
-  const value = output[key];
-  return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
 function formatDateValue(value: unknown): string | undefined {
@@ -268,6 +264,8 @@ export default function UploadRecognitionPage() {
               { title: '模型/工作流', dataIndex: 'result' },
             ]}
           />
+          <Divider />
+          <ExtractionQualitySummary output={extractionResult?.output_json} />
         </ProCard>
 
         <ProCard

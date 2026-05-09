@@ -180,6 +180,34 @@ self-hosted, Linux, X64, shared-k3s-deployer, kb
 
 Do not replace this with an application-owned runner or store deployer kubeconfig material in the repo.
 
+## Environment Data Policy
+
+Dev may contain smoke-test uploads, AI extraction samples, and manually created
+records used to verify OCR, Dify workflow changes, reminder behavior, and
+review flows. Treat dev data as disposable and safe to clean after each feature
+verification cycle.
+
+Release must not be seeded with demo certificates or personal test uploads by
+default. Release verification should use health checks, rollout checks, and
+Celery/Redis smoke. If a real certificate must be used for a release-only
+incident, upload it as a controlled manual smoke artifact, confirm the workflow,
+then remove or archive the resulting review/certificate data according to the
+business data-retention rule.
+
+Rules:
+
+- Do not commit real certificate images, personal names, certificate numbers, or
+  identity numbers to Git.
+- Dev-only sample files belong under local ignored paths such as
+  `test-assets/`.
+- Seed scripts, when introduced, must be gated by `APP_ENV=dev` or
+  `APP_ENV=local` and must refuse to run in `release`.
+- Cleanup scripts, when introduced, must require an explicit environment flag
+  and should report the tables and row counts they will affect before deleting
+  data.
+- Release data changes should come from real HR operations or controlled smoke
+  procedures, not automatic demo seeding.
+
 ## Dependabot During Release Work
 
 Dependency PRs are handled separately from environment promotion. Runtime baseline changes must stay aligned with `docs/engineering-baseline.md`.

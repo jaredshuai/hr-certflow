@@ -11,9 +11,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.routes.reminders import create_feedback
+from app.api.routes.reviews import approve_review_task
 from app.core.config import Settings
 from app.db.session import SessionLocal, engine
-from app.domain.enums import CertificateStatus, FeedbackStatus, ReminderTaskStatus
+from app.domain.enums import CertificateStatus, DocumentStatus, FeedbackStatus, ReminderTaskStatus, ReviewStatus
 from app.models import (
     AiExtractionResult,
     AuditLog,
@@ -27,6 +28,7 @@ from app.models import (
     ReminderTask,
     ReviewTask,
 )
+from app.schemas.documents import ReviewApproveCreate
 from app.schemas.reminders import FeedbackCreate
 from app.services.certificates import replace_active_certificates
 from app.services.notifications import NotificationMessage, NotificationRouter
@@ -194,6 +196,78 @@ def test_hr_feedback_records_real_actor_and_event_source(db_session: Session) ->
     assert len(events) == 1
     assert events[0].channel == "hr_feedback"
     assert events[0].recipient == "Alice HR"
+
+
+def test_review_approval_creates_active_certificate_and_replaces_old_one(db_session: Session) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    old_certificate = EmployeeCertificate(
+        employee_id=employee.id,
+        certificate_type_id=certificate_type.id,
+        certificate_no="CERT-OLD",
+        holder_name=employee.name,
+        status=CertificateStatus.ACTIVE,
+        valid_to=date(2026, 5, 20),
+    )
+    policy = ReminderPolicy(name="default", days_before_expiry=[30], channels=["email"])
+    document = CertificateDocument(
+        employee_id=employee.id,
+        status=DocumentStatus.PENDING_REVIEW,
+        storage_bucket="jxccs-shared-infra-oss-cn-hangzhou",
+        storage_key="hr-certflow/dev/certificates/review-approval.pdf",
+        original_filename="review-approval.pdf",
+    )
+    db_session.add_all([old_certificate, policy, document])
+    db_session.flush()
+    reminder_task = ReminderTask(
+        employee_certificate_id=old_certificate.id,
+        policy_id=policy.id,
+        status=ReminderTaskStatus.PENDING,
+        trigger_date=date(2026, 4, 20),
+        due_date=date(2026, 4, 27),
+        idempotency_key="old-review-cert-default-2026-05-20-30",
+    )
+    ai_result = AiExtractionResult(
+        document_id=document.id,
+        workflow_run_id="workflow-1",
+        model_name="model",
+        output_json={"holder_name": employee.name, "certificate_no": "CERT-NEW"},
+        raw_text="raw",
+        suspicious_points=[],
+    )
+    db_session.add_all([reminder_task, ai_result])
+    db_session.flush()
+    review_task = ReviewTask(
+        document_id=document.id,
+        ai_result_id=ai_result.id,
+        status=ReviewStatus.PENDING,
+    )
+    db_session.add(review_task)
+    db_session.flush()
+
+    decision = approve_review_task(
+        review_task.id,
+        ReviewApproveCreate(
+            employee_id=employee.id,
+            certificate_type_id=certificate_type.id,
+            certificate_no="CERT-NEW",
+            holder_name=employee.name,
+            issue_date=date(2026, 6, 1),
+            valid_to=date(2028, 6, 1),
+            reviewed_by="Alice HR",
+        ),
+        db_session,
+    )
+
+    db_session.flush()
+    assert decision.certificate is not None
+    assert decision.certificate.status == CertificateStatus.ACTIVE
+    assert decision.certificate.source_document_id == document.id
+    assert review_task.status == ReviewStatus.APPROVED
+    assert document.status == DocumentStatus.CONFIRMED
+    assert old_certificate.status == CertificateStatus.REPLACED
+    assert old_certificate.replaced_by_id == decision.certificate.id
+    assert reminder_task.status == ReminderTaskStatus.CLOSED
+    assert reminder_task.closed_reason == "certificate_replaced"
 
 
 def _create_master_data(db_session: Session) -> tuple[Employee, CertificateType]:
