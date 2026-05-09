@@ -269,7 +269,7 @@ export default function UploadRecognitionPage() {
         </ProCard>
 
         <ProCard
-          title="AI 预填与人工确认"
+          title="智能预填与人工确认"
           bordered
           extra={
             <Button type="primary" icon={<SaveOutlined />} loading={submitting} onClick={approveReview}>

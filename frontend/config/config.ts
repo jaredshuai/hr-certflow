@@ -7,12 +7,13 @@ export default defineConfig({
   history: { type: 'hash' },
   publicPath: process.env.NODE_ENV === 'production' ? './' : '/',
   layout: {
-    title: 'HR CertFlow',
+    title: '人力证书管理',
     locale: false,
   },
   routes: [
-    { path: '/', redirect: '/dashboard' },
-    { name: 'Dashboard', path: '/dashboard', component: './Dashboard' },
+    { path: '/', redirect: '/gongzuotai' },
+    { path: '/dashboard', redirect: '/gongzuotai' },
+    { name: '工作台', path: '/gongzuotai', component: './Dashboard' },
     { name: '人员管理', path: '/employees', component: './Employees' },
     { name: '证书类型', path: '/certificate-types', component: './CertificateTypes' },
     { name: '持证记录', path: '/certificates', component: './Certificates' },

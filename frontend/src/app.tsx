@@ -31,7 +31,7 @@ export const request: RequestConfig = {
 };
 
 export const layout: RunTimeLayoutConfig = () => ({
-  title: 'HR CertFlow',
+  title: '人力证书管理',
   layout: 'mix',
   navTheme: 'light',
   contentWidth: 'Fluid',

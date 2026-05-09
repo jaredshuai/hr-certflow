@@ -157,7 +157,7 @@ export default function ReviewQueuePage() {
     { title: '文件', dataIndex: 'document_original_filename', ellipsis: true, renderText: (value) => value || '-' },
     { title: '文档 ID', dataIndex: 'document_id', ellipsis: true },
     {
-      title: 'AI 字段',
+      title: '识别字段',
       dataIndex: 'ai_output_json',
       width: 220,
       render: (_, record) => <ExtractionQualitySummary output={record.ai_output_json} compact />,
@@ -212,7 +212,7 @@ export default function ReviewQueuePage() {
           data: await listResource<ReviewTask>('/reviews'),
           success: true,
         })}
-        toolbar={{ title: 'AI 识别后等待 HR 确认的证书' }}
+        toolbar={{ title: '智能识别后等待人力复核的证书' }}
       />
 
       <Modal

@@ -70,7 +70,7 @@ export default function DashboardPage() {
       } catch (error) {
         if (!cancelled) {
           setData(emptyDashboardData);
-          setLoadError(error instanceof Error ? error.message : 'Dashboard 数据加载失败');
+          setLoadError(error instanceof Error ? error.message : '工作台数据加载失败');
         }
       } finally {
         if (!cancelled) {
@@ -107,8 +107,8 @@ export default function DashboardPage() {
   }, [data]);
 
   return (
-    <PageContainer title="Dashboard">
-      {loadError ? <Alert message="Dashboard 数据加载失败" description={loadError} type="error" showIcon style={{ marginBottom: 16 }} /> : null}
+    <PageContainer title="工作台">
+      {loadError ? <Alert message="工作台数据加载失败" description={loadError} type="error" showIcon style={{ marginBottom: 16 }} /> : null}
 
       <StatisticCard.Group direction="row">
         <StatisticCard

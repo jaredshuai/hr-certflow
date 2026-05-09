@@ -29,7 +29,7 @@ export default function AuditLogPage() {
           data: await listResource<AuditLogRow>('/audit-logs'),
           success: true,
         })}
-        toolbar={{ title: '上传、AI、复核、提醒、反馈状态变更' }}
+        toolbar={{ title: '上传、智能识别、复核、提醒、反馈状态变更' }}
         search={{ labelWidth: 88 }}
       />
     </PageContainer>
