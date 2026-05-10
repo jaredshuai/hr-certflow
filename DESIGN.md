@@ -97,7 +97,8 @@ Elevation should stay subtle:
 - Header stays white.
 - Sidebar background uses `#f7f8fa` or `--cf-bg-soft`.
 - Selected menu item uses soft mint background and deep teal text.
-- Keep route labels Chinese and business-oriented: `工作台`, `人员管理`, `证书类型`, `持证记录`, `上传识别`, `待复核队列`, `提醒任务`, `审计日志`.
+- Keep menu labels and page titles Chinese and business-oriented: `工作台`, `人员管理`, `证书类型`, `持证记录`, `上传识别`, `待复核队列`, `提醒任务`, `审计日志`.
+- Keep technical URL slugs stable and ASCII, for example `#/dashboard`; localization applies to visible interface copy, not route paths.
 
 ### Buttons
 
