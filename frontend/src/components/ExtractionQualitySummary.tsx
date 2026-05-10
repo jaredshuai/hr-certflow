@@ -3,19 +3,6 @@ import { useMemo } from 'react';
 
 const requiredFields = ['holder_name', 'certificate_name', 'certificate_no'] as const;
 const dateFields = ['issue_date', 'valid_from', 'valid_to', 'review_date'] as const;
-const canonicalOutputFields = [
-  'holder_name',
-  'certificate_name',
-  'certificate_no',
-  'issuing_authority',
-  'issue_date',
-  'valid_from',
-  'valid_to',
-  'review_date',
-  'raw_text',
-  'suspicious_points',
-  'model_name',
-] as const;
 
 const fieldLabels: Record<string, string> = {
   holder_name: '持证人',
@@ -34,81 +21,20 @@ function hasValue(value: unknown): boolean {
   return true;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function schemaScore(value: unknown): number {
-  if (!isRecord(value)) return 0;
-  return canonicalOutputFields.filter((field) => field in value).length;
-}
-
-function extractEmbeddedJson(text: string): Record<string, unknown> | undefined {
-  for (let index = text.lastIndexOf('{'); index >= 0; index = text.lastIndexOf('{', index - 1)) {
-    try {
-      const parsed = JSON.parse(text.slice(index).trim()) as unknown;
-      if (schemaScore(parsed) >= 2 && isRecord(parsed)) {
-        return parsed;
-      }
-    } catch {
-      // Keep scanning earlier JSON-like blocks from noisy model output.
-    }
-  }
-
-  return undefined;
-}
-
-function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-}
-
-export function normalizeExtractionOutput(
-  output: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  if (!output) return undefined;
-  const rawText = output.raw_text;
-  if (typeof rawText !== 'string') return output;
-
-  const embedded = extractEmbeddedJson(rawText);
-  if (!embedded) return output;
-
-  const normalized: Record<string, unknown> = { ...output };
-  canonicalOutputFields.forEach((field) => {
-    if (field in embedded) {
-      normalized[field] = embedded[field];
-    }
-  });
-
-  const suspiciousPoints = [
-    ...stringList(output.suspicious_points),
-    ...stringList(embedded.suspicious_points),
-  ];
-  if (rawText.includes('<think') || rawText.includes('</think>')) {
-    suspiciousPoints.push('模型返回包含非结构化文本，系统已从末尾 JSON 恢复字段，请人工核对。');
-  }
-  if (suspiciousPoints.length > 0) {
-    normalized.suspicious_points = Array.from(new Set(suspiciousPoints));
-  }
-
-  return normalized;
-}
-
 export function outputText(output: Record<string, unknown> | undefined, key: string): string | undefined {
-  const value = normalizeExtractionOutput(output)?.[key];
+  const value = output?.[key];
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
 export function extractionSuspiciousPoints(output: Record<string, unknown> | undefined): string[] {
-  const value = normalizeExtractionOutput(output)?.suspicious_points;
+  const value = output?.suspicious_points;
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 }
 
 export function buildExtractionQuality(output: Record<string, unknown> | undefined) {
-  const normalizedOutput = normalizeExtractionOutput(output);
-  const missingFields = requiredFields.filter((field) => !hasValue(normalizedOutput?.[field]));
-  const presentDateFields = dateFields.filter((field) => hasValue(normalizedOutput?.[field]));
+  const missingFields = requiredFields.filter((field) => !hasValue(output?.[field]));
+  const presentDateFields = dateFields.filter((field) => hasValue(output?.[field]));
   const missingDateGroup = presentDateFields.length === 0;
   const suspiciousPoints = extractionSuspiciousPoints(output);
   const missingLabels = [
