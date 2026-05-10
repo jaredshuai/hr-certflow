@@ -91,6 +91,7 @@ export default function CertificateTypesPage() {
       width: 110,
       valueType: 'select',
       valueEnum: forceManualReviewValueEnum,
+      renderText: (val: boolean) => String(val),
     },
     {
       title: '操作',
