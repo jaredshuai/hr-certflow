@@ -20,6 +20,7 @@ import {
 } from '@/components/ExtractionQualitySummary';
 import { listResource, postResource } from '@/services/api';
 import type { CertificateType, Employee, ReviewApprovePayload, ReviewDecision, ReviewTask } from '@/types/domain';
+import { reviewStatusLabel, reviewStatusOptions } from '@/utils/displayLabels';
 
 interface ReviewFormValues {
   employee_id?: string;
@@ -176,7 +177,11 @@ export default function ReviewQueuePage() {
       title: '状态',
       dataIndex: 'status',
       width: 130,
-      render: (_, record) => <Tag color={record.status === 'PENDING' ? 'blue' : 'gold'}>{record.status}</Tag>,
+      valueType: 'select',
+      fieldProps: {
+        options: reviewStatusOptions,
+      },
+      render: (_, record) => <Tag color={record.status === 'PENDING' ? 'blue' : 'gold'}>{reviewStatusLabel(record.status)}</Tag>,
     },
     { title: '创建时间', dataIndex: 'created_at', valueType: 'dateTime', width: 180 },
     {
@@ -212,6 +217,7 @@ export default function ReviewQueuePage() {
           data: await listResource<ReviewTask>('/reviews'),
           success: true,
         })}
+        locale={{ emptyText: '暂无待复核任务，请先上传证书并完成智能识别' }}
         toolbar={{ title: '智能识别后等待人力复核的证书' }}
       />
 

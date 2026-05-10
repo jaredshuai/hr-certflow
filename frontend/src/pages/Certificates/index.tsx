@@ -13,24 +13,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { createResource, listResource, updateResource } from '@/services/api';
 import type { CertificateStatus, CertificateType, Employee, EmployeeCertificate } from '@/types/domain';
+import { certificateStatusLabel, certificateStatusOptions } from '@/utils/displayLabels';
 
 const statusColor: Record<string, string> = {
+  DRAFT: 'default',
   ACTIVE: 'green',
   EXPIRING: 'gold',
   EXPIRED: 'red',
   PENDING_REVIEW: 'blue',
+  RENEWED: 'cyan',
   REPLACED: 'default',
   ARCHIVED: 'default',
 };
-
-const statusOptions: Array<{ label: string; value: CertificateStatus }> = [
-  { label: '有效', value: 'ACTIVE' },
-  { label: '即将到期', value: 'EXPIRING' },
-  { label: '已过期', value: 'EXPIRED' },
-  { label: '已续证', value: 'RENEWED' },
-  { label: '已替换', value: 'REPLACED' },
-  { label: '已归档', value: 'ARCHIVED' },
-];
 
 interface CertificateFormValues {
   employee_id?: string;
@@ -174,7 +168,11 @@ export default function CertificatesPage() {
       title: '状态',
       dataIndex: 'status',
       width: 130,
-      render: (_, record) => <Tag color={statusColor[record.status] || 'default'}>{record.status}</Tag>,
+      valueType: 'select',
+      fieldProps: {
+        options: certificateStatusOptions,
+      },
+      render: (_, record) => <Tag color={statusColor[record.status] || 'default'}>{certificateStatusLabel(record.status)}</Tag>,
     },
     {
       title: '操作',
@@ -198,6 +196,7 @@ export default function CertificatesPage() {
           data: await listResource<EmployeeCertificate>('/certificates'),
           success: true,
         })}
+        locale={{ emptyText: '暂无持证记录，请先上传识别或手动新增' }}
         toolbar={{
           title: '当前与历史持证记录',
           actions: [
@@ -246,7 +245,7 @@ export default function CertificatesPage() {
           <ProFormDatePicker name="valid_from" label="有效开始" />
           <ProFormDatePicker name="valid_to" label="有效截止" />
           <ProFormDatePicker name="review_date" label="复审日期" />
-          <ProFormSelect name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]} options={statusOptions} />
+          <ProFormSelect name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]} options={certificateStatusOptions} />
           <ProFormText name="confirmed_by" label="确认人" />
         </ProForm>
       </Modal>

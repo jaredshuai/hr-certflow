@@ -1,4 +1,61 @@
+import { ProConfigProvider, zhCNIntl } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
+import { ConfigProvider } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
+import type { ThemeConfig } from 'antd/es/config-provider/context';
+import 'dayjs/locale/zh-cn';
+import type { ReactNode } from 'react';
+
+const appTheme: ThemeConfig = {
+  token: {
+    colorPrimary: '#00684a',
+    colorSuccess: '#389e0d',
+    colorWarning: '#d48806',
+    colorError: '#cf1322',
+    colorInfo: '#1677ff',
+    colorTextBase: '#001e2b',
+    colorBgBase: '#f7faf9',
+    colorBgLayout: '#f7faf9',
+    colorBgContainer: '#ffffff',
+    colorBgElevated: '#ffffff',
+    colorBorder: '#dfe8e5',
+    colorBorderSecondary: '#edf2f0',
+    colorLink: '#00684a',
+    colorLinkHover: '#00855d',
+    borderRadius: 8,
+    borderRadiusLG: 12,
+    borderRadiusSM: 6,
+    fontFamily:
+      '"Alibaba PuHuiTi 3.0", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif',
+    controlHeight: 40,
+    controlHeightSM: 28,
+  },
+  components: {
+    Button: {
+      borderRadius: 999,
+      primaryShadow: '0 8px 18px rgba(0, 104, 74, 0.16)',
+    },
+    Card: {
+      borderRadiusLG: 12,
+      colorBorderSecondary: '#dfe8e5',
+    },
+    Modal: {
+      borderRadiusLG: 12,
+    },
+    Table: {
+      borderColor: '#edf2f0',
+      headerBg: '#f1f6f4',
+      headerColor: '#003d3a',
+      headerSplitColor: '#dfe8e5',
+      rowHoverBg: '#f7fbf9',
+    },
+    Tag: {
+      borderRadiusSM: 999,
+      defaultBg: '#f7faf9',
+      defaultColor: '#003d3a',
+    },
+  },
+};
 
 function resolveApiBasePath(): string {
   if (process.env.API_BASE_PATH) {
@@ -22,7 +79,7 @@ export const request: RequestConfig = {
   timeout: 30000,
   errorConfig: {
     errorThrower: (response: any) => {
-      const error: any = new Error(response?.data?.detail || 'Request failed');
+      const error: any = new Error(response?.data?.detail || '请求失败');
       error.name = 'BizError';
       error.info = response;
       throw error;
@@ -40,11 +97,23 @@ export const layout: RunTimeLayoutConfig = () => ({
   token: {
     header: {
       colorBgHeader: '#ffffff',
+      colorHeaderTitle: '#001e2b',
     },
     sider: {
-      colorMenuBackground: '#f7f8fa',
+      colorMenuBackground: '#f1f6f4',
+      colorTextMenu: '#31524d',
+      colorTextMenuActive: '#003d3a',
       colorTextMenuSelected: '#1f5f5b',
-      colorBgMenuItemSelected: '#e6f2ef',
+      colorBgMenuItemSelected: '#dff6e8',
+      colorBgMenuItemHover: '#e8f3ef',
     },
   },
 });
+
+export function rootContainer(container: ReactNode) {
+  return (
+    <ConfigProvider locale={zhCN} theme={appTheme}>
+      <ProConfigProvider intl={zhCNIntl}>{container}</ProConfigProvider>
+    </ConfigProvider>
+  );
+}

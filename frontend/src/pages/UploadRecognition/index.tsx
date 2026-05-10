@@ -22,6 +22,7 @@ import type {
   ReviewTask,
   UploadIntent,
 } from '@/types/domain';
+import { documentStatusLabel } from '@/utils/displayLabels';
 
 interface CertificateFormValues {
   employee_id?: string;
@@ -258,7 +259,7 @@ export default function UploadRecognitionPage() {
               result: extractionResult?.model_name || extractionResult?.workflow_run_id || '-',
             }}
             columns={[
-              { title: '状态', dataIndex: 'status', render: (text) => <Tag color="blue">{text}</Tag> },
+              { title: '状态', dataIndex: 'status', render: (text) => <Tag color="blue">{documentStatusLabel(String(text))}</Tag> },
               { title: '当前文件', dataIndex: 'file' },
               { title: '识别结果', dataIndex: 'ai' },
               { title: '模型/工作流', dataIndex: 'result' },

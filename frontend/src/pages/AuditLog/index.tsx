@@ -1,6 +1,7 @@
 import { PageContainer, ProTable, type ProColumns } from '@ant-design/pro-components';
 
 import { listResource } from '@/services/api';
+import { auditActionLabel, auditResourceTypeLabel } from '@/utils/displayLabels';
 
 interface AuditLogRow {
   id: string;
@@ -13,8 +14,8 @@ interface AuditLogRow {
 
 const columns: ProColumns<AuditLogRow>[] = [
   { title: '操作者', dataIndex: 'actor_name', width: 140 },
-  { title: '动作', dataIndex: 'action', width: 220 },
-  { title: '资源类型', dataIndex: 'resource_type', width: 160 },
+  { title: '动作', dataIndex: 'action', width: 220, renderText: (value) => auditActionLabel(value) },
+  { title: '资源类型', dataIndex: 'resource_type', width: 160, renderText: (value) => auditResourceTypeLabel(value) },
   { title: '资源 ID', dataIndex: 'resource_id', ellipsis: true },
   { title: '时间', dataIndex: 'created_at', valueType: 'dateTime', width: 180 },
 ];
@@ -29,6 +30,7 @@ export default function AuditLogPage() {
           data: await listResource<AuditLogRow>('/audit-logs'),
           success: true,
         })}
+        locale={{ emptyText: '暂无审计日志，业务操作后会自动记录' }}
         toolbar={{ title: '上传、智能识别、复核、提醒、反馈状态变更' }}
         search={{ labelWidth: 88 }}
       />

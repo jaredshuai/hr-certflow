@@ -121,6 +121,7 @@ export default function CertificateTypesPage() {
           data: await listResource<CertificateType>('/certificate-types'),
           success: true,
         })}
+        locale={{ emptyText: '暂无证书类型，请先新增可管理的证书类型' }}
         toolbar={{
           title: '证书类型',
           actions: [

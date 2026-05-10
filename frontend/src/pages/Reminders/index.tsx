@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 
 import { listResource, postResource } from '@/services/api';
 import type { FeedbackStatus, ReminderTask } from '@/types/domain';
+import { reminderStatusLabel, reminderStatusOptions } from '@/utils/displayLabels';
 
 const statusColor: Record<string, string> = {
   PENDING: 'default',
@@ -60,7 +61,11 @@ export default function RemindersPage() {
       title: '状态',
       dataIndex: 'status',
       width: 150,
-      render: (_, record) => <Tag color={statusColor[record.status]}>{record.status}</Tag>,
+      valueType: 'select',
+      fieldProps: {
+        options: reminderStatusOptions,
+      },
+      render: (_, record) => <Tag color={statusColor[record.status]}>{reminderStatusLabel(record.status)}</Tag>,
     },
     { title: '关闭原因', dataIndex: 'closed_reason', search: false },
     {
@@ -96,6 +101,7 @@ export default function RemindersPage() {
           data: await listResource<ReminderTask>('/reminders/tasks'),
           success: true,
         })}
+        locale={{ emptyText: '暂无提醒任务，系统会在证书临期或过期时生成' }}
         toolbar={{
           title: '到期提醒闭环',
           actions: [

@@ -156,6 +156,7 @@ export default function DashboardPage() {
           pagination={false}
           loading={loading}
           dataSource={metrics.riskRows}
+          locale={{ emptyText: '暂无风险项' }}
           columns={[
             { title: '指标', dataIndex: 'metric' },
             { title: '数量', dataIndex: 'count', valueType: 'digit' },

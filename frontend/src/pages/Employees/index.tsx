@@ -12,6 +12,7 @@ import { useRef, useState } from 'react';
 
 import { createResource, listResource, updateResource } from '@/services/api';
 import type { Employee, EmploymentStatus } from '@/types/domain';
+import { employmentStatusLabel, employmentStatusOptions } from '@/utils/displayLabels';
 
 interface EmployeeFormValues {
   employee_no?: string;
@@ -94,9 +95,13 @@ export default function EmployeesPage() {
       title: '在职状态',
       dataIndex: 'employment_status',
       width: 120,
+      valueType: 'select',
+      fieldProps: {
+        options: employmentStatusOptions,
+      },
       render: (_, record) => {
         const color = record.employment_status === 'ACTIVE' ? 'green' : record.employment_status === 'LEFT' ? 'default' : 'gold';
-        return <Tag color={color}>{record.employment_status}</Tag>;
+        return <Tag color={color}>{employmentStatusLabel(record.employment_status)}</Tag>;
       },
     },
     { title: '手机', dataIndex: 'phone', search: false },
@@ -123,6 +128,7 @@ export default function EmployeesPage() {
           data: await listResource<Employee>('/employees'),
           success: true,
         })}
+        locale={{ emptyText: '暂无人员，请先新增员工档案' }}
         toolbar={{
           title: '人员列表',
           actions: [
@@ -156,11 +162,7 @@ export default function EmployeesPage() {
             name="employment_status"
             label="在职状态"
             rules={[{ required: true, message: '请选择在职状态' }]}
-            options={[
-              { label: '在职', value: 'ACTIVE' },
-              { label: '休假', value: 'ON_LEAVE' },
-              { label: '离职', value: 'LEFT' },
-            ]}
+            options={employmentStatusOptions}
           />
           <ProFormText name="phone" label="手机" />
           <ProFormText name="email" label="邮箱" />
