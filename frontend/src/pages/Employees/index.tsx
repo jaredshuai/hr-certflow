@@ -1,18 +1,20 @@
 import {
+  ModalForm,
   PageContainer,
-  ProForm,
   ProFormSelect,
   ProFormText,
   ProTable,
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Button, Form, Modal, Tag, message } from 'antd';
+import { Alert, Button } from 'antd';
 import { useRef, useState } from 'react';
 
 import { createResource, listResource, updateResource } from '@/services/api';
 import type { Employee, EmploymentStatus } from '@/types/domain';
-import { employmentStatusLabel, employmentStatusOptions } from '@/utils/displayLabels';
+import { emptyTableText } from '@/utils/emptyStates';
+import { employmentStatusOptions, employmentStatusValueEnum } from '@/utils/displayLabels';
+import { message } from '@/utils/messageApi';
 
 interface EmployeeFormValues {
   employee_no?: string;
@@ -31,26 +33,21 @@ function optionalText(value: string | undefined): string | undefined {
 
 export default function EmployeesPage() {
   const actionRef = useRef<ActionType>();
-  const [form] = Form.useForm<EmployeeFormValues>();
-  const [modalOpen, setModalOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const [currentEmployee, setCurrentEmployee] = useState<Employee>();
-  const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState<string>();
 
-  function openCreateModal() {
+  function openCreate() {
     setCurrentEmployee(undefined);
-    form.resetFields();
-    form.setFieldsValue({ employment_status: 'ACTIVE' });
-    setModalOpen(true);
+    setOpen(true);
   }
 
-  function openEditModal(record: Employee) {
+  function openEdit(record: Employee) {
     setCurrentEmployee(record);
-    form.setFieldsValue(record);
-    setModalOpen(true);
+    setOpen(true);
   }
 
-  async function submitEmployee() {
-    const values = await form.validateFields();
+  async function handleFinish(values: EmployeeFormValues): Promise<boolean> {
     const payload = {
       employee_no: values.employee_no?.trim(),
       name: values.name?.trim(),
@@ -61,7 +58,6 @@ export default function EmployeesPage() {
       email: optionalText(values.email),
     };
 
-    setSubmitting(true);
     try {
       if (currentEmployee) {
         await updateResource<Employee, Omit<typeof payload, 'employee_no'>>(`/employees/${currentEmployee.id}`, {
@@ -77,12 +73,11 @@ export default function EmployeesPage() {
         await createResource<Employee, typeof payload>('/employees', payload);
         message.success('人员已创建');
       }
-      setModalOpen(false);
       actionRef.current?.reload();
+      return true;
     } catch (error) {
       message.error(error instanceof Error ? error.message : '人员保存失败');
-    } finally {
-      setSubmitting(false);
+      return false;
     }
   }
 
@@ -96,13 +91,7 @@ export default function EmployeesPage() {
       dataIndex: 'employment_status',
       width: 120,
       valueType: 'select',
-      fieldProps: {
-        options: employmentStatusOptions,
-      },
-      render: (_, record) => {
-        const color = record.employment_status === 'ACTIVE' ? 'green' : record.employment_status === 'LEFT' ? 'default' : 'gold';
-        return <Tag color={color}>{employmentStatusLabel(record.employment_status)}</Tag>;
-      },
+      valueEnum: employmentStatusValueEnum,
     },
     { title: '手机', dataIndex: 'phone', search: false },
     { title: '邮箱', dataIndex: 'email', search: false },
@@ -111,7 +100,7 @@ export default function EmployeesPage() {
       valueType: 'option',
       width: 100,
       render: (_, record) => (
-        <Button type="link" size="small" onClick={() => openEditModal(record)}>
+        <Button type="link" size="small" onClick={() => openEdit(record)}>
           编辑
         </Button>
       ),
@@ -120,19 +109,37 @@ export default function EmployeesPage() {
 
   return (
     <PageContainer title="人员管理">
+      {loadError ? (
+        <Alert
+          type="error"
+          showIcon
+          title="人员数据加载失败"
+          description={loadError}
+          style={{ marginBottom: 16 }}
+          closable={{ onClose: () => setLoadError(undefined) }}
+        />
+      ) : null}
       <ProTable<Employee>
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
-        request={async () => ({
-          data: await listResource<Employee>('/employees'),
-          success: true,
-        })}
-        locale={{ emptyText: '暂无人员，请先新增员工档案' }}
+        request={async () => {
+          try {
+            const data = await listResource<Employee>('/employees');
+            setLoadError(undefined);
+            return { data, success: true };
+          } catch (error) {
+            const description = error instanceof Error ? error.message : '人员数据加载失败';
+            setLoadError(description);
+            message.error(description);
+            return { data: [], success: false };
+          }
+        }}
+        locale={{ emptyText: emptyTableText('暂无人员，请先新增员工档案') }}
         toolbar={{
           title: '人员列表',
           actions: [
-            <Button key="create" type="primary" onClick={openCreateModal}>
+            <Button key="create" type="primary" onClick={openCreate}>
               新增人员
             </Button>,
           ],
@@ -140,34 +147,48 @@ export default function EmployeesPage() {
         search={{ labelWidth: 88 }}
       />
 
-      <Modal
+      <ModalForm<EmployeeFormValues>
+        key={currentEmployee?.id ?? 'create'}
         title={currentEmployee ? '编辑人员' : '新增人员'}
-        open={modalOpen}
-        onCancel={() => setModalOpen(false)}
-        onOk={() => void submitEmployee()}
-        confirmLoading={submitting}
-        destroyOnClose
+        open={open}
+        onOpenChange={setOpen}
+        modalProps={{ destroyOnHidden: true, mask: { closable: false } }}
+        layout="horizontal"
+        labelCol={{ span: 5 }}
+        width={520}
+        initialValues={
+          currentEmployee
+            ? {
+                employee_no: currentEmployee.employee_no,
+                name: currentEmployee.name,
+                department: currentEmployee.department,
+                position: currentEmployee.position,
+                employment_status: currentEmployee.employment_status,
+                phone: currentEmployee.phone,
+                email: currentEmployee.email,
+              }
+            : { employment_status: 'ACTIVE' as EmploymentStatus }
+        }
+        onFinish={handleFinish}
       >
-        <ProForm form={form} submitter={false} layout="horizontal" labelCol={{ span: 5 }}>
-          <ProFormText
-            name="employee_no"
-            label="工号"
-            disabled={Boolean(currentEmployee)}
-            rules={[{ required: true, message: '请输入工号' }]}
-          />
-          <ProFormText name="name" label="姓名" rules={[{ required: true, message: '请输入姓名' }]} />
-          <ProFormText name="department" label="部门" />
-          <ProFormText name="position" label="岗位" />
-          <ProFormSelect
-            name="employment_status"
-            label="在职状态"
-            rules={[{ required: true, message: '请选择在职状态' }]}
-            options={employmentStatusOptions}
-          />
-          <ProFormText name="phone" label="手机" />
-          <ProFormText name="email" label="邮箱" />
-        </ProForm>
-      </Modal>
+        <ProFormText
+          name="employee_no"
+          label="工号"
+          disabled={Boolean(currentEmployee)}
+          rules={[{ required: true, message: '请输入工号' }]}
+        />
+        <ProFormText name="name" label="姓名" rules={[{ required: true, message: '请输入姓名' }]} />
+        <ProFormText name="department" label="部门" />
+        <ProFormText name="position" label="岗位" />
+        <ProFormSelect
+          name="employment_status"
+          label="在职状态"
+          rules={[{ required: true, message: '请选择在职状态' }]}
+          options={employmentStatusOptions}
+        />
+        <ProFormText name="phone" label="手机" />
+        <ProFormText name="email" label="邮箱" />
+      </ModalForm>
     </PageContainer>
   );
 }

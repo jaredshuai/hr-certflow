@@ -1,5 +1,11 @@
 import type { CertificateStatus, EmploymentStatus, ReminderTaskStatus, ReviewStatus } from '@/types/domain';
 
+type ProValueEnumStatus = 'Default' | 'Processing' | 'Success' | 'Warning' | 'Error';
+export type StatusValueEnum<K extends string = string> = Record<
+  K,
+  { text: string; status?: ProValueEnumStatus }
+>;
+
 const employmentStatusLabels: Record<string, string> = {
   ACTIVE: '在职',
   ON_LEAVE: '休假',
@@ -149,3 +155,51 @@ export function auditActionLabel(value: string | null | undefined): string {
 export function auditResourceTypeLabel(value: string | null | undefined): string {
   return labelFromMap(value, auditResourceTypeLabels);
 }
+
+export const employmentStatusValueEnum: StatusValueEnum<EmploymentStatus> = {
+  ACTIVE: { text: '在职', status: 'Success' },
+  ON_LEAVE: { text: '休假', status: 'Warning' },
+  LEFT: { text: '离职', status: 'Default' },
+};
+
+export const certificateStatusValueEnum: StatusValueEnum<CertificateStatus> = {
+  DRAFT: { text: '草稿', status: 'Default' },
+  PENDING_REVIEW: { text: '待复核', status: 'Processing' },
+  ACTIVE: { text: '有效', status: 'Success' },
+  EXPIRING: { text: '即将到期', status: 'Warning' },
+  EXPIRED: { text: '已过期', status: 'Error' },
+  RENEWED: { text: '已续证', status: 'Success' },
+  REPLACED: { text: '已替换', status: 'Default' },
+  ARCHIVED: { text: '已归档', status: 'Default' },
+};
+
+export const reviewStatusValueEnum: StatusValueEnum<ReviewStatus> = {
+  PENDING: { text: '待复核', status: 'Processing' },
+  APPROVED: { text: '已通过', status: 'Success' },
+  REJECTED: { text: '已驳回', status: 'Error' },
+  NEEDS_INFO: { text: '需补充', status: 'Warning' },
+};
+
+export const reminderStatusValueEnum: StatusValueEnum<ReminderTaskStatus> = {
+  PENDING: { text: '待处理', status: 'Default' },
+  FIRST_SENT: { text: '已首次提醒', status: 'Processing' },
+  WAITING_FEEDBACK: { text: '等待反馈', status: 'Warning' },
+  SECOND_SENT: { text: '已二次提醒', status: 'Warning' },
+  ESCALATED: { text: '已升级', status: 'Error' },
+  RESOLVED: { text: '已解决', status: 'Success' },
+  CLOSED: { text: '已关闭', status: 'Default' },
+};
+
+export const forceManualReviewValueEnum: StatusValueEnum<'true' | 'false'> = {
+  true: { text: '是', status: 'Warning' },
+  false: { text: '否', status: 'Success' },
+};
+
+export const documentStatusValueEnum: StatusValueEnum = {
+  UPLOADED: { text: '已上传', status: 'Processing' },
+  PARSING: { text: '解析中', status: 'Processing' },
+  PENDING_REVIEW: { text: '待复核', status: 'Warning' },
+  CONFIRMED: { text: '已确认', status: 'Success' },
+  FAILED: { text: '处理失败', status: 'Error' },
+  ARCHIVED: { text: '已归档', status: 'Default' },
+};

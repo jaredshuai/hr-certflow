@@ -1,6 +1,6 @@
 import {
+  DrawerForm,
   PageContainer,
-  ProForm,
   ProFormDatePicker,
   ProFormSelect,
   ProFormText,
@@ -8,23 +8,15 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Button, Form, Modal, Tag, message } from 'antd';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Button } from 'antd';
+import { useEffect, useMemo, useState, useRef } from 'react';
 
 import { createResource, listResource, updateResource } from '@/services/api';
 import type { CertificateStatus, CertificateType, Employee, EmployeeCertificate } from '@/types/domain';
-import { certificateStatusLabel, certificateStatusOptions } from '@/utils/displayLabels';
-
-const statusColor: Record<string, string> = {
-  DRAFT: 'default',
-  ACTIVE: 'green',
-  EXPIRING: 'gold',
-  EXPIRED: 'red',
-  PENDING_REVIEW: 'blue',
-  RENEWED: 'cyan',
-  REPLACED: 'default',
-  ARCHIVED: 'default',
-};
+import { certificateStatusOptions, certificateStatusValueEnum } from '@/utils/displayLabels';
+import { emptyTableText } from '@/utils/emptyStates';
+import { certificateTypeSelectRequest, employeeSelectRequest } from '@/utils/formOptions';
+import { message } from '@/utils/messageApi';
 
 interface CertificateFormValues {
   employee_id?: string;
@@ -56,13 +48,13 @@ function formatDateValue(value: unknown): string | undefined {
 
 export default function CertificatesPage() {
   const actionRef = useRef<ActionType>();
-  const [form] = Form.useForm<CertificateFormValues>();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [certificateTypes, setCertificateTypes] = useState<CertificateType[]>([]);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const [currentCertificate, setCurrentCertificate] = useState<EmployeeCertificate>();
-  const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState<string>();
 
+  // Keep useEffect to provide id->name mapping for table columns; form selects use ProFormSelect.request.
   useEffect(() => {
     async function loadOptions() {
       const [employeeList, typeList] = await Promise.all([
@@ -87,33 +79,17 @@ export default function CertificatesPage() {
     [certificateTypes],
   );
 
-  function openCreateModal() {
+  function openCreate() {
     setCurrentCertificate(undefined);
-    form.resetFields();
-    form.setFieldsValue({ status: 'ACTIVE' });
-    setModalOpen(true);
+    setOpen(true);
   }
 
-  function openEditModal(record: EmployeeCertificate) {
+  function openEdit(record: EmployeeCertificate) {
     setCurrentCertificate(record);
-    form.setFieldsValue({
-      employee_id: record.employee_id,
-      certificate_type_id: record.certificate_type_id,
-      certificate_no: record.certificate_no,
-      holder_name: record.holder_name,
-      issuing_authority: record.issuing_authority,
-      issue_date: record.issue_date,
-      valid_from: record.valid_from,
-      valid_to: record.valid_to,
-      review_date: record.review_date,
-      status: record.status,
-      confirmed_by: record.confirmed_by,
-    });
-    setModalOpen(true);
+    setOpen(true);
   }
 
-  async function submitCertificate() {
-    const values = await form.validateFields();
+  async function handleFinish(values: CertificateFormValues): Promise<boolean> {
     const payload = {
       employee_id: values.employee_id!,
       certificate_type_id: values.certificate_type_id!,
@@ -128,7 +104,6 @@ export default function CertificatesPage() {
       confirmed_by: optionalText(values.confirmed_by),
     };
 
-    setSubmitting(true);
     try {
       if (currentCertificate) {
         await updateResource<EmployeeCertificate, typeof payload>(`/certificates/${currentCertificate.id}`, payload);
@@ -137,12 +112,11 @@ export default function CertificatesPage() {
         await createResource<EmployeeCertificate, typeof payload>('/certificates', payload);
         message.success('持证记录已创建');
       }
-      setModalOpen(false);
       actionRef.current?.reload();
+      return true;
     } catch (error) {
       message.error(error instanceof Error ? error.message : '持证记录保存失败');
-    } finally {
-      setSubmitting(false);
+      return false;
     }
   }
 
@@ -169,17 +143,14 @@ export default function CertificatesPage() {
       dataIndex: 'status',
       width: 130,
       valueType: 'select',
-      fieldProps: {
-        options: certificateStatusOptions,
-      },
-      render: (_, record) => <Tag color={statusColor[record.status] || 'default'}>{certificateStatusLabel(record.status)}</Tag>,
+      valueEnum: certificateStatusValueEnum,
     },
     {
       title: '操作',
       valueType: 'option',
       width: 100,
       render: (_, record) => (
-        <Button type="link" size="small" onClick={() => openEditModal(record)}>
+        <Button type="link" size="small" onClick={() => openEdit(record)}>
           编辑
         </Button>
       ),
@@ -188,19 +159,37 @@ export default function CertificatesPage() {
 
   return (
     <PageContainer title="持证记录">
+      {loadError ? (
+        <Alert
+          type="error"
+          showIcon
+          title="持证记录加载失败"
+          description={loadError}
+          style={{ marginBottom: 16 }}
+          closable={{ onClose: () => setLoadError(undefined) }}
+        />
+      ) : null}
       <ProTable<EmployeeCertificate>
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
-        request={async () => ({
-          data: await listResource<EmployeeCertificate>('/certificates'),
-          success: true,
-        })}
-        locale={{ emptyText: '暂无持证记录，请先上传识别或手动新增' }}
+        request={async () => {
+          try {
+            const data = await listResource<EmployeeCertificate>('/certificates');
+            setLoadError(undefined);
+            return { data, success: true };
+          } catch (error) {
+            const description = error instanceof Error ? error.message : '持证记录加载失败';
+            setLoadError(description);
+            message.error(description);
+            return { data: [], success: false };
+          }
+        }}
+        locale={{ emptyText: emptyTableText('暂无持证记录，请先上传识别或手动新增') }}
         toolbar={{
           title: '当前与历史持证记录',
           actions: [
-            <Button key="create" type="primary" onClick={openCreateModal}>
+            <Button key="create" type="primary" onClick={openCreate}>
               新增持证记录
             </Button>,
           ],
@@ -208,47 +197,63 @@ export default function CertificatesPage() {
         search={{ labelWidth: 88 }}
       />
 
-      <Modal
+      <DrawerForm<CertificateFormValues>
+        key={currentCertificate?.id ?? 'create'}
         title={currentCertificate ? '编辑持证记录' : '新增持证记录'}
-        open={modalOpen}
-        onCancel={() => setModalOpen(false)}
-        onOk={() => void submitCertificate()}
-        confirmLoading={submitting}
-        destroyOnClose
-        width={760}
+        open={open}
+        onOpenChange={setOpen}
+        drawerProps={{ destroyOnHidden: true, mask: { closable: false } }}
+        layout="horizontal"
+        labelCol={{ span: 5 }}
+        width={640}
+        initialValues={
+          currentCertificate
+            ? {
+                employee_id: currentCertificate.employee_id,
+                certificate_type_id: currentCertificate.certificate_type_id,
+                certificate_no: currentCertificate.certificate_no,
+                holder_name: currentCertificate.holder_name,
+                issuing_authority: currentCertificate.issuing_authority,
+                issue_date: currentCertificate.issue_date,
+                valid_from: currentCertificate.valid_from,
+                valid_to: currentCertificate.valid_to,
+                review_date: currentCertificate.review_date,
+                status: currentCertificate.status,
+                confirmed_by: currentCertificate.confirmed_by,
+              }
+            : { status: 'ACTIVE' as CertificateStatus }
+        }
+        onFinish={handleFinish}
       >
-        <ProForm form={form} submitter={false} layout="horizontal" labelCol={{ span: 5 }}>
-          <ProFormSelect
-            name="employee_id"
-            label="员工"
-            rules={[{ required: true, message: '请选择员工' }]}
-            options={employees.map((employee) => ({
-              label: `${employee.name}（${employee.employee_no}）`,
-              value: employee.id,
-            }))}
-            showSearch
-          />
-          <ProFormSelect
-            name="certificate_type_id"
-            label="证书类型"
-            rules={[{ required: true, message: '请选择证书类型' }]}
-            options={certificateTypes.map((certificateType) => ({
-              label: certificateType.name,
-              value: certificateType.id,
-            }))}
-            showSearch
-          />
-          <ProFormText name="holder_name" label="持证人" rules={[{ required: true, message: '请输入持证人' }]} />
-          <ProFormText name="certificate_no" label="证书编号" />
-          <ProFormText name="issuing_authority" label="发证机构" />
-          <ProFormDatePicker name="issue_date" label="发证日期" />
-          <ProFormDatePicker name="valid_from" label="有效开始" />
-          <ProFormDatePicker name="valid_to" label="有效截止" />
-          <ProFormDatePicker name="review_date" label="复审日期" />
-          <ProFormSelect name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]} options={certificateStatusOptions} />
-          <ProFormText name="confirmed_by" label="确认人" />
-        </ProForm>
-      </Modal>
+        <ProFormSelect
+          name="employee_id"
+          label="员工"
+          rules={[{ required: true, message: '请选择员工' }]}
+          request={employeeSelectRequest}
+          showSearch
+        />
+        <ProFormSelect
+          name="certificate_type_id"
+          label="证书类型"
+          rules={[{ required: true, message: '请选择证书类型' }]}
+          request={certificateTypeSelectRequest}
+          showSearch
+        />
+        <ProFormText name="holder_name" label="持证人" rules={[{ required: true, message: '请输入持证人' }]} />
+        <ProFormText name="certificate_no" label="证书编号" />
+        <ProFormText name="issuing_authority" label="发证机构" />
+        <ProFormDatePicker name="issue_date" label="发证日期" />
+        <ProFormDatePicker name="valid_from" label="有效开始" />
+        <ProFormDatePicker name="valid_to" label="有效截止" />
+        <ProFormDatePicker name="review_date" label="复审日期" />
+        <ProFormSelect
+          name="status"
+          label="状态"
+          rules={[{ required: true, message: '请选择状态' }]}
+          options={certificateStatusOptions}
+        />
+        <ProFormText name="confirmed_by" label="确认人" />
+      </DrawerForm>
     </PageContainer>
   );
 }

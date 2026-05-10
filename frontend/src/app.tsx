@@ -1,10 +1,12 @@
 import { ProConfigProvider, zhCNIntl } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
-import { ConfigProvider } from 'antd';
+import { App as AntdApp, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import type { ThemeConfig } from 'antd';
 import 'dayjs/locale/zh-cn';
 import type { ReactNode } from 'react';
+
+import { setMessageInstance } from '@/utils/messageApi';
 
 const appTheme: ThemeConfig = {
   cssVar: true,
@@ -111,10 +113,19 @@ export const layout: RunTimeLayoutConfig = () => ({
   },
 });
 
+function MessageInstaller() {
+  const { message } = AntdApp.useApp();
+  setMessageInstance(message);
+  return null;
+}
+
 export function rootContainer(container: ReactNode) {
   return (
     <ConfigProvider locale={zhCN} theme={appTheme}>
-      <ProConfigProvider intl={zhCNIntl}>{container}</ProConfigProvider>
+      <AntdApp>
+        <MessageInstaller />
+        <ProConfigProvider intl={zhCNIntl}>{container}</ProConfigProvider>
+      </AntdApp>
     </ConfigProvider>
   );
 }

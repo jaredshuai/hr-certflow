@@ -1,20 +1,12 @@
 import { PageContainer, ProTable, type ActionType, type ProColumns } from '@ant-design/pro-components';
-import { Button, Input, Space, Tag, Typography, message } from 'antd';
+import { Alert, Button, Input, Space, Typography } from 'antd';
 import { useRef, useState } from 'react';
 
 import { listResource, postResource } from '@/services/api';
 import type { FeedbackStatus, ReminderTask } from '@/types/domain';
-import { reminderStatusLabel, reminderStatusOptions } from '@/utils/displayLabels';
-
-const statusColor: Record<string, string> = {
-  PENDING: 'default',
-  FIRST_SENT: 'blue',
-  WAITING_FEEDBACK: 'gold',
-  SECOND_SENT: 'orange',
-  ESCALATED: 'red',
-  RESOLVED: 'green',
-  CLOSED: 'default',
-};
+import { reminderStatusValueEnum } from '@/utils/displayLabels';
+import { emptyTableText } from '@/utils/emptyStates';
+import { message } from '@/utils/messageApi';
 
 const feedbackActions: Array<{ label: string; status: FeedbackStatus; content: string; danger?: boolean }> = [
   { label: '已通知', status: 'NOTIFIED_EMPLOYEE', content: '人力已通知员工' },
@@ -29,6 +21,7 @@ export default function RemindersPage() {
   const actionRef = useRef<ActionType>();
   const [submittingId, setSubmittingId] = useState<string>();
   const [feedbackActor, setFeedbackActor] = useState('');
+  const [loadError, setLoadError] = useState<string>();
 
   async function submitFeedback(record: ReminderTask, status: FeedbackStatus, content: string) {
     const actor = feedbackActor.trim();
@@ -62,10 +55,7 @@ export default function RemindersPage() {
       dataIndex: 'status',
       width: 150,
       valueType: 'select',
-      fieldProps: {
-        options: reminderStatusOptions,
-      },
-      render: (_, record) => <Tag color={statusColor[record.status]}>{reminderStatusLabel(record.status)}</Tag>,
+      valueEnum: reminderStatusValueEnum,
     },
     { title: '关闭原因', dataIndex: 'closed_reason', search: false },
     {
@@ -93,15 +83,33 @@ export default function RemindersPage() {
 
   return (
     <PageContainer title="提醒任务">
+      {loadError ? (
+        <Alert
+          type="error"
+          showIcon
+          title="提醒任务加载失败"
+          description={loadError}
+          style={{ marginBottom: 16 }}
+          closable={{ onClose: () => setLoadError(undefined) }}
+        />
+      ) : null}
       <ProTable<ReminderTask>
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
-        request={async () => ({
-          data: await listResource<ReminderTask>('/reminders/tasks'),
-          success: true,
-        })}
-        locale={{ emptyText: '暂无提醒任务，系统会在证书临期或过期时生成' }}
+        request={async () => {
+          try {
+            const data = await listResource<ReminderTask>('/reminders/tasks');
+            setLoadError(undefined);
+            return { data, success: true };
+          } catch (error) {
+            const description = error instanceof Error ? error.message : '提醒任务加载失败';
+            setLoadError(description);
+            message.error(description);
+            return { data: [], success: false };
+          }
+        }}
+        locale={{ emptyText: emptyTableText('暂无提醒任务，系统会在证书临期或过期时生成') }}
         toolbar={{
           title: '到期提醒闭环',
           actions: [

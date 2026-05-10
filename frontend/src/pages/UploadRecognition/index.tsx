@@ -8,21 +8,21 @@ import {
   ProFormSelect,
   ProFormText,
 } from '@ant-design/pro-components';
-import { Button, Divider, Form, Input, Space, Tag, Typography, Upload, message } from 'antd';
-import { useEffect, useState } from 'react';
+import { Alert, Button, Divider, Form, Input, Result, Space, Steps, Typography, Upload } from 'antd';
+import { useMemo, useState } from 'react';
 
 import { ExtractionQualitySummary, outputText } from '@/components/ExtractionQualitySummary';
 import { listResource, postResource } from '@/services/api';
 import type {
   AiExtractionResult,
-  CertificateType,
-  Employee,
   ReviewApprovePayload,
   ReviewDecision,
   ReviewTask,
   UploadIntent,
 } from '@/types/domain';
 import { documentStatusLabel } from '@/utils/displayLabels';
+import { certificateTypeSelectRequest, employeeSelectRequest } from '@/utils/formOptions';
+import { message } from '@/utils/messageApi';
 
 interface CertificateFormValues {
   employee_id?: string;
@@ -84,33 +84,40 @@ function formatDateValue(value: unknown): string | undefined {
   return undefined;
 }
 
+type FlowStep = 'select' | 'upload' | 'recognize' | 'confirm' | 'done';
+
+const STEP_INDEX: Record<FlowStep, number> = {
+  select: 0,
+  upload: 1,
+  recognize: 2,
+  confirm: 3,
+  done: 3,
+};
+
 export default function UploadRecognitionPage() {
   const [form] = Form.useForm<CertificateFormValues>();
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [certificateTypes, setCertificateTypes] = useState<CertificateType[]>([]);
   const [selectedFile, setSelectedFile] = useState<File>();
   const [documentId, setDocumentId] = useState<string>();
   const [reviewTaskId, setReviewTaskId] = useState<string>();
   const [documentStatus, setDocumentStatus] = useState('未上传');
   const [recognitionStatus, setRecognitionStatus] = useState('未识别');
   const [recognitionActor, setRecognitionActor] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [recognizing, setRecognizing] = useState(false);
+  const [approving, setApproving] = useState(false);
   const [extractionResult, setExtractionResult] = useState<AiExtractionResult>();
+  const [errorMessage, setErrorMessage] = useState<string>();
 
-  useEffect(() => {
-    async function loadOptions() {
-      const [employeeList, typeList] = await Promise.all([
-        listResource<Employee>('/employees'),
-        listResource<CertificateType>('/certificate-types'),
-      ]);
-      setEmployees(employeeList);
-      setCertificateTypes(typeList);
-    }
+  const flowStep: FlowStep = useMemo(() => {
+    if (documentStatus === 'CONFIRMED') return 'done';
+    if (reviewTaskId && extractionResult) return 'confirm';
+    if (documentId) return 'recognize';
+    if (selectedFile) return 'upload';
+    return 'select';
+  }, [documentStatus, reviewTaskId, extractionResult, documentId, selectedFile]);
 
-    void loadOptions().catch((error) => {
-      message.error(error instanceof Error ? error.message : '基础数据加载失败');
-    });
-  }, []);
+  const currentStepIndex = STEP_INDEX[flowStep];
+  const submitting = uploading || recognizing || approving;
 
   async function findPendingReviewTask(targetDocumentId: string) {
     const pendingReviews = await listResource<ReviewTask>('/reviews?status=PENDING');
@@ -155,8 +162,10 @@ export default function UploadRecognitionPage() {
       message.warning('请先填写识别操作人');
       return;
     }
+    if (submitting) return;
 
-    setSubmitting(true);
+    setErrorMessage(undefined);
+    setUploading(true);
     try {
       const intent = await postResource<
         UploadIntent,
@@ -180,13 +189,21 @@ export default function UploadRecognitionPage() {
 
       setDocumentId(intent.document_id);
       setDocumentStatus('UPLOADED');
-      await recognizeDocument(intent.document_id, actor);
-      message.success('上传和识别已完成，请复核后确认');
+      setUploading(false);
+      setRecognizing(true);
+      try {
+        await recognizeDocument(intent.document_id, actor);
+        message.success('上传和识别已完成，请复核后确认');
+      } finally {
+        setRecognizing(false);
+      }
     } catch (error) {
       setRecognitionStatus('识别失败');
-      message.error(error instanceof Error ? error.message : '上传识别失败');
-    } finally {
-      setSubmitting(false);
+      const description = error instanceof Error ? error.message : '上传识别失败';
+      setErrorMessage(description);
+      message.error(description);
+      setUploading(false);
+      setRecognizing(false);
     }
   }
 
@@ -200,15 +217,20 @@ export default function UploadRecognitionPage() {
       message.warning('请先填写识别操作人');
       return;
     }
-    setSubmitting(true);
+    if (submitting) return;
+
+    setErrorMessage(undefined);
+    setRecognizing(true);
     try {
       await recognizeDocument(documentId, actor);
       message.success('重新识别已完成');
     } catch (error) {
       setRecognitionStatus('识别失败');
-      message.error(error instanceof Error ? error.message : '重新识别失败');
+      const description = error instanceof Error ? error.message : '重新识别失败';
+      setErrorMessage(description);
+      message.error(description);
     } finally {
-      setSubmitting(false);
+      setRecognizing(false);
     }
   }
 
@@ -217,8 +239,15 @@ export default function UploadRecognitionPage() {
       message.error('没有可确认的复核任务，请先完成识别');
       return;
     }
+    if (submitting) return;
 
-    const values = await form.validateFields();
+    let values: CertificateFormValues;
+    try {
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
+
     const payload: ReviewApprovePayload = {
       employee_id: values.employee_id!,
       certificate_type_id: values.certificate_type_id!,
@@ -233,7 +262,7 @@ export default function UploadRecognitionPage() {
       notes: values.notes,
     };
 
-    setSubmitting(true);
+    setApproving(true);
     try {
       await postResource<ReviewDecision, ReviewApprovePayload>(`/reviews/${reviewTaskId}/approve`, payload);
       setDocumentStatus('CONFIRMED');
@@ -243,17 +272,80 @@ export default function UploadRecognitionPage() {
     } catch (error) {
       message.error(error instanceof Error ? error.message : '确认失败');
     } finally {
-      setSubmitting(false);
+      setApproving(false);
     }
   }
 
+  function resetFlow() {
+    setSelectedFile(undefined);
+    setDocumentId(undefined);
+    setReviewTaskId(undefined);
+    setExtractionResult(undefined);
+    setDocumentStatus('未上传');
+    setRecognitionStatus('未识别');
+    setErrorMessage(undefined);
+    form.resetFields();
+  }
+
+  const showConfirmReady =
+    flowStep === 'confirm' && extractionResult && reviewTaskId && documentStatus !== 'CONFIRMED';
+
   return (
     <PageContainer title="上传识别">
+      <ProCard style={{ marginBottom: 16 }}>
+        <Steps
+          current={currentStepIndex}
+          status={errorMessage ? 'error' : flowStep === 'done' ? 'finish' : 'process'}
+          items={[
+            { title: '选择文件', content: '拖拽证书原件' },
+            { title: '上传原件', content: '推送至对象存储' },
+            { title: 'AI 识别', content: '调用智能识别' },
+            { title: '人工确认', content: '复核并入库' },
+          ]}
+        />
+      </ProCard>
+
+      {errorMessage ? (
+        <Alert
+          type="error"
+          showIcon
+          title="流程出现错误"
+          description={errorMessage}
+          closable={{ onClose: () => setErrorMessage(undefined) }}
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
+
+      {flowStep === 'done' ? (
+        <ProCard style={{ marginBottom: 16 }}>
+          <Result
+            status="success"
+            title="证书已确认入库"
+            subTitle="后续可在持证记录中查看与维护，提醒任务也会自动生成。"
+            extra={[
+              <Button key="next" type="primary" onClick={resetFlow}>
+                继续上传下一份
+              </Button>,
+            ]}
+          />
+        </ProCard>
+      ) : null}
+
+      {showConfirmReady ? (
+        <Alert
+          type="info"
+          showIcon
+          title="智能识别完成，请人工复核字段后确认入库"
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
+
       <div className="certflow-upload-grid">
         <ProCard title="证书原件">
           <Upload.Dragger
             multiple={false}
             maxCount={1}
+            disabled={submitting}
             beforeUpload={(file) => {
               if (!validateUploadFile(file)) {
                 return Upload.LIST_IGNORE;
@@ -264,6 +356,7 @@ export default function UploadRecognitionPage() {
               setExtractionResult(undefined);
               setDocumentStatus('待上传');
               setRecognitionStatus('未识别');
+              setErrorMessage(undefined);
               message.info('已选择文件');
               return false;
             }}
@@ -277,24 +370,30 @@ export default function UploadRecognitionPage() {
 
           <Divider />
 
-          <Space style={{ marginBottom: 16 }}>
+          <Space style={{ marginBottom: 16 }} wrap>
             <Typography.Text>识别操作人</Typography.Text>
             <Input
               aria-label="识别操作人"
               value={recognitionActor}
               onChange={(event) => setRecognitionActor(event.target.value)}
               style={{ width: 150 }}
+              disabled={submitting}
             />
             <Button
               type="primary"
               icon={<UploadOutlined />}
-              disabled={submitting}
-              loading={submitting}
+              disabled={!selectedFile || submitting || Boolean(documentId)}
+              loading={uploading || (recognizing && !documentId)}
               onClick={uploadAndRecognize}
             >
               上传并识别
             </Button>
-            <Button icon={<RobotOutlined />} disabled={!documentId || submitting} loading={submitting} onClick={rerunRecognition}>
+            <Button
+              icon={<RobotOutlined />}
+              disabled={!documentId || submitting}
+              loading={recognizing && Boolean(documentId)}
+              onClick={rerunRecognition}
+            >
               重新识别
             </Button>
           </Space>
@@ -309,7 +408,7 @@ export default function UploadRecognitionPage() {
               result: extractionResult?.model_name || extractionResult?.workflow_run_id || '-',
             }}
             columns={[
-              { title: '状态', dataIndex: 'status', render: (text) => <Tag color="blue">{documentStatusLabel(String(text))}</Tag> },
+              { title: '状态', dataIndex: 'status', render: (text) => documentStatusLabel(String(text)) },
               { title: '当前文件', dataIndex: 'file' },
               { title: '识别结果', dataIndex: 'ai' },
               { title: '模型/工作流', dataIndex: 'result' },
@@ -325,8 +424,8 @@ export default function UploadRecognitionPage() {
             <Button
               type="primary"
               icon={<SaveOutlined />}
-              disabled={!reviewTaskId || submitting}
-              loading={submitting}
+              disabled={!reviewTaskId || submitting || documentStatus === 'CONFIRMED'}
+              loading={approving}
               onClick={approveReview}
             >
               确认为正式证书
@@ -338,20 +437,14 @@ export default function UploadRecognitionPage() {
               name="employee_id"
               label="员工"
               rules={[{ required: true, message: '请选择员工' }]}
-              options={employees.map((employee) => ({
-                label: `${employee.name}（${employee.employee_no}）`,
-                value: employee.id,
-              }))}
+              request={employeeSelectRequest}
               showSearch
             />
             <ProFormSelect
               name="certificate_type_id"
               label="证书类型"
               rules={[{ required: true, message: '请选择证书类型' }]}
-              options={certificateTypes.map((certificateType) => ({
-                label: certificateType.name,
-                value: certificateType.id,
-              }))}
+              request={certificateTypeSelectRequest}
               showSearch
             />
             <ProFormText name="holder_name" label="持证人" rules={[{ required: true, message: '请输入持证人' }]} />

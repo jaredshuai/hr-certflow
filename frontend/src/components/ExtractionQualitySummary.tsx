@@ -86,7 +86,7 @@ export function ExtractionQualitySummary({ output, compact = false }: Extraction
           <Alert
             type="warning"
             showIcon
-            message="识别疑点"
+            title="识别疑点"
             description={quality.suspiciousPoints.join('；')}
           />
         )

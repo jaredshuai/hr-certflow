@@ -1,10 +1,11 @@
 import { AlertOutlined, AuditOutlined, CheckCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { PageContainer, ProCard, ProTable, StatisticCard } from '@ant-design/pro-components';
-import { Alert, Tag } from 'antd';
+import { Alert } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 
 import { listResource } from '@/services/api';
 import type { Employee, EmployeeCertificate, ReminderTask, ReviewTask } from '@/types/domain';
+import { emptyTableText } from '@/utils/emptyStates';
 
 interface DashboardData {
   employees: Employee[];
@@ -108,7 +109,7 @@ export default function DashboardPage() {
 
   return (
     <PageContainer title="工作台">
-      {loadError ? <Alert message="工作台数据加载失败" description={loadError} type="error" showIcon style={{ marginBottom: 16 }} /> : null}
+      {loadError ? <Alert title="工作台数据加载失败" description={loadError} type="error" showIcon style={{ marginBottom: 16 }} /> : null}
 
       <StatisticCard.Group direction="row">
         <StatisticCard
@@ -156,14 +157,18 @@ export default function DashboardPage() {
           pagination={false}
           loading={loading}
           dataSource={metrics.riskRows}
-          locale={{ emptyText: '暂无风险项' }}
+          locale={{ emptyText: emptyTableText('暂无风险项') }}
           columns={[
             { title: '指标', dataIndex: 'metric' },
             { title: '数量', dataIndex: 'count', valueType: 'digit' },
             {
               title: '状态',
               dataIndex: 'status',
-              render: (_, record) => <Tag color={record.status === '需跟进' ? 'red' : 'gold'}>{record.status}</Tag>,
+              valueEnum: {
+                需跟进: { text: '需跟进', status: 'Error' },
+                处理中: { text: '处理中', status: 'Processing' },
+                升级前: { text: '升级前', status: 'Warning' },
+              },
             },
           ]}
         />

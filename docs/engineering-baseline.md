@@ -11,7 +11,7 @@ Baseline:
 | Runtime | Node.js 24 LTS |
 | Package manager | npm with `package-lock.json` |
 | Framework | Umi Max / Ant Design Pro |
-| UI library | antd 5 + Ant Design ProComponents |
+| UI library | antd 6 + Ant Design ProComponents 3.x |
 | Language | TypeScript 6.x |
 
 `antd` is not the compatibility blocker for Node.js 24 LTS or TypeScript 6.x. The current risk surface is the Umi Max and lint toolchain, especially transitive `@umijs/lint` and `@typescript-eslint` versions. Treat build and lint output as the source of truth when upgrading.
