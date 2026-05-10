@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -18,10 +19,41 @@ from app.schemas.documents import (
     UploadIntentRead,
 )
 from app.services.audit import record_audit
-from app.services.dify import DifyClient, DifyExtractionRequest
+from app.services.dify import DifyClient, DifyExtractionRequest, normalize_dify_outputs
 from app.services.storage import ObjectStorage
 
 router = APIRouter()
+
+
+def _failure_reason(exc: Exception) -> str:
+    message = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
+    return f"{exc.__class__.__name__}: {message}"[:500]
+
+
+def _close_open_review_tasks_for_document(
+    db: Session,
+    *,
+    document_id: UUID,
+    replaced_by_ai_result_id: UUID,
+    user: str,
+    now: datetime,
+) -> list[ReviewTask]:
+    open_tasks = db.scalars(
+        select(ReviewTask).where(
+            ReviewTask.document_id == document_id,
+            ReviewTask.status.in_([ReviewStatus.PENDING, ReviewStatus.NEEDS_INFO]),
+        )
+    ).all()
+    for task in open_tasks:
+        task.status = ReviewStatus.REJECTED
+        task.reviewed_by = user
+        task.reviewed_at = now
+        task.notes = "重新识别已替换此复核任务"
+        task.decision_payload = {
+            "status": "REPLACED_BY_RECOGNITION",
+            "replaced_by_ai_result_id": str(replaced_by_ai_result_id),
+        }
+    return list(open_tasks)
 
 
 @router.get("", response_model=list[CertificateDocumentRead])
@@ -92,6 +124,8 @@ async def recognize_document(
     document = db.get(CertificateDocument, document_id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
+    if document.status in {DocumentStatus.CONFIRMED, DocumentStatus.ARCHIVED}:
+        raise HTTPException(status_code=409, detail="Document is already closed")
 
     settings = get_settings()
     storage = ObjectStorage(settings)
@@ -101,31 +135,57 @@ async def recognize_document(
 
     try:
         file_url = storage.create_read_url(bucket=document.storage_bucket, key=document.storage_key)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        client = DifyClient(settings)
+        extraction = await client.run_certificate_extraction(
+            DifyExtractionRequest(file_url=file_url, document_id=str(document.id), user=user)
+        )
+        normalized_output = normalize_dify_outputs(extraction.output)
+        raw_response_key = storage.put_json_snapshot(
+            key=storage.build_ai_raw_response_key(str(document.id), extraction.workflow_run_id),
+            payload=extraction.raw_response,
+        )
 
-    client = DifyClient(settings)
-    extraction = await client.run_certificate_extraction(
-        DifyExtractionRequest(file_url=file_url, document_id=str(document.id), user=user)
-    )
-    raw_response_key = storage.put_json_snapshot(
-        key=storage.build_ai_raw_response_key(str(document.id), extraction.workflow_run_id),
-        payload=extraction.raw_response,
-    )
+        result = AiExtractionResult(
+            document_id=document.id,
+            workflow_run_id=extraction.workflow_run_id,
+            model_name=extraction.model_name,
+            output_json=normalized_output,
+            raw_text=normalized_output.get("raw_text"),
+            suspicious_points=normalized_output.get("suspicious_points") or [],
+            confidence=normalized_output.get("confidence"),
+            raw_response_key=raw_response_key,
+        )
+        db.add(result)
+        db.flush()
+    except Exception as exc:
+        db.rollback()
+        document = db.get(CertificateDocument, document_id)
+        reason = _failure_reason(exc)
+        if document:
+            document.status = DocumentStatus.FAILED
+            document.failure_reason = reason
+            record_audit(
+                db,
+                action="certificate_document.recognize.failed",
+                resource_type="certificate_document",
+                resource_id=str(document.id),
+                after={
+                    "status": DocumentStatus.FAILED.value,
+                    "failure_reason": reason,
+                    "user": user,
+                },
+            )
+            db.commit()
+        raise HTTPException(status_code=502, detail="Certificate recognition failed") from exc
 
-    result = AiExtractionResult(
+    now = datetime.now(UTC)
+    closed_tasks = _close_open_review_tasks_for_document(
+        db,
         document_id=document.id,
-        workflow_run_id=extraction.workflow_run_id,
-        model_name=extraction.model_name,
-        output_json=extraction.output,
-        raw_text=extraction.output.get("raw_text"),
-        suspicious_points=extraction.output.get("suspicious_points") or [],
-        confidence=extraction.output.get("confidence"),
-        raw_response_key=raw_response_key,
+        replaced_by_ai_result_id=result.id,
+        user=user,
+        now=now,
     )
-    db.add(result)
-    db.flush()
-
     db.add(
         ReviewTask(
             document_id=document.id,
@@ -143,6 +203,7 @@ async def recognize_document(
             "ai_result_id": str(result.id),
             "workflow_run_id": extraction.workflow_run_id,
             "raw_response_key": raw_response_key,
+            "closed_review_task_ids": [str(task.id) for task in closed_tasks],
             "user": user,
         },
     )

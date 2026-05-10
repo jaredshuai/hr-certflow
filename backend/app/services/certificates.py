@@ -8,7 +8,19 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import CertificateStatus, ReminderTaskStatus
-from app.models import EmployeeCertificate, ReminderTask
+from app.models import CertificateType, Employee, EmployeeCertificate, ReminderTask
+
+_ACTIVE_CERTIFICATE_STATUSES = (
+    CertificateStatus.ACTIVE,
+    CertificateStatus.EXPIRING,
+)
+
+_DUPLICATE_CERTIFICATE_STATUSES = (
+    CertificateStatus.DRAFT,
+    CertificateStatus.PENDING_REVIEW,
+    CertificateStatus.ACTIVE,
+    CertificateStatus.EXPIRING,
+)
 
 
 def validate_certificate_dates(
@@ -21,6 +33,48 @@ def validate_certificate_dates(
         raise HTTPException(status_code=400, detail="valid_to must be on or after issue_date")
     if valid_from and valid_to and valid_to < valid_from:
         raise HTTPException(status_code=400, detail="valid_to must be on or after valid_from")
+
+
+def validate_certificate_business_rules(
+    db: Session,
+    *,
+    employee_id: UUID,
+    certificate_type_id: UUID,
+    holder_name: str,
+    certificate_no: str | None,
+    exclude_certificate_id: UUID | None = None,
+) -> None:
+    employee = db.get(Employee, employee_id)
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    certificate_type = db.get(CertificateType, certificate_type_id)
+    if not certificate_type:
+        raise HTTPException(status_code=404, detail="Certificate type not found")
+
+    if _normalize_person_name(holder_name) != _normalize_person_name(employee.name):
+        raise HTTPException(status_code=400, detail="holder_name must match selected employee")
+
+    normalized_certificate_no = certificate_no.strip() if certificate_no else None
+    if not normalized_certificate_no:
+        return
+
+    duplicate_statement = select(EmployeeCertificate.id).where(
+        EmployeeCertificate.employee_id == employee_id,
+        EmployeeCertificate.certificate_type_id == certificate_type_id,
+        EmployeeCertificate.certificate_no == normalized_certificate_no,
+        EmployeeCertificate.status.in_(_DUPLICATE_CERTIFICATE_STATUSES),
+    )
+    if exclude_certificate_id:
+        duplicate_statement = duplicate_statement.where(EmployeeCertificate.id != exclude_certificate_id)
+
+    duplicate_id = db.scalar(duplicate_statement)
+    if duplicate_id:
+        raise HTTPException(status_code=409, detail="certificate_no already exists for this employee and type")
+
+
+def _normalize_person_name(value: str) -> str:
+    return "".join(value.split()).casefold()
 
 
 def replace_active_certificates(
@@ -37,8 +91,8 @@ def replace_active_certificates(
             EmployeeCertificate.id != certificate.id,
             EmployeeCertificate.employee_id == certificate.employee_id,
             EmployeeCertificate.certificate_type_id == certificate.certificate_type_id,
-            EmployeeCertificate.status.in_([CertificateStatus.ACTIVE, CertificateStatus.EXPIRING]),
-        )
+            EmployeeCertificate.status.in_(_ACTIVE_CERTIFICATE_STATUSES),
+        ).with_for_update()
     ).all()
     replaced = list(old_certificates)
     for old_certificate in replaced:

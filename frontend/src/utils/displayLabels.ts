@@ -55,6 +55,7 @@ const feedbackStatusLabels: Record<string, string> = {
 const auditActionLabels: Record<string, string> = {
   'certificate_document.upload_intent.create': '创建证书文件上传任务',
   'certificate_document.recognize': '发起证书智能识别',
+  'certificate_document.recognize.failed': '证书智能识别失败',
   'employee_certificate.create': '创建持证记录',
   'employee_certificate.update': '更新持证记录',
   'certificate_type.create': '创建证书类型',

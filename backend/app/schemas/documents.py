@@ -1,20 +1,39 @@
 from __future__ import annotations
 
+import mimetypes
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.domain.enums import DocumentStatus, ReviewStatus
 from app.schemas.certificates import EmployeeCertificateRead
 from app.schemas.common import ORMModel
 
+MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024
+ALLOWED_UPLOAD_CONTENT_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/tiff",
+}
+
 
 class UploadIntentCreate(BaseModel):
     original_filename: str = Field(min_length=1, max_length=255)
     content_type: str | None = Field(default=None, max_length=128)
-    file_size: int | None = Field(default=None, ge=1)
+    file_size: int = Field(ge=1, le=MAX_UPLOAD_SIZE_BYTES)
     employee_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_upload_file(self) -> UploadIntentCreate:
+        detected_content_type = self.content_type or mimetypes.guess_type(self.original_filename)[0]
+        if detected_content_type not in ALLOWED_UPLOAD_CONTENT_TYPES:
+            allowed = ", ".join(sorted(ALLOWED_UPLOAD_CONTENT_TYPES))
+            raise ValueError(f"content_type must be one of: {allowed}")
+        self.content_type = detected_content_type
+        return self
 
 
 class UploadIntentRead(BaseModel):

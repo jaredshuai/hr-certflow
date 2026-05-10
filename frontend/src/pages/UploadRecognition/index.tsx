@@ -39,6 +39,42 @@ interface CertificateFormValues {
   notes?: string;
 }
 
+const MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024;
+const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/tiff',
+]);
+
+function isAllowedUploadFile(file: File): boolean {
+  const contentType = file.type;
+  const lowerName = file.name.toLowerCase();
+  return (
+    ALLOWED_UPLOAD_CONTENT_TYPES.has(contentType) ||
+    lowerName.endsWith('.pdf') ||
+    lowerName.endsWith('.jpg') ||
+    lowerName.endsWith('.jpeg') ||
+    lowerName.endsWith('.png') ||
+    lowerName.endsWith('.webp') ||
+    lowerName.endsWith('.tif') ||
+    lowerName.endsWith('.tiff')
+  );
+}
+
+function validateUploadFile(file: File): boolean {
+  if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+    message.warning('文件不能超过 20MB');
+    return false;
+  }
+  if (!isAllowedUploadFile(file)) {
+    message.warning('仅支持 PDF、JPG、PNG、WEBP、TIFF 格式');
+    return false;
+  }
+  return true;
+}
+
 function formatDateValue(value: unknown): string | undefined {
   if (!value) return undefined;
   if (typeof value === 'string') return value.slice(0, 10);
@@ -109,6 +145,9 @@ export default function UploadRecognitionPage() {
   async function uploadAndRecognize() {
     if (!selectedFile) {
       message.warning('请先选择证书图片或 PDF');
+      return;
+    }
+    if (!validateUploadFile(selectedFile)) {
       return;
     }
     const actor = recognitionActor.trim();
@@ -199,6 +238,7 @@ export default function UploadRecognitionPage() {
       await postResource<ReviewDecision, ReviewApprovePayload>(`/reviews/${reviewTaskId}/approve`, payload);
       setDocumentStatus('CONFIRMED');
       setRecognitionStatus('已确认');
+      setReviewTaskId(undefined);
       message.success('已生成正式持证记录');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '确认失败');
@@ -215,6 +255,9 @@ export default function UploadRecognitionPage() {
             multiple={false}
             maxCount={1}
             beforeUpload={(file) => {
+              if (!validateUploadFile(file)) {
+                return Upload.LIST_IGNORE;
+              }
               setSelectedFile(file);
               setDocumentId(undefined);
               setReviewTaskId(undefined);
@@ -241,10 +284,16 @@ export default function UploadRecognitionPage() {
               onChange={(event) => setRecognitionActor(event.target.value)}
               style={{ width: 220 }}
             />
-            <Button type="primary" icon={<UploadOutlined />} loading={submitting} onClick={uploadAndRecognize}>
+            <Button
+              type="primary"
+              icon={<UploadOutlined />}
+              disabled={submitting}
+              loading={submitting}
+              onClick={uploadAndRecognize}
+            >
               上传并识别
             </Button>
-            <Button icon={<RobotOutlined />} disabled={!documentId} loading={submitting} onClick={rerunRecognition}>
+            <Button icon={<RobotOutlined />} disabled={!documentId || submitting} loading={submitting} onClick={rerunRecognition}>
               重新识别
             </Button>
           </Space>
@@ -273,7 +322,13 @@ export default function UploadRecognitionPage() {
           title="智能预填与人工确认"
           bordered
           extra={
-            <Button type="primary" icon={<SaveOutlined />} loading={submitting} onClick={approveReview}>
+            <Button
+              type="primary"
+              icon={<SaveOutlined />}
+              disabled={!reviewTaskId || submitting}
+              loading={submitting}
+              onClick={approveReview}
+            >
               确认为正式证书
             </Button>
           }

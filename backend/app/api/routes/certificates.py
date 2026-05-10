@@ -11,7 +11,11 @@ from app.db.session import get_db
 from app.models import EmployeeCertificate
 from app.schemas.certificates import EmployeeCertificateCreate, EmployeeCertificateRead, EmployeeCertificateUpdate
 from app.services.audit import record_audit
-from app.services.certificates import replace_active_certificates, validate_certificate_dates
+from app.services.certificates import (
+    replace_active_certificates,
+    validate_certificate_business_rules,
+    validate_certificate_dates,
+)
 
 router = APIRouter()
 
@@ -40,6 +44,13 @@ def create_employee_certificate(
         issue_date=payload.issue_date,
         valid_from=payload.valid_from,
         valid_to=payload.valid_to,
+    )
+    validate_certificate_business_rules(
+        db,
+        employee_id=payload.employee_id,
+        certificate_type_id=payload.certificate_type_id,
+        holder_name=payload.holder_name,
+        certificate_no=payload.certificate_no,
     )
     now = datetime.now(UTC)
     certificate = EmployeeCertificate(
@@ -80,6 +91,14 @@ def update_employee_certificate(
     valid_from = update_data.get("valid_from", certificate.valid_from)
     valid_to = update_data.get("valid_to", certificate.valid_to)
     validate_certificate_dates(issue_date=issue_date, valid_from=valid_from, valid_to=valid_to)
+    validate_certificate_business_rules(
+        db,
+        employee_id=update_data.get("employee_id", certificate.employee_id),
+        certificate_type_id=update_data.get("certificate_type_id", certificate.certificate_type_id),
+        holder_name=update_data.get("holder_name", certificate.holder_name),
+        certificate_no=update_data.get("certificate_no", certificate.certificate_no),
+        exclude_certificate_id=certificate.id,
+    )
 
     before = EmployeeCertificateRead.model_validate(certificate).model_dump(mode="json")
     for field, value in update_data.items():

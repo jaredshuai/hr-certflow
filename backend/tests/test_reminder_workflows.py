@@ -6,6 +6,7 @@ from collections.abc import Generator
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import delete, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -268,6 +269,109 @@ def test_review_approval_creates_active_certificate_and_replaces_old_one(db_sess
     assert old_certificate.replaced_by_id == decision.certificate.id
     assert reminder_task.status == ReminderTaskStatus.CLOSED
     assert reminder_task.closed_reason == "certificate_replaced"
+
+
+def test_review_approval_rejects_holder_name_mismatch(db_session: Session) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    document = CertificateDocument(
+        employee_id=employee.id,
+        status=DocumentStatus.PENDING_REVIEW,
+        storage_bucket="jxccs-shared-infra-oss-cn-hangzhou",
+        storage_key="hr-certflow/dev/certificates/mismatch.pdf",
+        original_filename="mismatch.pdf",
+    )
+    db_session.add(document)
+    db_session.flush()
+    review_task = ReviewTask(document_id=document.id, status=ReviewStatus.PENDING)
+    db_session.add(review_task)
+    db_session.flush()
+
+    with pytest.raises(HTTPException) as exc_info:
+        approve_review_task(
+            review_task.id,
+            ReviewApproveCreate(
+                employee_id=employee.id,
+                certificate_type_id=certificate_type.id,
+                certificate_no="CERT-MISMATCH",
+                holder_name="李四",
+                reviewed_by="Alice HR",
+            ),
+            db_session,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "holder_name must match selected employee"
+
+
+def test_review_approval_rejects_duplicate_certificate_number(db_session: Session) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    existing_certificate = EmployeeCertificate(
+        employee_id=employee.id,
+        certificate_type_id=certificate_type.id,
+        certificate_no="CERT-DUP",
+        holder_name=employee.name,
+        status=CertificateStatus.ACTIVE,
+    )
+    document = CertificateDocument(
+        employee_id=employee.id,
+        status=DocumentStatus.PENDING_REVIEW,
+        storage_bucket="jxccs-shared-infra-oss-cn-hangzhou",
+        storage_key="hr-certflow/dev/certificates/duplicate.pdf",
+        original_filename="duplicate.pdf",
+    )
+    db_session.add_all([existing_certificate, document])
+    db_session.flush()
+    review_task = ReviewTask(document_id=document.id, status=ReviewStatus.PENDING)
+    db_session.add(review_task)
+    db_session.flush()
+
+    with pytest.raises(HTTPException) as exc_info:
+        approve_review_task(
+            review_task.id,
+            ReviewApproveCreate(
+                employee_id=employee.id,
+                certificate_type_id=certificate_type.id,
+                certificate_no="CERT-DUP",
+                holder_name=employee.name,
+                reviewed_by="Alice HR",
+            ),
+            db_session,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "certificate_no already exists for this employee and type"
+
+
+def test_review_approval_requires_pending_review_document(db_session: Session) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    document = CertificateDocument(
+        employee_id=employee.id,
+        status=DocumentStatus.CONFIRMED,
+        storage_bucket="jxccs-shared-infra-oss-cn-hangzhou",
+        storage_key="hr-certflow/dev/certificates/already-confirmed.pdf",
+        original_filename="already-confirmed.pdf",
+    )
+    db_session.add(document)
+    db_session.flush()
+    review_task = ReviewTask(document_id=document.id, status=ReviewStatus.PENDING)
+    db_session.add(review_task)
+    db_session.flush()
+
+    with pytest.raises(HTTPException) as exc_info:
+        approve_review_task(
+            review_task.id,
+            ReviewApproveCreate(
+                employee_id=employee.id,
+                certificate_type_id=certificate_type.id,
+                certificate_no="CERT-CONFIRMED",
+                holder_name=employee.name,
+                reviewed_by="Alice HR",
+            ),
+            db_session,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Document is not pending review"
 
 
 def _create_master_data(db_session: Session) -> tuple[Employee, CertificateType]:

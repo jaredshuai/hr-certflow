@@ -13,7 +13,11 @@ from app.models import EmployeeCertificate, ReviewTask
 from app.schemas.certificates import EmployeeCertificateRead
 from app.schemas.documents import ReviewApproveCreate, ReviewDecisionRead, ReviewRejectCreate, ReviewTaskRead
 from app.services.audit import record_audit
-from app.services.certificates import replace_active_certificates, validate_certificate_dates
+from app.services.certificates import (
+    replace_active_certificates,
+    validate_certificate_business_rules,
+    validate_certificate_dates,
+)
 
 router = APIRouter()
 
@@ -52,10 +56,22 @@ def approve_review_task(
         raise HTTPException(status_code=404, detail="Review task not found")
     if review_task.status not in {ReviewStatus.PENDING, ReviewStatus.NEEDS_INFO}:
         raise HTTPException(status_code=409, detail="Review task is already closed")
+    if not review_task.document or review_task.document.status != DocumentStatus.PENDING_REVIEW:
+        raise HTTPException(status_code=409, detail="Document is not pending review")
+    if review_task.document.employee_id and review_task.document.employee_id != payload.employee_id:
+        raise HTTPException(status_code=400, detail="employee_id does not match document employee")
+
     validate_certificate_dates(
         issue_date=payload.issue_date,
         valid_from=payload.valid_from,
         valid_to=payload.valid_to,
+    )
+    validate_certificate_business_rules(
+        db,
+        employee_id=payload.employee_id,
+        certificate_type_id=payload.certificate_type_id,
+        holder_name=payload.holder_name,
+        certificate_no=payload.certificate_no,
     )
 
     now = datetime.now(UTC)
