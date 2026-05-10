@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from app.core.config import Settings
+from app.services.extraction import normalize_extraction_output
 
 
 @dataclass(frozen=True)
@@ -51,9 +52,13 @@ class DifyClient:
             data = response.json()
 
         outputs = data.get("data", {}).get("outputs") or data.get("outputs") or {}
+        if not isinstance(outputs, dict):
+            outputs = {}
+        normalized_outputs = normalize_extraction_output(outputs)
+        model_name = normalized_outputs.get("model_name")
         return DifyExtractionResponse(
             workflow_run_id=data.get("workflow_run_id") or data.get("data", {}).get("workflow_run_id"),
-            model_name=outputs.get("model_name"),
-            output=outputs,
+            model_name=model_name if isinstance(model_name, str) else None,
+            output=normalized_outputs,
             raw_response=data,
         )
