@@ -1,10 +1,12 @@
 import { AlertOutlined, AuditOutlined, CheckCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
+import { Column, Pie } from '@ant-design/charts';
 import { PageContainer, ProCard, ProTable, StatisticCard } from '@ant-design/pro-components';
-import { Alert } from 'antd';
+import { Alert, Empty } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 
 import { listResource } from '@/services/api';
 import type { Employee, EmployeeCertificate, ReminderTask, ReviewTask } from '@/types/domain';
+import { certificateStatusLabel } from '@/utils/displayLabels';
 import { emptyTableText } from '@/utils/emptyStates';
 
 interface DashboardData {
@@ -19,6 +21,11 @@ interface RiskRow {
   metric: string;
   count: number;
   status: string;
+}
+
+interface ChartRow {
+  category: string;
+  count: number;
 }
 
 const emptyDashboardData: DashboardData = {
@@ -44,6 +51,20 @@ function buildRiskRows(data: DashboardData): RiskRow[] {
     { id: 'pending-reviews', metric: '待复核识别', count: pendingReviewCount, status: '处理中' },
     { id: 'second-reminders', metric: '二次或升级提醒', count: secondReminderCount, status: '升级前' },
   ].filter((row) => row.count > 0);
+}
+
+function buildCertificateStatusRows(certificates: EmployeeCertificate[]): ChartRow[] {
+  const counts = certificates.reduce<Partial<Record<EmployeeCertificate['status'], number>>>((acc, certificate) => {
+    acc[certificate.status] = (acc[certificate.status] || 0) + 1;
+    return acc;
+  }, {});
+
+  return Object.entries(counts)
+    .map(([status, count]) => ({
+      category: certificateStatusLabel(status as EmployeeCertificate['status']),
+      count: count || 0,
+    }))
+    .filter((row) => row.count > 0);
 }
 
 export default function DashboardPage() {
@@ -104,6 +125,16 @@ export default function DashboardPage() {
       pendingReviewCount,
       coverage,
       riskRows: buildRiskRows(data),
+      certificateStatusRows: buildCertificateStatusRows(data.certificates),
+      workloadRows: [
+        { category: '即将到期', count: expiringCount },
+        { category: '已过期', count: expiredCount },
+        { category: '待复核', count: pendingReviewCount },
+        {
+          category: '升级提醒',
+          count: data.reminders.filter((reminder) => secondReminderStatuses.has(reminder.status)).length,
+        },
+      ].filter((row) => row.count > 0),
     };
   }, [data]);
 
@@ -148,6 +179,55 @@ export default function DashboardPage() {
           }}
         />
       </StatisticCard.Group>
+
+      <div
+        style={{
+          display: 'grid',
+          gap: 16,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          marginTop: 16,
+        }}
+      >
+        <ProCard title="持证状态分布" loading={loading}>
+          {metrics.certificateStatusRows.length > 0 ? (
+            <Pie
+              data={metrics.certificateStatusRows}
+              angleField="count"
+              colorField="category"
+              height={280}
+              innerRadius={0.62}
+              legend={{ color: { position: 'bottom' } }}
+              label={{ text: 'count', position: 'outside' }}
+              tooltip={{
+                title: 'category',
+                items: [{ field: 'count', name: '数量' }],
+              }}
+            />
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无持证状态数据" />
+          )}
+        </ProCard>
+
+        <ProCard title="待办压力分布" loading={loading}>
+          {metrics.workloadRows.length > 0 ? (
+            <Column
+              data={metrics.workloadRows}
+              xField="category"
+              yField="count"
+              height={280}
+              colorField="category"
+              axis={{ y: { title: '数量' } }}
+              label={{ text: 'count', position: 'top' }}
+              tooltip={{
+                title: 'category',
+                items: [{ field: 'count', name: '数量' }],
+              }}
+            />
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待办压力数据" />
+          )}
+        </ProCard>
+      </div>
 
       <ProCard style={{ marginTop: 16 }} title="风险台账">
         <ProTable
