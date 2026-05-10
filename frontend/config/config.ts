@@ -13,7 +13,6 @@ export default defineConfig({
   routes: [
     { path: '/', redirect: '/dashboard' },
     { name: '工作台', path: '/dashboard', component: './Dashboard' },
-    { path: '/gongzuotai', redirect: '/dashboard' },
     { name: '人员管理', path: '/employees', component: './Employees' },
     { name: '证书类型', path: '/certificate-types', component: './CertificateTypes' },
     { name: '持证记录', path: '/certificates', component: './Certificates' },
