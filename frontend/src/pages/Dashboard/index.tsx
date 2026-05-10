@@ -148,7 +148,7 @@ export default function DashboardPage() {
         />
       </StatisticCard.Group>
 
-      <ProCard style={{ marginTop: 16 }} title="风险台账" bordered>
+      <ProCard style={{ marginTop: 16 }} title="风险台账">
         <ProTable
           rowKey="id"
           search={false}

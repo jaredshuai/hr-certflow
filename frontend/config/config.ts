@@ -3,6 +3,7 @@ import { defineConfig } from '@umijs/max';
 export default defineConfig({
   npmClient: 'npm',
   antd: {},
+  esbuildMinifyIIFE: true,
   request: {},
   history: { type: 'hash' },
   publicPath: process.env.NODE_ENV === 'production' ? './' : '/',

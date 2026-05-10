@@ -2,11 +2,12 @@ import { ProConfigProvider, zhCNIntl } from '@ant-design/pro-components';
 import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import type { ThemeConfig } from 'antd/es/config-provider/context';
+import type { ThemeConfig } from 'antd';
 import 'dayjs/locale/zh-cn';
 import type { ReactNode } from 'react';
 
 const appTheme: ThemeConfig = {
+  cssVar: true,
   token: {
     colorPrimary: '#00684a',
     colorSuccess: '#389e0d',

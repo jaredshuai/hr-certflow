@@ -8,7 +8,7 @@ import {
   ProFormSelect,
   ProFormText,
 } from '@ant-design/pro-components';
-import { Button, Divider, Form, Input, Space, Tag, Upload, message } from 'antd';
+import { Button, Divider, Form, Input, Space, Tag, Typography, Upload, message } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { ExtractionQualitySummary, outputText } from '@/components/ExtractionQualitySummary';
@@ -250,7 +250,7 @@ export default function UploadRecognitionPage() {
   return (
     <PageContainer title="上传识别">
       <div className="certflow-upload-grid">
-        <ProCard title="证书原件" bordered>
+        <ProCard title="证书原件">
           <Upload.Dragger
             multiple={false}
             maxCount={1}
@@ -278,11 +278,12 @@ export default function UploadRecognitionPage() {
           <Divider />
 
           <Space style={{ marginBottom: 16 }}>
+            <Typography.Text>识别操作人</Typography.Text>
             <Input
-              addonBefore="识别操作人"
+              aria-label="识别操作人"
               value={recognitionActor}
               onChange={(event) => setRecognitionActor(event.target.value)}
-              style={{ width: 220 }}
+              style={{ width: 150 }}
             />
             <Button
               type="primary"
@@ -320,7 +321,6 @@ export default function UploadRecognitionPage() {
 
         <ProCard
           title="智能预填与人工确认"
-          bordered
           extra={
             <Button
               type="primary"

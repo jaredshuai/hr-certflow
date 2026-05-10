@@ -1,5 +1,5 @@
 import { PageContainer, ProTable, type ActionType, type ProColumns } from '@ant-design/pro-components';
-import { Button, Input, Space, Tag, message } from 'antd';
+import { Button, Input, Space, Tag, Typography, message } from 'antd';
 import { useRef, useState } from 'react';
 
 import { listResource, postResource } from '@/services/api';
@@ -105,13 +105,15 @@ export default function RemindersPage() {
         toolbar={{
           title: '到期提醒闭环',
           actions: [
-            <Input
-              key="feedback-actor"
-              addonBefore="反馈人"
-              value={feedbackActor}
-              onChange={(event) => setFeedbackActor(event.target.value)}
-              style={{ width: 180 }}
-            />,
+            <Space key="feedback-actor">
+              <Typography.Text>反馈人</Typography.Text>
+              <Input
+                aria-label="反馈人"
+                value={feedbackActor}
+                onChange={(event) => setFeedbackActor(event.target.value)}
+                style={{ width: 120 }}
+              />
+            </Space>,
           ],
         }}
         search={{ labelWidth: 88 }}
