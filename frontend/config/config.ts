@@ -20,6 +20,7 @@ export default defineConfig({
     { name: '待复核队列', path: '/review-queue', component: './ReviewQueue' },
     { name: '提醒任务', path: '/reminders', component: './Reminders' },
     { name: '审计日志', path: '/audit-logs', component: './AuditLog' },
+    { path: '*', component: './NotFound' },
   ],
   proxy: {
     '/api/v1': {
