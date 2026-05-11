@@ -29,6 +29,8 @@ Ant Design Pro
 
 See [engineering-baseline.md](engineering-baseline.md) for the runtime and validation tooling baseline. `antd` is not the expected blocker for Node.js 24 LTS or TypeScript 6.x; validate compatibility through Umi Max build and lint output.
 
+See [delivery-north-star.md](delivery-north-star.md) for the delivery-grade product target and near-term implementation priorities.
+
 ## Component Boundaries
 
 ### FastAPI
