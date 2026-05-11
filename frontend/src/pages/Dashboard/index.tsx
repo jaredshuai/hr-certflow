@@ -1,7 +1,7 @@
 import { AlertOutlined, AuditOutlined, CheckCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { Column, Pie } from '@ant-design/charts';
 import { PageContainer, ProCard, ProTable, StatisticCard } from '@ant-design/pro-components';
-import { Alert, Empty } from 'antd';
+import { Alert, Empty, Steps } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 
 import { listResource } from '@/services/api';
@@ -119,6 +119,12 @@ export default function DashboardPage() {
     );
     const coverage = data.employees.length > 0 ? Number(((coveredEmployeeIds.size / data.employees.length) * 100).toFixed(1)) : 0;
 
+    const draftCount = data.certificates.filter((c) => c.status === 'DRAFT').length;
+    const aiRecognitionCount = data.reviews.filter((r) => r.status === 'PENDING').length;
+    const manualReviewCount = data.reviews.filter((r) => pendingReviewStatuses.has(r.status)).length;
+    const archivedCount = data.certificates.filter((c) => activeCoverageStatuses.has(c.status)).length;
+    const activeReminderCount = data.reminders.filter((r) => !['RESOLVED', 'CLOSED'].includes(r.status)).length;
+
     return {
       expiringCount,
       expiredCount,
@@ -135,6 +141,13 @@ export default function DashboardPage() {
           count: data.reminders.filter((reminder) => secondReminderStatuses.has(reminder.status)).length,
         },
       ].filter((row) => row.count > 0),
+      pipelineSteps: [
+        { title: '上传原件', description: `${draftCount} 件待识别`, count: draftCount },
+        { title: 'AI 识别', description: `${aiRecognitionCount} 件识别中`, count: aiRecognitionCount },
+        { title: '人工复核', description: `${manualReviewCount} 件待复核`, count: manualReviewCount },
+        { title: '正式入库', description: `${archivedCount} 件已入库`, count: archivedCount },
+        { title: '到期提醒', description: `${activeReminderCount} 件提醒中`, count: activeReminderCount },
+      ],
     };
   }, [data]);
 
@@ -228,6 +241,20 @@ export default function DashboardPage() {
           )}
         </ProCard>
       </div>
+
+      <ProCard style={{ marginTop: 16 }} title="北极星交付进度" loading={loading}>
+        {metrics.pipelineSteps.some((step) => step.count > 0) ? (
+          <Steps
+            current={-1}
+            items={metrics.pipelineSteps.map((step) => ({
+              title: step.title,
+              description: step.description,
+            }))}
+          />
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无交付进度数据" />
+        )}
+      </ProCard>
 
       <ProCard style={{ marginTop: 16 }} title="风险台账">
         <ProTable
