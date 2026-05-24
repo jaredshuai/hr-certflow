@@ -1,6 +1,6 @@
 """add pending upload document status
 
-Revision ID: 0002_add_pending_upload_document_status
+Revision ID: 0002_pending_upload_status
 Revises: 0001_initial_schema
 Create Date: 2026-05-24 00:00:00
 """
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "0002_add_pending_upload_document_status"
+revision = "0002_pending_upload_status"
 down_revision = "0001_initial_schema"
 branch_labels = None
 depends_on = None

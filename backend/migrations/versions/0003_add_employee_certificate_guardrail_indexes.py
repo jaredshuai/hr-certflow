@@ -1,7 +1,7 @@
 """add employee certificate guardrail indexes
 
-Revision ID: 0003_add_employee_certificate_guardrail_indexes
-Revises: 0002_add_pending_upload_document_status
+Revision ID: 0003_certificate_guardrails
+Revises: 0002_pending_upload_status
 Create Date: 2026-05-25 00:00:00
 """
 
@@ -10,8 +10,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0003_add_employee_certificate_guardrail_indexes"
-down_revision = "0002_add_pending_upload_document_status"
+revision = "0003_certificate_guardrails"
+down_revision = "0002_pending_upload_status"
 branch_labels = None
 depends_on = None
 
