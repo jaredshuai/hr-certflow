@@ -4,6 +4,7 @@ import csv
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from io import StringIO
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -307,7 +308,7 @@ def update_policy(
 @router.get("/tasks", response_model=list[ReminderTaskRead])
 def list_tasks(
     db: Session = Depends(get_db),
-    status: list[ReminderTaskStatus] | None = Query(default=None),
+    status: Annotated[list[ReminderTaskStatus] | None, Query()] = None,
     status_group: str | None = None,
 ) -> list[ReminderTaskRead]:
     rows = db.scalars(
@@ -322,7 +323,7 @@ def page_tasks(
     current: int = 1,
     page_size: int = 20,
     keyword: str | None = None,
-    status: list[ReminderTaskStatus] | None = Query(default=None),
+    status: Annotated[list[ReminderTaskStatus] | None, Query()] = None,
     status_group: str | None = None,
     employee_certificate_id: UUID | None = None,
     certificate_type_id: UUID | None = None,
@@ -367,7 +368,7 @@ def page_tasks(
 def export_tasks_csv(
     db: Session = Depends(get_db),
     keyword: str | None = None,
-    status: list[ReminderTaskStatus] | None = Query(default=None),
+    status: Annotated[list[ReminderTaskStatus] | None, Query()] = None,
     status_group: str | None = None,
     employee_certificate_id: UUID | None = None,
     certificate_type_id: UUID | None = None,
