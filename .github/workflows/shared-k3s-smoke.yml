@@ -42,9 +42,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - name: Resolve runner Python
+        shell: bash
+        run: |
+          if command -v python3 >/dev/null 2>&1; then
+            echo "PYTHON_BIN=$(command -v python3)" >> "${GITHUB_ENV}"
+          elif command -v python >/dev/null 2>&1; then
+            echo "PYTHON_BIN=$(command -v python)" >> "${GITHUB_ENV}"
+          else
+            echo "::error::Python is required on the shared-k3s smoke runner"
+            exit 1
+          fi
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v5.1.0
@@ -107,19 +115,19 @@ jobs:
 
       - name: Wait for Kubernetes rollout
         run: |
-          python scripts/wait_k8s_rollout.py \
+          "${PYTHON_BIN}" scripts/wait_k8s_rollout.py \
             --namespace "${{ steps.meta.outputs.namespace }}" \
             --image-tag "${{ steps.meta.outputs.image_tag }}"
 
       - name: Smoke web and API
         run: |
-          python scripts/smoke_http.py \
+          "${PYTHON_BIN}" scripts/smoke_http.py \
             --web-url "${{ steps.meta.outputs.web_url }}" \
             --api-url "${{ steps.meta.outputs.api_url }}"
 
       - name: Smoke Celery and Redis
         run: |
-          python scripts/run_k8s_celery_smoke.py \
+          "${PYTHON_BIN}" scripts/run_k8s_celery_smoke.py \
             --namespace "${{ steps.meta.outputs.namespace }}"
 
       - name: Write smoke summary
