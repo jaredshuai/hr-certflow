@@ -60,6 +60,11 @@ class CertificateDocumentRead(ORMModel):
     updated_at: datetime
 
 
+class CertificateDocumentPageRead(BaseModel):
+    data: list[CertificateDocumentRead]
+    total: int
+
+
 class AiExtractionResultRead(ORMModel):
     id: UUID
     document_id: UUID
@@ -87,6 +92,12 @@ class ReviewTaskRead(ORMModel):
     created_at: datetime
     updated_at: datetime
     document_original_filename: str | None = None
+    document_status: DocumentStatus | None = None
+    document_content_type: str | None = None
+    document_file_size: int | None = None
+    document_sha256: str | None = None
+    document_failure_reason: str | None = None
+    document_read_url: str | None = None
     ai_output_json: dict | None = None
     ai_confidence: float | None = None
 
@@ -103,12 +114,14 @@ class ReviewApproveCreate(BaseModel):
     review_date: date | None = None
     reviewed_by: str = Field(min_length=1, max_length=128)
     notes: str | None = None
+    expected_updated_at: datetime
 
 
 class ReviewRejectCreate(BaseModel):
     status: ReviewStatus = ReviewStatus.REJECTED
     reviewed_by: str = Field(min_length=1, max_length=128)
     notes: str | None = None
+    expected_updated_at: datetime
 
 
 class ReviewDecisionRead(BaseModel):

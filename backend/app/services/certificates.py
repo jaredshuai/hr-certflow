@@ -77,29 +77,37 @@ def _normalize_person_name(value: str) -> str:
     return "".join(value.split()).casefold()
 
 
+def is_current_certificate_status(status: CertificateStatus) -> bool:
+    return status in _ACTIVE_CERTIFICATE_STATUSES
+
+
 def replace_active_certificates(
     db: Session,
     certificate: EmployeeCertificate,
     *,
     now: datetime,
+    target_status: CertificateStatus | None = None,
 ) -> list[EmployeeCertificate]:
-    if certificate.status not in {CertificateStatus.ACTIVE, CertificateStatus.EXPIRING}:
+    replacement_status = target_status or certificate.status
+    if not is_current_certificate_status(replacement_status):
         return []
 
-    old_certificates = db.scalars(
-        select(EmployeeCertificate).where(
-            EmployeeCertificate.id != certificate.id,
-            EmployeeCertificate.employee_id == certificate.employee_id,
-            EmployeeCertificate.certificate_type_id == certificate.certificate_type_id,
-            EmployeeCertificate.status.in_(_ACTIVE_CERTIFICATE_STATUSES),
-        ).with_for_update()
-    ).all()
+    with db.no_autoflush:
+        old_certificates = db.scalars(
+            select(EmployeeCertificate).where(
+                EmployeeCertificate.id != certificate.id,
+                EmployeeCertificate.employee_id == certificate.employee_id,
+                EmployeeCertificate.certificate_type_id == certificate.certificate_type_id,
+                EmployeeCertificate.status.in_(_ACTIVE_CERTIFICATE_STATUSES),
+            ).with_for_update()
+        ).all()
     replaced = list(old_certificates)
     for old_certificate in replaced:
         old_certificate.status = CertificateStatus.REPLACED
         old_certificate.replaced_by_id = certificate.id
 
     close_open_reminder_tasks(db, [item.id for item in replaced], now=now, reason="certificate_replaced")
+    db.flush()
     return replaced
 
 

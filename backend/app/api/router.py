@@ -11,6 +11,7 @@ from app.api.routes import (
     employees,
     health,
     reminders,
+    reports,
     reviews,
 )
 
@@ -23,4 +24,5 @@ api_router.include_router(certificates.router, prefix="/certificates", tags=["ce
 api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
 api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
 api_router.include_router(reminders.router, prefix="/reminders", tags=["reminders"])
+api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(audit.router, prefix="/audit-logs", tags=["audit-logs"])

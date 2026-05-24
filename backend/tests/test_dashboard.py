@@ -45,17 +45,23 @@ def test_build_dashboard_summary_exposes_north_star_loop() -> None:
 
     assert payload["coverage"] == 75
     assert payload["certificate_status_rows"] == [
-        {"category": "有效", "count": 2},
-        {"category": "即将到期", "count": 1},
+        {"category": "有效", "count": 2, "target_path": "/certificates?status=ACTIVE"},
+        {"category": "即将到期", "count": 1, "target_path": "/certificates?status=EXPIRING"},
     ]
     assert payload["pipeline_steps"] == [
-        {"title": "上传原件", "description": "2 件待识别", "count": 2},
-        {"title": "AI 识别", "description": "1 件识别中", "count": 1},
-        {"title": "人工复核", "description": "3 件待复核", "count": 3},
-        {"title": "正式入库", "description": "3 件已入库", "count": 3},
-        {"title": "到期提醒", "description": "2 件提醒中", "count": 2},
+        {"title": "上传原件", "description": "2 件待识别", "count": 2, "target_path": "/documents?status=UPLOADED"},
+        {"title": "AI 识别", "description": "1 件识别中", "count": 1, "target_path": "/documents?status=PARSING"},
+        {"title": "人工复核", "description": "3 件待复核", "count": 3, "target_path": "/review-queue"},
+        {"title": "正式入库", "description": "3 件已入库", "count": 3, "target_path": "/certificates?status=ACTIVE"},
+        {"title": "到期提醒", "description": "2 件提醒中", "count": 2, "target_path": "/reminders?status=open"},
     ]
-    assert {"id": "failed-documents", "metric": "识别失败文件", "count": 1, "status": "需跟进"} in payload["risk_rows"]
+    assert {
+        "id": "failed-documents",
+        "metric": "识别失败文件",
+        "count": 1,
+        "status": "需跟进",
+        "target_path": "/documents?status=FAILED",
+    } in payload["risk_rows"]
 
 
 @pytest.fixture()
@@ -148,14 +154,24 @@ def test_dashboard_summary_uses_business_objects(db_session: Session) -> None:
     assert payload["pending_review_count"] == 2
     assert payload["coverage"] == 100
     assert payload["pipeline_steps"] == [
-        {"title": "上传原件", "description": "1 件待识别", "count": 1},
-        {"title": "AI 识别", "description": "1 件识别中", "count": 1},
-        {"title": "人工复核", "description": "2 件待复核", "count": 2},
-        {"title": "正式入库", "description": "1 件已入库", "count": 1},
-        {"title": "到期提醒", "description": "1 件提醒中", "count": 1},
+        {"title": "上传原件", "description": "1 件待识别", "count": 1, "target_path": "/documents?status=UPLOADED"},
+        {"title": "AI 识别", "description": "1 件识别中", "count": 1, "target_path": "/documents?status=PARSING"},
+        {"title": "人工复核", "description": "2 件待复核", "count": 2, "target_path": "/review-queue"},
+        {"title": "正式入库", "description": "1 件已入库", "count": 1, "target_path": "/certificates?status=ACTIVE"},
+        {"title": "到期提醒", "description": "1 件提醒中", "count": 1, "target_path": "/reminders?status=open"},
     ]
-    assert {"id": "failed-documents", "metric": "识别失败文件", "count": 1, "status": "需跟进"} in payload["risk_rows"]
-    assert {"category": "识别失败", "count": 1} in payload["workload_rows"]
+    assert {
+        "id": "failed-documents",
+        "metric": "识别失败文件",
+        "count": 1,
+        "status": "需跟进",
+        "target_path": "/documents?status=FAILED",
+    } in payload["risk_rows"]
+    assert {
+        "category": "识别失败",
+        "count": 1,
+        "target_path": "/documents?status=FAILED",
+    } in payload["workload_rows"]
 
 
 def _clean_database(session: Session) -> None:

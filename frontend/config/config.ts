@@ -17,6 +17,8 @@ export default defineConfig({
     { name: '人员管理', path: '/employees', component: './Employees' },
     { name: '证书类型', path: '/certificate-types', component: './CertificateTypes' },
     { name: '持证记录', path: '/certificates', component: './Certificates' },
+    { name: '文件台账', path: '/documents', component: './Documents' },
+    { name: '统计报表', path: '/reports', component: './Reports' },
     { name: '上传识别', path: '/upload-recognition', component: './UploadRecognition' },
     { name: '待复核队列', path: '/review-queue', component: './ReviewQueue' },
     { name: '提醒任务', path: '/reminders', component: './Reminders' },

@@ -15,6 +15,7 @@ import { ExtractionQualitySummary, outputText } from '@/components/ExtractionQua
 import { listResource, postResource } from '@/services/api';
 import type {
   AiExtractionResult,
+  CertificateDocument,
   ReviewApprovePayload,
   ReviewDecision,
   ReviewTask,
@@ -99,6 +100,7 @@ export default function UploadRecognitionPage() {
   const [selectedFile, setSelectedFile] = useState<File>();
   const [documentId, setDocumentId] = useState<string>();
   const [reviewTaskId, setReviewTaskId] = useState<string>();
+  const [reviewTaskUpdatedAt, setReviewTaskUpdatedAt] = useState<string>();
   const [documentStatus, setDocumentStatus] = useState('未上传');
   const [recognitionStatus, setRecognitionStatus] = useState('未识别');
   const [recognitionActor, setRecognitionActor] = useState('');
@@ -123,6 +125,7 @@ export default function UploadRecognitionPage() {
     const pendingReviews = await listResource<ReviewTask>('/reviews?status=PENDING');
     const review = pendingReviews.find((item) => item.document_id === targetDocumentId);
     setReviewTaskId(review?.id);
+    setReviewTaskUpdatedAt(review?.updated_at);
     return review;
   }
 
@@ -175,6 +178,8 @@ export default function UploadRecognitionPage() {
         content_type: selectedFile.type || undefined,
         file_size: selectedFile.size,
       });
+      setDocumentId(intent.document_id);
+      setDocumentStatus('PENDING_UPLOAD');
 
       const uploadResponse = await fetch(intent.upload_url, {
         method: 'PUT',
@@ -187,8 +192,10 @@ export default function UploadRecognitionPage() {
         throw new Error(`对象存储上传失败: ${uploadResponse.status}`);
       }
 
-      setDocumentId(intent.document_id);
-      setDocumentStatus('UPLOADED');
+      const confirmedDocument = await postResource<CertificateDocument>(
+        `/documents/${intent.document_id}/confirm-upload`,
+      );
+      setDocumentStatus(confirmedDocument.status);
       setUploading(false);
       setRecognizing(true);
       try {
@@ -260,6 +267,7 @@ export default function UploadRecognitionPage() {
       review_date: formatDateValue(values.review_date),
       reviewed_by: values.reviewed_by!.trim(),
       notes: values.notes,
+      expected_updated_at: reviewTaskUpdatedAt!,
     };
 
     setApproving(true);
@@ -268,6 +276,7 @@ export default function UploadRecognitionPage() {
       setDocumentStatus('CONFIRMED');
       setRecognitionStatus('已确认');
       setReviewTaskId(undefined);
+      setReviewTaskUpdatedAt(undefined);
       message.success('已生成正式持证记录');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '确认失败');
@@ -280,6 +289,7 @@ export default function UploadRecognitionPage() {
     setSelectedFile(undefined);
     setDocumentId(undefined);
     setReviewTaskId(undefined);
+    setReviewTaskUpdatedAt(undefined);
     setExtractionResult(undefined);
     setDocumentStatus('未上传');
     setRecognitionStatus('未识别');

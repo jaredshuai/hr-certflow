@@ -19,12 +19,49 @@ This repo implements the approved HR certificate business management architectur
 
 ## Codebase Exploration Tool Routing
 
-- Use `ace-tool` for semantic or intent-based discovery, such as locating a feature area, business rule, error pattern, or similar implementation example.
-- Use `CodeGraph` for deterministic structural work, such as known-symbol lookup, caller/callee tracing, import/export dependencies, implementation lookup, impact analysis, and refactor blast-radius checks.
-- For complex ambiguous tasks, locate the likely area with `ace-tool`, then verify exact symbols and affected call chains with `CodeGraph` or direct source reads before editing.
-- Do not treat semantic/RAG output as proof. Confirm critical behavior in source code before changing files.
-- Keep the tool chain minimal. Do not run both tools when a direct file read, one semantic query, or one structural query is sufficient.
-- After edits, rely on lint/build/tests for correctness. Do not immediately depend on a graph index that may lag recent file writes.
+Use the smallest reliable inspection path. Native file reads are still fine for
+literal text, already-known files, or final confirmation. Use specialized tools
+only when they reduce uncertainty.
+
+| Intent | Primary tool | Use it for |
+| --- | --- | --- |
+| Semantic, feature-based, or ambiguous discovery | `ace-tool` | Find the area that handles a business rule, workflow, error pattern, or implementation style. |
+| Deterministic symbol lookup | `CodeGraph` | Find definitions, signatures, implementations, imports, exports, callers, and callees for known symbols. |
+| Impact analysis or refactor planning | `CodeGraph` | Trace exact upstream/downstream call chains and dependency blast radius before changing shared code. |
+| Prompt or task refinement for large changes | `ace-tool` | Enhance a broad task with likely relevant files and contextual constraints. |
+| Deep dependency mapping | `CodeGraph` | Traverse structural relationships instead of rebuilding them with grep/read loops. |
+
+### Use `CodeGraph` for structural tasks
+
+- Use `CodeGraph` when the question depends on exact syntax or relationships:
+  symbol definition, references, implementations, caller/callee chains,
+  import/export dependencies, and refactor impact.
+- Do not use `CodeGraph` for vague natural-language searches. First locate the
+  area semantically or by direct source reading, then use `CodeGraph` on the
+  concrete symbols.
+- For flow questions, start with `codegraph_trace` instead of manually chaining
+  search, callers, and callees.
+- For broad context on a known area, prefer `codegraph_context` and then at most
+  one focused `codegraph_explore` over many repeated node reads.
+
+### Use `ace-tool` for semantic tasks
+
+- Use `ace-tool` when the query is about intent rather than a known symbol:
+  where a workflow is handled, where a business rule is enforced, how similar
+  errors are formatted, or which files likely matter for a feature.
+- Do not use `ace-tool` as proof for exact call stacks, dependency edges, or
+  refactor blast radius.
+- Treat semantic/RAG output as a locator. Confirm critical behavior in source
+  code, tests, or `CodeGraph` before editing.
+
+### Hybrid workflow
+
+1. Locate ambiguous feature areas with `ace-tool` or direct file inspection.
+2. Trace exact symbols, flows, and impact with `CodeGraph` once concrete names
+   are known.
+3. Edit with source context, then verify with lint, type checks, tests, and
+   builds. Do not immediately depend on a graph index that may lag recent file
+   writes.
 
 ## Local Commands
 

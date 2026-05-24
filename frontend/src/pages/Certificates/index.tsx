@@ -1,6 +1,7 @@
 import {
   DrawerForm,
   PageContainer,
+  ProCard,
   ProFormDatePicker,
   ProFormSelect,
   ProFormText,
@@ -8,12 +9,31 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Alert, Button } from 'antd';
+import { Alert, Button, Collapse, Descriptions, Drawer, Empty, Space, Timeline, Typography } from 'antd';
 import { useEffect, useMemo, useState, useRef } from 'react';
 
-import { createResource, listResource, updateResource } from '@/services/api';
-import type { CertificateStatus, CertificateType, Employee, EmployeeCertificate } from '@/types/domain';
-import { certificateStatusOptions, certificateStatusValueEnum } from '@/utils/displayLabels';
+import { useLocation } from '@umijs/max';
+
+import { createResource, getResource, listResource, pageResource, updateResource } from '@/services/api';
+import type {
+  CertificateStatus,
+  CertificateType,
+  Employee,
+  EmployeeCertificate,
+  EmployeeCertificateTrace,
+} from '@/types/domain';
+import {
+  auditActionLabel,
+  auditResourceTypeLabel,
+  certificateStatusLabel,
+  certificateStatusOptions,
+  certificateStatusValueEnum,
+  documentStatusLabel,
+  feedbackStatusLabel,
+  reminderStatusLabel,
+  reviewStatusLabel,
+} from '@/utils/displayLabels';
+import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
 import { certificateTypeSelectRequest, employeeSelectRequest } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
@@ -46,12 +66,23 @@ function formatDateValue(value: unknown): string | undefined {
   return undefined;
 }
 
+function traceValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'object') return JSON.stringify(value, null, 2);
+  return String(value);
+}
+
 export default function CertificatesPage() {
   const actionRef = useRef<ActionType>();
+  const lastSearchParamsRef = useRef<Record<string, unknown>>({});
+  const location = useLocation();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [certificateTypes, setCertificateTypes] = useState<CertificateType[]>([]);
   const [open, setOpen] = useState(false);
   const [currentCertificate, setCurrentCertificate] = useState<EmployeeCertificate>();
+  const [traceOpen, setTraceOpen] = useState(false);
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [currentTrace, setCurrentTrace] = useState<EmployeeCertificateTrace>();
   const [loadError, setLoadError] = useState<string>();
 
   // Keep useEffect to provide id->name mapping for table columns; form selects use ProFormSelect.request.
@@ -78,6 +109,21 @@ export default function CertificatesPage() {
     () => new Map(certificateTypes.map((certificateType) => [certificateType.id, certificateType.name])),
     [certificateTypes],
   );
+  const urlFilters = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const status = params.get('status');
+    const certificateTypeId = params.get('certificate_type_id');
+    const statusGroup = params.get('status_group');
+    const validToFrom = params.get('valid_to_from');
+    const validToTo = params.get('valid_to_to');
+    return {
+      ...(status && status in certificateStatusValueEnum ? { status: status as CertificateStatus } : {}),
+      ...(certificateTypeId ? { certificate_type_id: certificateTypeId } : {}),
+      ...(statusGroup ? { status_group: statusGroup } : {}),
+      ...(validToFrom ? { valid_to_from: validToFrom } : {}),
+      ...(validToTo ? { valid_to_to: validToTo } : {}),
+    };
+  }, [location.search]);
 
   function openCreate() {
     setCurrentCertificate(undefined);
@@ -120,24 +166,75 @@ export default function CertificatesPage() {
     }
   }
 
+  async function exportCertificates() {
+    try {
+      await downloadCsv('/certificates/export.csv', lastSearchParamsRef.current, 'employee-certificates.csv');
+      message.success('持证记录已开始导出');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '持证记录导出失败');
+    }
+  }
+
+  async function openTrace(record: EmployeeCertificate) {
+    setTraceOpen(true);
+    setTraceLoading(true);
+    setCurrentTrace(undefined);
+    try {
+      const trace = await getResource<EmployeeCertificateTrace>(`/certificates/${record.id}/trace`);
+      setCurrentTrace(trace);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '追溯链路加载失败');
+    } finally {
+      setTraceLoading(false);
+    }
+  }
+
   const columns: ProColumns<EmployeeCertificate>[] = [
     {
       title: '员工',
       dataIndex: 'employee_id',
       width: 180,
       renderText: (value) => employeeNameById.get(value) || value,
+      valueType: 'select',
+      fieldProps: {
+        showSearch: true,
+        options: employees.map((employee) => ({
+          label: `${employee.name}（${employee.employee_no}）`,
+          value: employee.id,
+        })),
+      },
     },
     {
       title: '证书类型',
       dataIndex: 'certificate_type_id',
       width: 180,
       renderText: (value) => certificateTypeNameById.get(value) || value,
+      valueType: 'select',
+      fieldProps: {
+        showSearch: true,
+        options: certificateTypes.map((certificateType) => ({
+          label: certificateType.name,
+          value: certificateType.id,
+        })),
+      },
     },
     { title: '持证人', dataIndex: 'holder_name', width: 140 },
     { title: '证书编号', dataIndex: 'certificate_no', width: 180 },
     { title: '发证机构', dataIndex: 'issuing_authority' },
-    { title: '发证日期', dataIndex: 'issue_date', valueType: 'date', width: 130 },
-    { title: '到期日期', dataIndex: 'valid_to', valueType: 'date', width: 130 },
+    { title: '发证日期', dataIndex: 'issue_date', valueType: 'date', width: 130, search: false },
+    { title: '到期日期', dataIndex: 'valid_to', valueType: 'date', width: 130, search: false },
+    {
+      title: '到期区间',
+      dataIndex: 'valid_to_range',
+      valueType: 'dateRange',
+      hideInTable: true,
+      search: {
+        transform: (value) => ({
+          valid_to_from: value?.[0],
+          valid_to_to: value?.[1],
+        }),
+      },
+    },
     {
       title: '状态',
       dataIndex: 'status',
@@ -148,11 +245,16 @@ export default function CertificatesPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 100,
+      width: 150,
       render: (_, record) => (
-        <Button type="link" size="small" onClick={() => openEdit(record)}>
-          编辑
-        </Button>
+        <Space>
+          <Button type="link" size="small" onClick={() => openTrace(record)}>
+            追溯
+          </Button>
+          <Button type="link" size="small" onClick={() => openEdit(record)}>
+            编辑
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -173,11 +275,20 @@ export default function CertificatesPage() {
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
-        request={async () => {
+        params={urlFilters}
+        request={async (params) => {
           try {
-            const data = await listResource<EmployeeCertificate>('/certificates');
+            const { current, pageSize, ...searchParams } = params;
+            const nextSearchParams = { ...searchParams };
+            delete nextSearchParams.valid_to_range;
+            lastSearchParamsRef.current = nextSearchParams;
+            const result = await pageResource<EmployeeCertificate>('/certificates/page', {
+              ...nextSearchParams,
+              current,
+              page_size: pageSize,
+            });
             setLoadError(undefined);
-            return { data, success: true };
+            return { data: result.data, total: result.total, success: true };
           } catch (error) {
             const description = error instanceof Error ? error.message : '持证记录加载失败';
             setLoadError(description);
@@ -189,11 +300,15 @@ export default function CertificatesPage() {
         toolbar={{
           title: '当前与历史持证记录',
           actions: [
+            <Button key="export" onClick={exportCertificates}>
+              导出当前筛选
+            </Button>,
             <Button key="create" type="primary" onClick={openCreate}>
               新增持证记录
             </Button>,
           ],
         }}
+        pagination={{ defaultPageSize: 20, showSizeChanger: true }}
         search={{ labelWidth: 88 }}
       />
 
@@ -254,6 +369,159 @@ export default function CertificatesPage() {
         />
         <ProFormText name="confirmed_by" label="确认人" />
       </DrawerForm>
+
+      <Drawer
+        title="持证记录全链路追溯"
+        open={traceOpen}
+        onClose={() => setTraceOpen(false)}
+        width={840}
+        loading={traceLoading}
+      >
+        {currentTrace ? (
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <ProCard title="正式持证记录" bordered>
+              <Descriptions column={2} size="small">
+                <Descriptions.Item label="持证人">{currentTrace.certificate.holder_name}</Descriptions.Item>
+                <Descriptions.Item label="证书编号">
+                  {currentTrace.certificate.certificate_no || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="状态">
+                  {certificateStatusLabel(currentTrace.certificate.status)}
+                </Descriptions.Item>
+                <Descriptions.Item label="确认人">
+                  {currentTrace.certificate.confirmed_by || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="确认时间">
+                  {currentTrace.certificate.confirmed_at || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="到期日期">{currentTrace.certificate.valid_to || '-'}</Descriptions.Item>
+              </Descriptions>
+            </ProCard>
+
+            <ProCard title="人员与证书类型" bordered>
+              <Descriptions column={2} size="small">
+                <Descriptions.Item label="员工">
+                  {currentTrace.employee
+                    ? `${currentTrace.employee.name}（${currentTrace.employee.employee_no}）`
+                    : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="部门">{currentTrace.employee?.department || '-'}</Descriptions.Item>
+                <Descriptions.Item label="证书类型">
+                  {currentTrace.certificate_type
+                    ? `${currentTrace.certificate_type.name}（${currentTrace.certificate_type.code}）`
+                    : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="发证机构">
+                  {currentTrace.certificate_type?.issuing_authority || currentTrace.certificate.issuing_authority || '-'}
+                </Descriptions.Item>
+              </Descriptions>
+            </ProCard>
+
+            <ProCard title="源文件与 AI 识别" bordered>
+              {currentTrace.source_document ? (
+                <Descriptions column={1} size="small">
+                  <Descriptions.Item label="文件名">
+                    {currentTrace.source_document.original_filename}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="文件状态">
+                    {documentStatusLabel(currentTrace.source_document.status)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="对象 Key">{currentTrace.source_document.storage_key}</Descriptions.Item>
+                  <Descriptions.Item label="SHA256">{currentTrace.source_document.sha256 || '-'}</Descriptions.Item>
+                  <Descriptions.Item label="失败原因">
+                    {currentTrace.source_document.failure_reason || '-'}
+                  </Descriptions.Item>
+                </Descriptions>
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有关联源文件" />
+              )}
+              <Collapse
+                style={{ marginTop: 12 }}
+                items={currentTrace.ai_results.map((result, index) => ({
+                  key: result.id,
+                  label: `AI 结果 ${index + 1}：${result.model_name || result.workflow_run_id || result.id}`,
+                  children: (
+                    <Typography.Paragraph copyable style={{ whiteSpace: 'pre-wrap' }}>
+                      {traceValue(result.output_json)}
+                    </Typography.Paragraph>
+                  ),
+                }))}
+              />
+            </ProCard>
+
+            <ProCard title="复核、提醒与反馈" bordered>
+              <Collapse
+                items={[
+                  {
+                    key: 'reviews',
+                    label: `复核任务（${currentTrace.review_tasks.length}）`,
+                    children:
+                      currentTrace.review_tasks.length > 0 ? (
+                        <Timeline
+                          items={currentTrace.review_tasks.map((task) => ({
+                            children: `${reviewStatusLabel(task.status)} / ${task.reviewed_by || '未复核'} / ${
+                              task.reviewed_at || task.created_at
+                            }`,
+                          }))}
+                        />
+                      ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无复核任务" />
+                      ),
+                  },
+                  {
+                    key: 'reminders',
+                    label: `提醒任务（${currentTrace.reminder_tasks.length}）`,
+                    children:
+                      currentTrace.reminder_tasks.length > 0 ? (
+                        <Timeline
+                          items={currentTrace.reminder_tasks.map((task) => ({
+                            children: `${reminderStatusLabel(task.status)} / 触发 ${task.trigger_date} / 截止 ${
+                              task.due_date || '-'
+                            }`,
+                          }))}
+                        />
+                      ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无提醒任务" />
+                      ),
+                  },
+                  {
+                    key: 'feedback',
+                    label: `反馈记录（${currentTrace.feedback_items.length}）`,
+                    children:
+                      currentTrace.feedback_items.length > 0 ? (
+                        <Timeline
+                          items={currentTrace.feedback_items.map((feedback) => ({
+                            children: `${feedbackStatusLabel(feedback.status)} / ${feedback.created_by} / ${
+                              feedback.content || '-'
+                            }`,
+                          }))}
+                        />
+                      ) : (
+                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无反馈记录" />
+                      ),
+                  },
+                ]}
+              />
+            </ProCard>
+
+            <ProCard title="审计摘要" bordered>
+              {currentTrace.audit_logs.length > 0 ? (
+                <Timeline
+                  items={currentTrace.audit_logs.map((log) => ({
+                    children: `${log.created_at} / ${auditActionLabel(log.action)} / ${auditResourceTypeLabel(
+                      log.resource_type,
+                    )} / ${log.actor_name || '-'}`,
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无审计记录" />
+              )}
+            </ProCard>
+          </Space>
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请选择一条持证记录查看追溯链路" />
+        )}
+      </Drawer>
     </PageContainer>
   );
 }

@@ -90,22 +90,33 @@ async def dispatch_due_reminder_notifications(
     router = NotificationRouter(settings)
     sent_or_recorded = 0
     for task in tasks:
-        event_type = _next_event_type(task, scan_date)
+        channels = _channels_for_task(task)
+        event_type = _next_dispatch_event_type(db, task, scan_date, channels)
         if event_type is None:
             continue
 
         before_status = task.status
-        channels = task.policy.channels if task.policy and task.policy.channels else ["email"]
+        already_sent_channels = _successful_channels_for_event(db, task, event_type, channels)
+        pending_channels = [channel for channel in channels if channel not in already_sent_channels]
+        if not pending_channels:
+            continue
+
         message = _build_reminder_message(
             task,
             event_type,
             recipients=settings.notification_hr_recipient_list,
         )
-        results = await router.send_to_hr(message, channels)
+        results = await router.send_to_hr(message, pending_channels)
         now = datetime.now(UTC)
         has_sent = any(result.get("status") == "sent" for result in results)
         if has_sent:
-            _advance_task_state(task, event_type, now=now, scan_date=scan_date)
+            _advance_task_state(
+                task,
+                event_type,
+                now=now,
+                scan_date=scan_date,
+                preserve_existing_due_date=bool(already_sent_channels),
+            )
         for result in results:
             db.add(
                 ReminderEvent(
@@ -114,7 +125,10 @@ async def dispatch_due_reminder_notifications(
                     channel=result.get("channel"),
                     recipient=",".join(message.recipients) or None,
                     provider_message_id=result.get("message_id"),
-                    payload=result,
+                    payload={
+                        **result,
+                        "event_window_key": _event_window_key(task, event_type),
+                    },
                     sent_at=now if result.get("status") == "sent" else None,
                     error=result.get("error") or result.get("reason"),
                 )
@@ -131,11 +145,117 @@ async def dispatch_due_reminder_notifications(
                 "status": task.status.value,
                 "event_type": event_type.value,
                 "channels": channels,
+                "dispatched_channels": pending_channels,
+                "already_sent_channels": sorted(already_sent_channels),
                 "sent": has_sent,
                 "results": results,
             },
         )
     return sent_or_recorded
+
+
+async def dispatch_single_reminder_task(
+    db: Session,
+    settings: Settings,
+    task: ReminderTask,
+    *,
+    operator: str,
+    simulate: bool,
+    channels: list[str] | None = None,
+    today: date | None = None,
+    request_context: dict[str, str | None] | None = None,
+) -> tuple[ReminderEventType, list[dict]]:
+    scan_date = today or datetime.now(UTC).date()
+    resolved_channels = _normalize_channels(
+        channels or (task.policy.channels if task.policy and task.policy.channels else ["email"])
+    )
+    event_type = _next_dispatch_event_type(db, task, scan_date, resolved_channels)
+    if event_type is None:
+        raise ValueError("当前提醒任务还不到可派发时间或已经结束")
+
+    before_status = task.status
+    already_sent_channels = _successful_channels_for_event(db, task, event_type, resolved_channels)
+    pending_channels = [channel for channel in resolved_channels if channel not in already_sent_channels]
+    message = _build_reminder_message(
+        task,
+        event_type,
+        recipients=settings.notification_hr_recipient_list,
+    )
+    now = datetime.now(UTC)
+    skipped_results = [
+        {
+            "channel": channel,
+            "status": "skipped",
+            "reason": "already_sent_for_event_window",
+            "event_window_key": _event_window_key(task, event_type),
+        }
+        for channel in resolved_channels
+        if channel in already_sent_channels
+    ]
+    if simulate:
+        results = [
+            {
+                "channel": channel,
+                "status": "sent",
+                "simulated": True,
+                "operator": operator,
+            }
+            for channel in pending_channels
+        ]
+    else:
+        results = await NotificationRouter(settings).send_to_hr(message, pending_channels)
+
+    has_sent = any(result.get("status") == "sent" for result in results)
+    if has_sent:
+        _advance_task_state(
+            task,
+            event_type,
+            now=now,
+            scan_date=scan_date,
+            preserve_existing_due_date=bool(already_sent_channels),
+        )
+
+    for result in results:
+        db.add(
+            ReminderEvent(
+                reminder_task_id=task.id,
+                event_type=event_type,
+                channel=result.get("channel"),
+                recipient=",".join(message.recipients) or operator,
+                provider_message_id=result.get("message_id"),
+                payload={
+                    **result,
+                    "operator": operator,
+                    "simulate": simulate,
+                    "event_window_key": _event_window_key(task, event_type),
+                },
+                sent_at=now if result.get("status") == "sent" else None,
+                error=result.get("error") or result.get("reason"),
+            )
+        )
+
+    record_audit(
+        db,
+        action="reminder_task.notification.manual_dispatch",
+        resource_type="reminder_task",
+        resource_id=str(task.id),
+        before={"status": before_status.value},
+        after={
+            "status": task.status.value,
+            "event_type": event_type.value,
+            "channels": resolved_channels,
+            "dispatched_channels": pending_channels,
+            "already_sent_channels": sorted(already_sent_channels),
+            "sent": has_sent,
+            "simulate": simulate,
+            "operator": operator,
+            "results": [*skipped_results, *results],
+        },
+        actor_name=(request_context or {}).get("actor_name") or operator,
+        request_id=(request_context or {}).get("request_id"),
+        ip_address=(request_context or {}).get("ip_address"),
+    )
+    return event_type, [*skipped_results, *results]
 
 
 def _policies_for_certificate(
@@ -148,6 +268,78 @@ def _policies_for_certificate(
         if policy.certificate_type_id is None or policy.certificate_type_id == certificate.certificate_type_id
     ]
     return matching
+
+
+def _channels_for_task(task: ReminderTask) -> list[str]:
+    return _normalize_channels(task.policy.channels if task.policy and task.policy.channels else ["email"])
+
+
+def _normalize_channels(channels: Sequence[str]) -> list[str]:
+    return list(dict.fromkeys(channel.strip() for channel in channels if channel.strip()))
+
+
+def _event_window_key(task: ReminderTask, event_type: ReminderEventType) -> str:
+    return f"{task.id}:{event_type.value}"
+
+
+def _successful_channels_for_event(
+    db: Session,
+    task: ReminderTask,
+    event_type: ReminderEventType,
+    channels: Sequence[str],
+) -> set[str]:
+    channel_set = set(channels)
+    if not channel_set:
+        return set()
+
+    events = db.scalars(
+        select(ReminderEvent).where(
+            ReminderEvent.reminder_task_id == task.id,
+            ReminderEvent.event_type == event_type,
+            ReminderEvent.channel.in_(channel_set),
+            ReminderEvent.sent_at.is_not(None),
+        )
+    ).all()
+    window_key = _event_window_key(task, event_type)
+    successful_channels: set[str] = set()
+    for event in events:
+        if not event.channel or event.error:
+            continue
+        payload = event.payload or {}
+        payload_window_key = payload.get("event_window_key")
+        if payload_window_key and payload_window_key != window_key:
+            continue
+        if payload.get("status") not in {None, "sent"}:
+            continue
+        successful_channels.add(event.channel)
+    return successful_channels
+
+
+def _next_dispatch_event_type(
+    db: Session,
+    task: ReminderTask,
+    scan_date: date,
+    channels: Sequence[str],
+) -> ReminderEventType | None:
+    event_type = _next_event_type(task, scan_date)
+    if event_type is not None:
+        return event_type
+
+    if task.status in {ReminderTaskStatus.FIRST_SENT, ReminderTaskStatus.WAITING_FEEDBACK}:
+        if task.due_date and task.due_date <= scan_date:
+            return None
+        successful_channels = _successful_channels_for_event(db, task, ReminderEventType.FIRST_REMINDER, channels)
+        if successful_channels and len(successful_channels) < len(set(channels)):
+            return ReminderEventType.FIRST_REMINDER
+
+    if task.status == ReminderTaskStatus.SECOND_SENT:
+        if task.due_date and task.due_date <= scan_date:
+            return None
+        successful_channels = _successful_channels_for_event(db, task, ReminderEventType.SECOND_REMINDER, channels)
+        if successful_channels and len(successful_channels) < len(set(channels)):
+            return ReminderEventType.SECOND_REMINDER
+
+    return None
 
 
 def _next_event_type(task: ReminderTask, scan_date: date) -> ReminderEventType | None:
@@ -171,8 +363,12 @@ def _advance_task_state(
     *,
     now: datetime,
     scan_date: date,
+    preserve_existing_due_date: bool = False,
 ) -> None:
     task.last_event_at = now
+    if preserve_existing_due_date:
+        return
+
     policy = task.policy
     if event_type == ReminderEventType.FIRST_REMINDER:
         task.status = ReminderTaskStatus.WAITING_FEEDBACK

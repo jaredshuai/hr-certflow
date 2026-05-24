@@ -1,4 +1,11 @@
-import type { CertificateStatus, DocumentStatus, EmploymentStatus, ReminderTaskStatus, ReviewStatus } from '@/types/domain';
+import type {
+  CertificateStatus,
+  DocumentStatus,
+  EmploymentStatus,
+  ReminderEventType,
+  ReminderTaskStatus,
+  ReviewStatus,
+} from '@/types/domain';
 
 type ProValueEnumStatus = 'Default' | 'Processing' | 'Success' | 'Warning' | 'Error';
 export type StatusValueEnum<K extends string = string> = Record<
@@ -24,6 +31,7 @@ const certificateStatusLabels: Record<string, string> = {
 };
 
 const documentStatusLabels: Record<string, string> = {
+  PENDING_UPLOAD: '待确认上传',
   UPLOADED: '已上传',
   PARSING: '解析中',
   PENDING_REVIEW: '待复核',
@@ -49,6 +57,15 @@ const reminderStatusLabels: Record<string, string> = {
   CLOSED: '已关闭',
 };
 
+const reminderEventTypeLabels: Record<string, string> = {
+  FIRST_REMINDER: '首次提醒',
+  SECOND_REMINDER: '二次提醒',
+  ESCALATION: '升级提醒',
+  FEEDBACK: '人力反馈',
+  CLOSED: '关闭',
+  FAILED: '失败',
+};
+
 const feedbackStatusLabels: Record<string, string> = {
   NOTIFIED_EMPLOYEE: '已通知员工',
   PROCESSING: '办理中',
@@ -60,6 +77,8 @@ const feedbackStatusLabels: Record<string, string> = {
 
 const auditActionLabels: Record<string, string> = {
   'certificate_document.upload_intent.create': '创建证书文件上传任务',
+  'certificate_document.upload.confirm': '确认证书文件上传',
+  'certificate_document.upload.confirm.failed': '证书文件上传确认失败',
   'certificate_document.recognize': '发起证书智能识别',
   'certificate_document.recognize.failed': '证书智能识别失败',
   'employee_certificate.create': '创建持证记录',
@@ -69,6 +88,7 @@ const auditActionLabels: Record<string, string> = {
   'employee.create': '创建人员档案',
   'employee.update': '更新人员档案',
   'reminder_policy.create': '创建提醒策略',
+  'reminder_policy.update': '更新提醒策略',
   'reminder_task.notification.dispatch': '发送提醒通知',
   'reminder_task.feedback.create': '记录人力反馈',
   'review_task.approve': '复核通过',
@@ -144,6 +164,10 @@ export function reminderStatusLabel(value: ReminderTaskStatus | null | undefined
   return labelFromMap(value, reminderStatusLabels);
 }
 
+export function reminderEventTypeLabel(value: ReminderEventType | null | undefined): string {
+  return labelFromMap(value, reminderEventTypeLabels);
+}
+
 export function feedbackStatusLabel(value: string | null | undefined): string {
   return labelFromMap(value, feedbackStatusLabels);
 }
@@ -196,6 +220,7 @@ export const forceManualReviewValueEnum: StatusValueEnum<'true' | 'false'> = {
 };
 
 export const documentStatusValueEnum: StatusValueEnum<DocumentStatus> = {
+  PENDING_UPLOAD: { text: '待确认上传', status: 'Processing' },
   UPLOADED: { text: '已上传', status: 'Processing' },
   PARSING: { text: '解析中', status: 'Processing' },
   PENDING_REVIEW: { text: '待复核', status: 'Warning' },

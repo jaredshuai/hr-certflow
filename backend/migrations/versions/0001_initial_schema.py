@@ -68,7 +68,7 @@ def upgrade() -> None:
             "status",
             enum(
                 "document_status",
-                ["UPLOADED", "PARSING", "PENDING_REVIEW", "CONFIRMED", "FAILED", "ARCHIVED"],
+                ["PENDING_UPLOAD", "UPLOADED", "PARSING", "PENDING_REVIEW", "CONFIRMED", "FAILED", "ARCHIVED"],
             ),
             nullable=False,
         ),

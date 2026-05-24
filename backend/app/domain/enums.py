@@ -21,6 +21,7 @@ class CertificateStatus(StrEnum):
 
 
 class DocumentStatus(StrEnum):
+    PENDING_UPLOAD = "PENDING_UPLOAD"
     UPLOADED = "UPLOADED"
     PARSING = "PARSING"
     PENDING_REVIEW = "PENDING_REVIEW"

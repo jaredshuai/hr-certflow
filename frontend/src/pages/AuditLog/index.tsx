@@ -9,10 +9,13 @@ import { message } from '@/utils/messageApi';
 
 interface AuditLogRow {
   id: string;
+  actor_id?: string;
   actor_name?: string;
   action: string;
   resource_type: string;
   resource_id?: string;
+  request_id?: string;
+  ip_address?: string;
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
   created_at: string;
@@ -50,6 +53,8 @@ export default function AuditLogPage() {
 
   const columns: ProColumns<AuditLogRow>[] = [
     { title: '操作者', dataIndex: 'actor_name', width: 140 },
+    { title: '请求 ID', dataIndex: 'request_id', ellipsis: true, search: false },
+    { title: '来源 IP', dataIndex: 'ip_address', width: 130, search: false },
     { title: '动作', dataIndex: 'action', width: 220, renderText: (value) => auditActionLabel(value) },
     { title: '资源类型', dataIndex: 'resource_type', width: 160, renderText: (value) => auditResourceTypeLabel(value) },
     { title: '资源 ID', dataIndex: 'resource_id', ellipsis: true },

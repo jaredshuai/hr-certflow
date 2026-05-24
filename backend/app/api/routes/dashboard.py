@@ -135,39 +135,88 @@ def build_dashboard_summary(
 ) -> DashboardSummaryRead:
     coverage = round((covered_employee_count / employee_count) * 100, 1) if employee_count else 0
     certificate_status_rows = [
-        DashboardChartRow(category=CERTIFICATE_STATUS_LABELS[status], count=count)
+        DashboardChartRow(
+            category=CERTIFICATE_STATUS_LABELS[status],
+            count=count,
+            target_path=f"/certificates?status={status.value}",
+        )
         for status, count in certificate_status_counts
         if count
     ]
     workload_rows = [
-        DashboardChartRow(category="即将到期", count=expiring_count),
-        DashboardChartRow(category="已过期", count=expired_count),
-        DashboardChartRow(category="识别失败", count=failed_document_count),
-        DashboardChartRow(category="待复核", count=pending_review_count),
-        DashboardChartRow(category="升级提醒", count=second_reminder_count),
+        DashboardChartRow(category="即将到期", count=expiring_count, target_path="/certificates?status=EXPIRING"),
+        DashboardChartRow(category="已过期", count=expired_count, target_path="/certificates?status=EXPIRED"),
+        DashboardChartRow(category="识别失败", count=failed_document_count, target_path="/documents?status=FAILED"),
+        DashboardChartRow(category="待复核", count=pending_review_count, target_path="/review-queue"),
+        DashboardChartRow(
+            category="升级提醒",
+            count=second_reminder_count,
+            target_path="/reminders?status=SECOND_SENT&status=ESCALATED",
+        ),
     ]
 
     pipeline_steps = [
-        DashboardPipelineStep(title="上传原件", description=f"{uploaded_count} 件待识别", count=uploaded_count),
-        DashboardPipelineStep(title="AI 识别", description=f"{parsing_count} 件识别中", count=parsing_count),
+        DashboardPipelineStep(
+            title="上传原件",
+            description=f"{uploaded_count} 件待识别",
+            count=uploaded_count,
+            target_path="/documents?status=UPLOADED",
+        ),
+        DashboardPipelineStep(
+            title="AI 识别",
+            description=f"{parsing_count} 件识别中",
+            count=parsing_count,
+            target_path="/documents?status=PARSING",
+        ),
         DashboardPipelineStep(
             title="人工复核",
             description=f"{pending_review_count} 件待复核",
             count=pending_review_count,
+            target_path="/review-queue",
         ),
-        DashboardPipelineStep(title="正式入库", description=f"{archived_count} 件已入库", count=archived_count),
+        DashboardPipelineStep(
+            title="正式入库",
+            description=f"{archived_count} 件已入库",
+            count=archived_count,
+            target_path="/certificates?status=ACTIVE",
+        ),
         DashboardPipelineStep(
             title="到期提醒",
             description=f"{open_reminder_count} 件提醒中",
             count=open_reminder_count,
+            target_path="/reminders?status=open",
         ),
     ]
 
     risk_rows = [
-        DashboardRiskRow(id="expired-certificates", metric="已过期证书", count=expired_count, status="需跟进"),
-        DashboardRiskRow(id="failed-documents", metric="识别失败文件", count=failed_document_count, status="需跟进"),
-        DashboardRiskRow(id="pending-reviews", metric="待复核识别", count=pending_review_count, status="处理中"),
-        DashboardRiskRow(id="second-reminders", metric="二次或升级提醒", count=second_reminder_count, status="升级前"),
+        DashboardRiskRow(
+            id="expired-certificates",
+            metric="已过期证书",
+            count=expired_count,
+            status="需跟进",
+            target_path="/certificates?status=EXPIRED",
+        ),
+        DashboardRiskRow(
+            id="failed-documents",
+            metric="识别失败文件",
+            count=failed_document_count,
+            status="需跟进",
+            target_path="/documents?status=FAILED",
+        ),
+        DashboardRiskRow(
+            id="pending-reviews",
+            metric="待复核识别",
+            count=pending_review_count,
+            status="处理中",
+            target_path="/review-queue",
+        ),
+        DashboardRiskRow(
+            id="second-reminders",
+            metric="二次或升级提醒",
+            count=second_reminder_count,
+            status="升级前",
+            target_path="/reminders?status=SECOND_SENT&status=ESCALATED",
+        ),
     ]
 
     return DashboardSummaryRead(

@@ -6,7 +6,9 @@ import type { ThemeConfig } from 'antd';
 import 'dayjs/locale/zh-cn';
 import type { ReactNode } from 'react';
 
+import { CurrentOperator } from '@/components/CurrentOperator';
 import { setMessageInstance } from '@/utils/messageApi';
+import { buildRequestId, getCurrentOperator } from '@/utils/operatorContext';
 
 const appTheme: ThemeConfig = {
   cssVar: true,
@@ -80,6 +82,17 @@ function resolveApiBasePath(): string {
 export const request: RequestConfig = {
   baseURL: resolveApiBasePath(),
   timeout: 30000,
+  requestInterceptors: [
+    (config) => {
+      const operator = getCurrentOperator();
+      const headers = {
+        ...(config.headers || {}),
+        'X-Request-ID': buildRequestId(),
+        ...(operator ? { 'X-HR-Actor': operator } : {}),
+      };
+      return { ...config, headers };
+    },
+  ],
   errorConfig: {
     errorThrower: (response: any) => {
       const error: any = new Error(response?.data?.detail || '请求失败');
@@ -111,6 +124,7 @@ export const layout: RunTimeLayoutConfig = () => ({
       colorBgMenuItemHover: '#e8f3ef',
     },
   },
+  actionsRender: () => [<CurrentOperator key="current-operator" />],
 });
 
 function MessageInstaller() {

@@ -9,14 +9,17 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Alert, Button } from 'antd';
+import { UploadOutlined } from '@ant-design/icons';
+import { Alert, Button, Modal, Table, Upload } from 'antd';
+import type { UploadProps } from 'antd';
 import { useRef, useState } from 'react';
 
-import { createResource, listResource, updateResource } from '@/services/api';
+import { createResource, pageResource, updateResource, uploadResource } from '@/services/api';
 import type { CertificateType } from '@/types/domain';
 import { emptyTableText } from '@/utils/emptyStates';
 import { forceManualReviewValueEnum } from '@/utils/displayLabels';
 import { message } from '@/utils/messageApi';
+import { downloadCsv } from '@/utils/download';
 
 interface CertificateTypeFormValues {
   code?: string;
@@ -27,6 +30,20 @@ interface CertificateTypeFormValues {
   description?: string;
 }
 
+interface CertificateTypeImportError {
+  row_number: number;
+  code?: string;
+  message: string;
+}
+
+interface CertificateTypeImportResult {
+  total: number;
+  created: number;
+  updated: number;
+  failed: number;
+  errors: CertificateTypeImportError[];
+}
+
 function optionalText(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed || undefined;
@@ -34,9 +51,12 @@ function optionalText(value: string | undefined): string | undefined {
 
 export default function CertificateTypesPage() {
   const actionRef = useRef<ActionType>();
+  const lastSearchParamsRef = useRef<Record<string, unknown>>({});
   const [open, setOpen] = useState(false);
   const [currentType, setCurrentType] = useState<CertificateType>();
   const [loadError, setLoadError] = useState<string>();
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<CertificateTypeImportResult>();
 
   function openCreate() {
     setCurrentType(undefined);
@@ -80,6 +100,40 @@ export default function CertificateTypesPage() {
     }
   }
 
+  async function exportCertificateTypes() {
+    try {
+      await downloadCsv('/certificate-types/export.csv', lastSearchParamsRef.current, 'certificate-types.csv');
+      message.success('证书类型已开始导出');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '证书类型导出失败');
+    }
+  }
+
+  async function importCertificateTypes(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    setImporting(true);
+    try {
+      const result = await uploadResource<CertificateTypeImportResult>('/certificate-types/import.csv', formData);
+      setImportResult(result);
+      actionRef.current?.reload();
+      message.success(`证书类型导入完成：新增 ${result.created} 项，更新 ${result.updated} 项`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '证书类型导入失败');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const importUploadProps: UploadProps = {
+    accept: '.csv,text/csv',
+    showUploadList: false,
+    beforeUpload: (file) => {
+      void importCertificateTypes(file);
+      return false;
+    },
+  };
+
   const columns: ProColumns<CertificateType>[] = [
     { title: '编码', dataIndex: 'code', width: 140 },
     { title: '证书类型', dataIndex: 'name' },
@@ -121,11 +175,17 @@ export default function CertificateTypesPage() {
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
-        request={async () => {
+        request={async (params) => {
           try {
-            const data = await listResource<CertificateType>('/certificate-types');
+            const { current, pageSize, ...searchParams } = params;
+            lastSearchParamsRef.current = searchParams;
+            const result = await pageResource<CertificateType>('/certificate-types/page', {
+              ...searchParams,
+              current,
+              page_size: pageSize,
+            });
             setLoadError(undefined);
-            return { data, success: true };
+            return { data: result.data, total: result.total, success: true };
           } catch (error) {
             const description = error instanceof Error ? error.message : '证书类型数据加载失败';
             setLoadError(description);
@@ -137,11 +197,20 @@ export default function CertificateTypesPage() {
         toolbar={{
           title: '证书类型',
           actions: [
+            <Upload key="import" {...importUploadProps}>
+              <Button icon={<UploadOutlined />} loading={importing}>
+                导入CSV
+              </Button>
+            </Upload>,
+            <Button key="export" onClick={exportCertificateTypes}>
+              导出当前筛选
+            </Button>,
             <Button key="create" type="primary" onClick={openCreate}>
               新增证书类型
             </Button>,
           ],
         }}
+        pagination={{ defaultPageSize: 20, showSizeChanger: true }}
         search={{ labelWidth: 96 }}
       />
 
@@ -180,6 +249,41 @@ export default function CertificateTypesPage() {
         <ProFormSwitch name="force_manual_review" label="强制复核" />
         <ProFormTextArea name="description" label="说明" />
       </ModalForm>
+
+      <Modal
+        title="证书类型导入结果"
+        open={Boolean(importResult)}
+        onCancel={() => setImportResult(undefined)}
+        footer={
+          <Button type="primary" onClick={() => setImportResult(undefined)}>
+            知道了
+          </Button>
+        }
+      >
+        {importResult ? (
+          <>
+            <Alert
+              type={importResult.failed > 0 ? 'warning' : 'success'}
+              showIcon
+              message={`共处理 ${importResult.total} 行，新增 ${importResult.created} 项，更新 ${importResult.updated} 项，失败 ${importResult.failed} 行`}
+              style={{ marginBottom: 16 }}
+            />
+            {importResult.errors.length > 0 ? (
+              <Table<CertificateTypeImportError>
+                size="small"
+                rowKey={(record) => `${record.row_number}-${record.code ?? 'empty'}`}
+                pagination={false}
+                dataSource={importResult.errors}
+                columns={[
+                  { title: '行号', dataIndex: 'row_number', width: 80 },
+                  { title: '编码', dataIndex: 'code', width: 120 },
+                  { title: '原因', dataIndex: 'message' },
+                ]}
+              />
+            ) : null}
+          </>
+        ) : null}
+      </Modal>
     </PageContainer>
   );
 }

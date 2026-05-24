@@ -16,7 +16,21 @@ export type ReminderTaskStatus =
   | 'ESCALATED'
   | 'RESOLVED'
   | 'CLOSED';
-export type DocumentStatus = 'UPLOADED' | 'PARSING' | 'PENDING_REVIEW' | 'CONFIRMED' | 'FAILED' | 'ARCHIVED';
+export type ReminderEventType =
+  | 'FIRST_REMINDER'
+  | 'SECOND_REMINDER'
+  | 'ESCALATION'
+  | 'FEEDBACK'
+  | 'CLOSED'
+  | 'FAILED';
+export type DocumentStatus =
+  | 'PENDING_UPLOAD'
+  | 'UPLOADED'
+  | 'PARSING'
+  | 'PENDING_REVIEW'
+  | 'CONFIRMED'
+  | 'FAILED'
+  | 'ARCHIVED';
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'NEEDS_INFO';
 export type FeedbackStatus =
   | 'NOTIFIED_EMPLOYEE'
@@ -68,10 +82,61 @@ export interface EmployeeCertificate {
 export interface ReminderTask {
   id: string;
   employee_certificate_id: string;
+  policy_id?: string;
   status: ReminderTaskStatus;
   trigger_date: string;
   due_date?: string;
+  last_event_at?: string;
+  resolved_at?: string;
   closed_reason?: string;
+  idempotency_key: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReminderEvent {
+  id: string;
+  reminder_task_id: string;
+  event_type: ReminderEventType;
+  channel?: string;
+  recipient?: string;
+  provider_message_id?: string;
+  payload?: Record<string, unknown>;
+  sent_at?: string;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReminderFeedback {
+  id: string;
+  reminder_task_id: string;
+  employee_certificate_id: string;
+  status: FeedbackStatus;
+  content?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReminderTaskTimeline {
+  task: ReminderTask;
+  events: ReminderEvent[];
+  feedback_items: ReminderFeedback[];
+}
+
+export interface ReminderPolicy {
+  id: string;
+  certificate_type_id?: string | null;
+  certificate_type_name?: string | null;
+  name: string;
+  days_before_expiry: number[];
+  second_reminder_after_days: number;
+  escalation_after_days: number;
+  channels: string[];
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CertificateDocument {
@@ -95,17 +160,20 @@ export interface DashboardRiskRow {
   metric: string;
   count: number;
   status: string;
+  target_path: string;
 }
 
 export interface DashboardChartRow {
   category: string;
   count: number;
+  target_path: string;
 }
 
 export interface DashboardPipelineStep {
   title: string;
   description: string;
   count: number;
+  target_path: string;
 }
 
 export interface DashboardSummary {
@@ -132,6 +200,12 @@ export interface ReviewTask {
   created_at: string;
   updated_at: string;
   document_original_filename?: string;
+  document_status?: DocumentStatus;
+  document_content_type?: string;
+  document_file_size?: number;
+  document_sha256?: string;
+  document_failure_reason?: string;
+  document_read_url?: string;
   ai_output_json?: Record<string, unknown>;
   ai_confidence?: number;
 }
@@ -169,9 +243,153 @@ export interface ReviewApprovePayload {
   review_date?: string;
   reviewed_by: string;
   notes?: string;
+  expected_updated_at: string;
 }
 
 export interface ReviewDecision {
   review_task: ReviewTask;
   certificate?: EmployeeCertificate;
+}
+
+export interface ReminderDispatchPayload {
+  operator: string;
+  simulate: boolean;
+}
+
+export interface ReminderDispatchResult {
+  task: ReminderTask;
+  event_type: string;
+  simulated: boolean;
+  results: Array<Record<string, unknown>>;
+}
+
+export interface ReminderTaskScanPayload {
+  operator: string;
+  scan_date?: string;
+}
+
+export interface ReminderTaskScanResult {
+  created: number;
+  scan_date: string;
+}
+
+export interface CertificateTraceCertificateType {
+  id: string;
+  code: string;
+  name: string;
+  issuing_authority?: string;
+}
+
+export interface CertificateTraceDocument {
+  id: string;
+  status: string;
+  storage_key: string;
+  original_filename: string;
+  content_type?: string;
+  file_size?: number;
+  sha256?: string;
+  failure_reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CertificateTraceAiResult {
+  id: string;
+  document_id: string;
+  workflow_run_id?: string;
+  model_name?: string;
+  output_json: Record<string, unknown>;
+  suspicious_points: string[];
+  confidence?: number;
+  created_at: string;
+}
+
+export interface CertificateTraceReviewTask {
+  id: string;
+  document_id: string;
+  ai_result_id?: string;
+  status: ReviewStatus;
+  assigned_to?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  decision_payload?: Record<string, unknown>;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CertificateTraceReminderTask {
+  id: string;
+  status: ReminderTaskStatus;
+  trigger_date: string;
+  due_date?: string;
+  last_event_at?: string;
+  resolved_at?: string;
+  closed_reason?: string;
+}
+
+export interface CertificateTraceFeedback {
+  id: string;
+  reminder_task_id: string;
+  status: FeedbackStatus;
+  content?: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface CertificateTraceAuditLog {
+  id: string;
+  action: string;
+  resource_type: string;
+  resource_id?: string;
+  actor_name?: string;
+  request_id?: string;
+  ip_address?: string;
+  created_at: string;
+}
+
+export interface EmployeeCertificateTrace {
+  certificate: EmployeeCertificate;
+  employee?: Employee;
+  certificate_type?: CertificateTraceCertificateType;
+  source_document?: CertificateTraceDocument;
+  ai_results: CertificateTraceAiResult[];
+  review_tasks: CertificateTraceReviewTask[];
+  reminder_tasks: CertificateTraceReminderTask[];
+  feedback_items: CertificateTraceFeedback[];
+  audit_logs: CertificateTraceAuditLog[];
+}
+
+export interface ReportChartRow {
+  category: string;
+  count: number;
+  target_path: string;
+}
+
+export interface CertificateCoverageDepartmentRow {
+  department: string;
+  employee_count: number;
+  covered_employee_count: number;
+  coverage: number;
+  target_path: string;
+}
+
+export interface CertificateTypeRiskRow {
+  certificate_type_id: string;
+  certificate_type_name: string;
+  active_count: number;
+  expiring_count: number;
+  expired_count: number;
+  missing_employee_count: number;
+  risk_count: number;
+  target_path: string;
+}
+
+export interface CertificateCoverageReport {
+  employee_count: number;
+  covered_employee_count: number;
+  coverage: number;
+  department_rows: CertificateCoverageDepartmentRow[];
+  certificate_type_risk_rows: CertificateTypeRiskRow[];
+  expiry_month_rows: ReportChartRow[];
 }

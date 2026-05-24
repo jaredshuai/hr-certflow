@@ -1,12 +1,12 @@
 import { AlertOutlined, AuditOutlined, CheckCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { Column, Pie } from '@ant-design/charts';
 import { PageContainer, ProCard, ProTable, StatisticCard } from '@ant-design/pro-components';
-import { Alert, Empty, Steps, Typography } from 'antd';
+import { Alert, Button, Empty, Space, Steps, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 
-import { request } from '@umijs/max';
+import { history, request } from '@umijs/max';
 
-import type { DashboardSummary } from '@/types/domain';
+import type { DashboardRiskRow, DashboardSummary } from '@/types/domain';
 import { emptyTableText } from '@/utils/emptyStates';
 
 const emptyDashboardSummary: DashboardSummary = {
@@ -19,6 +19,20 @@ const emptyDashboardSummary: DashboardSummary = {
   pipeline_steps: [],
   risk_rows: [],
 };
+
+interface ChartClickEvent {
+  type?: string;
+  data?: {
+    data?: Partial<DashboardChartRow>;
+    datum?: Partial<DashboardChartRow>;
+  };
+}
+
+function chartTargetPath(event: unknown): string | undefined {
+  const chartEvent = event as ChartClickEvent;
+  const datum = chartEvent.data?.data ?? chartEvent.data?.datum;
+  return typeof datum?.target_path === 'string' ? datum.target_path : undefined;
+}
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary>(emptyDashboardSummary);
@@ -69,6 +83,17 @@ export default function DashboardPage() {
     };
   }, [summary]);
 
+  function navigateTo(targetPath: string) {
+    history.push(targetPath);
+  }
+
+  function handleChartEvent(event: unknown) {
+    const chartEvent = event as ChartClickEvent;
+    if (chartEvent.type !== 'element:click') return;
+    const targetPath = chartTargetPath(chartEvent);
+    if (targetPath) navigateTo(targetPath);
+  }
+
   return (
     <PageContainer title="工作台">
       {loadError ? <Alert title="工作台数据加载失败" description={loadError} type="error" showIcon style={{ marginBottom: 16 }} /> : null}
@@ -76,6 +101,8 @@ export default function DashboardPage() {
       <StatisticCard.Group direction="row">
         <StatisticCard
           loading={loading}
+          onClick={() => navigateTo('/certificates?status=EXPIRING')}
+          style={{ cursor: 'pointer' }}
           statistic={{
             title: '即将到期',
             value: metrics.expiringCount,
@@ -84,6 +111,8 @@ export default function DashboardPage() {
         />
         <StatisticCard
           loading={loading}
+          onClick={() => navigateTo('/certificates?status=EXPIRED')}
+          style={{ cursor: 'pointer' }}
           statistic={{
             title: '已过期',
             value: metrics.expiredCount,
@@ -93,6 +122,8 @@ export default function DashboardPage() {
         />
         <StatisticCard
           loading={loading}
+          onClick={() => navigateTo('/review-queue')}
+          style={{ cursor: 'pointer' }}
           statistic={{
             title: '待复核',
             value: metrics.pendingReviewCount,
@@ -101,6 +132,8 @@ export default function DashboardPage() {
         />
         <StatisticCard
           loading={loading}
+          onClick={() => navigateTo('/certificates?status=ACTIVE')}
+          style={{ cursor: 'pointer' }}
           statistic={{
             title: '覆盖率',
             value: metrics.coverage,
@@ -133,6 +166,7 @@ export default function DashboardPage() {
                 title: 'category',
                 items: [{ field: 'count', name: '数量' }],
               }}
+              onEvent={(_, event) => handleChartEvent(event)}
             />
           ) : (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无持证状态数据" />
@@ -153,6 +187,7 @@ export default function DashboardPage() {
                 title: 'category',
                 items: [{ field: 'count', name: '数量' }],
               }}
+              onEvent={(_, event) => handleChartEvent(event)}
             />
           ) : (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待办压力数据" />
@@ -170,7 +205,14 @@ export default function DashboardPage() {
               current={-1}
               items={metrics.pipelineSteps.map((step) => ({
                 title: step.title,
-                description: step.description,
+                description: (
+                  <Space direction="vertical" size={4}>
+                    <span>{step.description}</span>
+                    <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigateTo(step.target_path)}>
+                      查看明细
+                    </Button>
+                  </Space>
+                ),
               }))}
             />
           </>
@@ -180,7 +222,7 @@ export default function DashboardPage() {
       </ProCard>
 
       <ProCard style={{ marginTop: 16 }} title="风险台账">
-        <ProTable
+        <ProTable<DashboardRiskRow>
           rowKey="id"
           search={false}
           options={false}
@@ -199,6 +241,16 @@ export default function DashboardPage() {
                 处理中: { text: '处理中', status: 'Processing' },
                 升级前: { text: '升级前', status: 'Warning' },
               },
+            },
+            {
+              title: '追溯',
+              valueType: 'option',
+              width: 100,
+              render: (_, record) => (
+                <Button type="link" size="small" onClick={() => navigateTo(record.target_path)}>
+                  查看明细
+                </Button>
+              ),
             },
           ]}
         />

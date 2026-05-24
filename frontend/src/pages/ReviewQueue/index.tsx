@@ -6,11 +6,12 @@ import {
   ProFormSelect,
   ProFormText,
   ProFormTextArea,
+  ProCard,
   ProTable,
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Alert, Button, Space } from 'antd';
+import { Alert, Button, Descriptions, Space, Typography } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 
 import {
@@ -20,8 +21,15 @@ import {
   outputText,
 } from '@/components/ExtractionQualitySummary';
 import { listResource, postResource } from '@/services/api';
-import type { CertificateType, Employee, ReviewApprovePayload, ReviewDecision, ReviewTask } from '@/types/domain';
-import { reviewStatusValueEnum } from '@/utils/displayLabels';
+import type {
+  CertificateType,
+  Employee,
+  ReviewApprovePayload,
+  ReviewDecision,
+  ReviewStatus,
+  ReviewTask,
+} from '@/types/domain';
+import { documentStatusLabel, reviewStatusValueEnum } from '@/utils/displayLabels';
 import { emptyTableText } from '@/utils/emptyStates';
 import { message } from '@/utils/messageApi';
 
@@ -45,6 +53,11 @@ interface RejectFormValues {
   notes?: string;
 }
 
+interface ReviewDecisionTarget {
+  review: ReviewTask;
+  status: Extract<ReviewStatus, 'REJECTED' | 'NEEDS_INFO'>;
+}
+
 function formatDateValue(value: unknown): string | undefined {
   if (!value) return undefined;
   if (typeof value === 'string') return value.slice(0, 10);
@@ -54,12 +67,19 @@ function formatDateValue(value: unknown): string | undefined {
   return undefined;
 }
 
+function formatFileSize(value: number | undefined): string {
+  if (!value) return '-';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
 export default function ReviewQueuePage() {
   const actionRef = useRef<ActionType>();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [certificateTypes, setCertificateTypes] = useState<CertificateType[]>([]);
   const [currentReview, setCurrentReview] = useState<ReviewTask>();
-  const [rejectingReview, setRejectingReview] = useState<ReviewTask>();
+  const [decisionTarget, setDecisionTarget] = useState<ReviewDecisionTarget>();
   const [loadError, setLoadError] = useState<string>();
 
   // Need full lists to match AI output to employee/cert type for prefill.
@@ -115,6 +135,7 @@ export default function ReviewQueuePage() {
       review_date: formatDateValue(values.review_date),
       reviewed_by: values.reviewed_by!.trim(),
       notes: values.notes,
+      expected_updated_at: currentReview.updated_at,
     };
 
     try {
@@ -130,22 +151,31 @@ export default function ReviewQueuePage() {
   }
 
   async function handleReject(values: RejectFormValues): Promise<boolean> {
-    if (!rejectingReview) return false;
+    if (!decisionTarget) return false;
     try {
-      await postResource<ReviewTask, { status: 'REJECTED'; reviewed_by: string; notes?: string }>(
-        `/reviews/${rejectingReview.id}/reject`,
+      await postResource<
+        ReviewTask,
         {
-          status: 'REJECTED',
+          status: ReviewDecisionTarget['status'];
+          reviewed_by: string;
+          notes?: string;
+          expected_updated_at: string;
+        }
+      >(
+        `/reviews/${decisionTarget.review.id}/reject`,
+        {
+          status: decisionTarget.status,
           reviewed_by: values.reviewed_by!.trim(),
           notes: values.notes,
+          expected_updated_at: decisionTarget.review.updated_at,
         },
       );
-      message.success('复核任务已驳回');
-      setRejectingReview(undefined);
+      message.success(decisionTarget.status === 'NEEDS_INFO' ? '复核任务已标记为需补充' : '复核任务已驳回');
+      setDecisionTarget(undefined);
       actionRef.current?.reload();
       return true;
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '复核驳回失败');
+      message.error(error instanceof Error ? error.message : '复核处理失败');
       return false;
     }
   }
@@ -200,8 +230,11 @@ export default function ReviewQueuePage() {
           >
             复核
           </Button>
-          <Button size="small" type="link" danger onClick={() => setRejectingReview(record)}>
+          <Button size="small" type="link" danger onClick={() => setDecisionTarget({ review: record, status: 'REJECTED' })}>
             驳回
+          </Button>
+          <Button size="small" type="link" onClick={() => setDecisionTarget({ review: record, status: 'NEEDS_INFO' })}>
+            需补充
           </Button>
         </Space>
       ),
@@ -256,9 +289,47 @@ export default function ReviewQueuePage() {
         onFinish={handleApprove}
       >
         {currentReview ? (
-          <div style={{ marginBottom: 16 }}>
-            <ExtractionQualitySummary output={currentReview.ai_output_json} />
-          </div>
+          <Space direction="vertical" size={16} style={{ width: '100%', marginBottom: 16 }}>
+            <ProCard title="源文件" bordered>
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="文件名">
+                  {currentReview.document_original_filename || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="文件状态">
+                  {documentStatusLabel(currentReview.document_status)}
+                </Descriptions.Item>
+                <Descriptions.Item label="文件类型">
+                  {currentReview.document_content_type || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="文件大小">
+                  {formatFileSize(currentReview.document_file_size)}
+                </Descriptions.Item>
+                <Descriptions.Item label="SHA256">
+                  <Typography.Text copyable={Boolean(currentReview.document_sha256)}>
+                    {currentReview.document_sha256 || '-'}
+                  </Typography.Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="失败原因">
+                  {currentReview.document_failure_reason || '-'}
+                </Descriptions.Item>
+              </Descriptions>
+              {currentReview.document_read_url ? (
+                <Button type="primary" href={currentReview.document_read_url} target="_blank" rel="noreferrer">
+                  打开源文件
+                </Button>
+              ) : (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="暂时无法生成源文件预览链接"
+                  style={{ marginTop: 12 }}
+                />
+              )}
+            </ProCard>
+            <ProCard title="AI 识别质量" bordered>
+              <ExtractionQualitySummary output={currentReview.ai_output_json} />
+            </ProCard>
+          </Space>
         ) : null}
         <ProFormSelect
           name="employee_id"
@@ -287,26 +358,34 @@ export default function ReviewQueuePage() {
       </DrawerForm>
 
       <ModalForm<RejectFormValues>
-        key={rejectingReview?.id ?? 'reject-empty'}
-        title="驳回复核任务"
-        open={Boolean(rejectingReview)}
+        key={decisionTarget ? `${decisionTarget.review.id}-${decisionTarget.status}` : 'decision-empty'}
+        title={decisionTarget?.status === 'NEEDS_INFO' ? '标记为需补充' : '驳回复核任务'}
+        open={Boolean(decisionTarget)}
         onOpenChange={(value) => {
-          if (!value) setRejectingReview(undefined);
+          if (!value) setDecisionTarget(undefined);
         }}
         modalProps={{
           destroyOnHidden: true,
           mask: { closable: false },
-          okText: '驳回',
+          okText: decisionTarget?.status === 'NEEDS_INFO' ? '标记需补充' : '驳回',
         }}
-        submitter={{ submitButtonProps: { danger: true } }}
+        submitter={{ submitButtonProps: { danger: decisionTarget?.status === 'REJECTED' } }}
         layout="horizontal"
         labelCol={{ span: 5 }}
         width={520}
-        initialValues={{ notes: '识别结果不符合证书入库要求' }}
+        initialValues={{
+          notes:
+            decisionTarget?.status === 'NEEDS_INFO'
+              ? '请补充或更换证书原件后重新识别'
+              : '识别结果不符合证书入库要求',
+        }}
         onFinish={handleReject}
       >
         <ProFormText name="reviewed_by" label="复核人" rules={[{ required: true, message: '请输入复核人' }]} />
-        <ProFormTextArea name="notes" label="驳回原因" />
+        <ProFormTextArea
+          name="notes"
+          label={decisionTarget?.status === 'NEEDS_INFO' ? '补充说明' : '驳回原因'}
+        />
       </ModalForm>
     </PageContainer>
   );

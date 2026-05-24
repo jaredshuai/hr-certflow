@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
 
 import httpx
@@ -11,7 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.core.config import Settings
 
 _THINK_BLOCK_RE = re.compile(r"<think\b[^>]*>.*?</think>", re.IGNORECASE | re.DOTALL)
+_UNCLOSED_THINK_RE = re.compile(r"<think\b[^>]*>.*$", re.IGNORECASE | re.DOTALL)
+_THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
 _MARKDOWN_JSON_RE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.IGNORECASE | re.DOTALL)
+_DATE_RE = re.compile(r"^\s*(\d{4})(?:年|[./-])(\d{1,2})(?:月|[./-])(\d{1,2})(?:日)?\s*$")
 
 _JSON_WRAPPER_KEYS = (
     "outputs",
@@ -26,6 +30,8 @@ _JSON_WRAPPER_KEYS = (
 
 def _strip_model_artifacts(value: str) -> str:
     cleaned = _THINK_BLOCK_RE.sub("", value).strip()
+    cleaned = _UNCLOSED_THINK_RE.sub("", cleaned).strip()
+    cleaned = _THINK_CLOSE_RE.sub("", cleaned).strip()
     match = _MARKDOWN_JSON_RE.match(cleaned)
     if match:
         cleaned = match.group(1).strip()
@@ -60,6 +66,54 @@ def _text_or_none(value: Any, *, max_length: int = 512) -> str | None:
     return text[:max_length]
 
 
+def _short_text_or_none(value: Any, *, max_length: int = 512) -> str | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        text = _strip_model_artifacts(value).strip()
+    elif isinstance(value, int | float):
+        text = str(value)
+    else:
+        return None
+    if not text:
+        return None
+    return text[:max_length]
+
+
+def _date_text_or_none(value: Any) -> str | None:
+    text = _short_text_or_none(value, max_length=64)
+    if not text:
+        return None
+
+    match = _DATE_RE.match(text)
+    if match:
+        year, month, day = (int(part) for part in match.groups())
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            return None
+
+    try:
+        return date.fromisoformat(text[:10]).isoformat()
+    except ValueError:
+        pass
+
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        return None
+
+
+def _suspicious_point_text(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key in ("reason", "message", "text", "description"):
+            text = _text_or_none(value.get(key))
+            if text:
+                return text
+        return None
+    return _text_or_none(value)
+
+
 class DifyCertificateOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -90,7 +144,12 @@ class DifyCertificateOutput(BaseModel):
     )
     @classmethod
     def clean_short_text(cls, value: Any) -> str | None:
-        return _text_or_none(value)
+        return _short_text_or_none(value)
+
+    @field_validator("issue_date", "valid_from", "valid_to", "review_date", mode="before")
+    @classmethod
+    def clean_date_text(cls, value: Any) -> str | None:
+        return _date_text_or_none(value)
 
     @field_validator("raw_text", mode="before")
     @classmethod
@@ -108,9 +167,11 @@ class DifyCertificateOutput(BaseModel):
         if not isinstance(parsed, list):
             return []
         points: list[str] = []
+        seen: set[str] = set()
         for item in parsed:
-            text = _text_or_none(item)
-            if text:
+            text = _suspicious_point_text(item)
+            if text and text not in seen:
+                seen.add(text)
                 points.append(text)
             if len(points) >= 20:
                 break
@@ -125,6 +186,10 @@ class DifyCertificateOutput(BaseModel):
             confidence = float(value)
         except (TypeError, ValueError):
             return None
+        if isinstance(value, str) and value.strip().endswith("%"):
+            confidence = confidence / 100
+        elif confidence > 1 and confidence <= 100:
+            confidence = confidence / 100
         if confidence < 0 or confidence > 1:
             return None
         return confidence
@@ -136,16 +201,15 @@ def _extract_mapping(value: Any) -> dict[str, Any]:
         return {}
 
     allowed_fields = set(DifyCertificateOutput.model_fields)
-    if allowed_fields.intersection(parsed.keys()):
-        return parsed
+    current_fields = {key: parsed[key] for key in allowed_fields.intersection(parsed.keys())}
 
     for key in _JSON_WRAPPER_KEYS:
         if key not in parsed:
             continue
         nested = _extract_mapping(parsed[key])
         if nested:
-            return nested
-    return parsed
+            return {**nested, **current_fields}
+    return current_fields
 
 
 def normalize_dify_outputs(outputs: Any) -> dict[str, Any]:

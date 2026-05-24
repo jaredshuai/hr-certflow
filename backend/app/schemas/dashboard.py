@@ -8,17 +8,20 @@ class DashboardRiskRow(BaseModel):
     metric: str
     count: int
     status: str
+    target_path: str
 
 
 class DashboardChartRow(BaseModel):
     category: str
     count: int
+    target_path: str
 
 
 class DashboardPipelineStep(BaseModel):
     title: str
     description: str
     count: int
+    target_path: str
 
 
 class DashboardSummaryRead(BaseModel):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import mimetypes
 import re
@@ -19,6 +20,13 @@ class UploadIntent:
     key: str
     upload_url: str
     read_url: str | None
+
+
+@dataclass(frozen=True)
+class ObjectMetadata:
+    content_length: int
+    content_type: str | None
+    etag: str | None
 
 
 class ObjectStorage:
@@ -93,6 +101,27 @@ class ObjectStorage:
             },
             ExpiresIn=expires_in,
         )
+
+    def head_object(self, *, bucket: str, key: str) -> ObjectMetadata:
+        client = self._client()
+        response = client.head_object(Bucket=bucket, Key=key)
+        return ObjectMetadata(
+            content_length=int(response.get("ContentLength") or 0),
+            content_type=response.get("ContentType"),
+            etag=response.get("ETag"),
+        )
+
+    def calculate_sha256(self, *, bucket: str, key: str) -> str:
+        client = self._client()
+        response = client.get_object(Bucket=bucket, Key=key)
+        body = response["Body"]
+        digest = hashlib.sha256()
+        try:
+            for chunk in iter(lambda: body.read(1024 * 1024), b""):
+                digest.update(chunk)
+        finally:
+            body.close()
+        return digest.hexdigest()
 
     def put_json_snapshot(self, *, key: str, payload: object) -> str:
         bucket = self._bucket()

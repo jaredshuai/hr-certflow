@@ -39,3 +39,22 @@ class EmployeeRead(ORMModel):
     email: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class EmployeePageRead(BaseModel):
+    data: list[EmployeeRead]
+    total: int
+
+
+class EmployeeImportErrorRead(BaseModel):
+    row_number: int
+    employee_no: str | None = None
+    message: str
+
+
+class EmployeeImportResultRead(BaseModel):
+    total: int
+    created: int
+    updated: int
+    failed: int
+    errors: list[EmployeeImportErrorRead] = []

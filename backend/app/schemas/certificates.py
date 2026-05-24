@@ -5,8 +5,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.domain.enums import CertificateStatus
+from app.domain.enums import CertificateStatus, FeedbackStatus, ReminderTaskStatus, ReviewStatus
 from app.schemas.common import ORMModel
+from app.schemas.employees import EmployeeRead
 
 
 class CertificateTypeCreate(BaseModel):
@@ -36,6 +37,25 @@ class CertificateTypeRead(ORMModel):
     description: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class CertificateTypePageRead(BaseModel):
+    data: list[CertificateTypeRead]
+    total: int
+
+
+class CertificateTypeImportErrorRead(BaseModel):
+    row_number: int
+    code: str | None = None
+    message: str
+
+
+class CertificateTypeImportResultRead(BaseModel):
+    total: int
+    created: int
+    updated: int
+    failed: int
+    errors: list[CertificateTypeImportErrorRead] = []
 
 
 class EmployeeCertificateCreate(BaseModel):
@@ -86,3 +106,95 @@ class EmployeeCertificateRead(ORMModel):
     confirmed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class EmployeeCertificatePageRead(BaseModel):
+    data: list[EmployeeCertificateRead]
+    total: int
+
+
+class TraceCertificateTypeRead(BaseModel):
+    id: UUID
+    code: str
+    name: str
+    issuing_authority: str | None
+
+
+class TraceReminderTaskRead(BaseModel):
+    id: UUID
+    status: ReminderTaskStatus
+    trigger_date: date
+    due_date: date | None
+    last_event_at: datetime | None
+    resolved_at: datetime | None
+    closed_reason: str | None
+
+
+class TraceDocumentRead(BaseModel):
+    id: UUID
+    status: str
+    storage_key: str
+    original_filename: str
+    content_type: str | None
+    file_size: int | None
+    sha256: str | None
+    failure_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TraceAiExtractionResultRead(BaseModel):
+    id: UUID
+    document_id: UUID
+    workflow_run_id: str | None
+    model_name: str | None
+    output_json: dict
+    suspicious_points: list[str]
+    confidence: float | None
+    created_at: datetime
+
+
+class TraceFeedbackRead(BaseModel):
+    id: UUID
+    reminder_task_id: UUID
+    status: FeedbackStatus
+    content: str | None
+    created_by: str
+    created_at: datetime
+
+
+class TraceAuditLogRead(BaseModel):
+    id: UUID
+    action: str
+    resource_type: str
+    resource_id: str | None
+    actor_name: str | None
+    request_id: str | None
+    ip_address: str | None
+    created_at: datetime
+
+
+class TraceReviewTaskRead(BaseModel):
+    id: UUID
+    document_id: UUID
+    ai_result_id: UUID | None
+    status: ReviewStatus
+    assigned_to: str | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+    decision_payload: dict | None
+    notes: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class EmployeeCertificateTraceRead(BaseModel):
+    certificate: EmployeeCertificateRead
+    employee: EmployeeRead | None
+    certificate_type: TraceCertificateTypeRead | None
+    source_document: TraceDocumentRead | None
+    ai_results: list[TraceAiExtractionResultRead]
+    review_tasks: list[TraceReviewTaskRead]
+    reminder_tasks: list[TraceReminderTaskRead]
+    feedback_items: list[TraceFeedbackRead]
+    audit_logs: list[TraceAuditLogRead]

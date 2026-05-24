@@ -5,7 +5,7 @@ from datetime import date, datetime
 from enum import Enum as PythonEnum
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -146,6 +146,23 @@ class EmployeeCertificate(TimestampMixin, Base):
             "employee_id",
             "certificate_type_id",
             "status",
+        ),
+        Index(
+            "uq_employee_certificate_one_current_per_type",
+            "employee_id",
+            "certificate_type_id",
+            unique=True,
+            postgresql_where=text("status IN ('ACTIVE', 'EXPIRING')"),
+        ),
+        Index(
+            "uq_employee_certificate_no_open_per_type",
+            "employee_id",
+            "certificate_type_id",
+            "certificate_no",
+            unique=True,
+            postgresql_where=text(
+                "certificate_no IS NOT NULL AND status IN ('DRAFT', 'PENDING_REVIEW', 'ACTIVE', 'EXPIRING')"
+            ),
         ),
     )
 
