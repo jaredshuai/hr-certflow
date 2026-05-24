@@ -17,6 +17,15 @@ This repo implements the approved HR certificate business management architectur
 - State changes must be auditable.
 - New certificates should replace old records by status/linkage, not by overwriting history.
 
+## Codebase Exploration Tool Routing
+
+- Use `ace-tool` for semantic or intent-based discovery, such as locating a feature area, business rule, error pattern, or similar implementation example.
+- Use `CodeGraph` for deterministic structural work, such as known-symbol lookup, caller/callee tracing, import/export dependencies, implementation lookup, impact analysis, and refactor blast-radius checks.
+- For complex ambiguous tasks, locate the likely area with `ace-tool`, then verify exact symbols and affected call chains with `CodeGraph` or direct source reads before editing.
+- Do not treat semantic/RAG output as proof. Confirm critical behavior in source code before changing files.
+- Keep the tool chain minimal. Do not run both tools when a direct file read, one semantic query, or one structural query is sufficient.
+- After edits, rely on lint/build/tests for correctness. Do not immediately depend on a graph index that may lag recent file writes.
+
 ## Local Commands
 
 ```bash

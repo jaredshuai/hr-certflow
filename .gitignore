@@ -24,3 +24,8 @@ Thumbs.db
 
 data/
 uploads/
+
+# Local agent/editor artifacts
+.ace-tool/
+.codegraph/
+.cursor/
