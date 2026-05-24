@@ -1,5 +1,16 @@
 # HR CertFlow Product North Star
 
+## Document Status
+
+This document is the final product target for HR CertFlow. It is not a sprint
+plan, release note, or description of the current implementation.
+
+If a capability in this document is not available to HR through the product UI,
+public backend API, scheduled job, GitHub Actions/GitOps workflow, or maintained
+runbook, the product has not reached the North Star. One-off scripts, manual
+database edits, local-only patches, and developer-only operating knowledge do
+not count as completed product capability.
+
 ## Purpose
 
 HR CertFlow is the internal system of record for HR certificate lifecycle
@@ -11,6 +22,25 @@ ledger, expiry monitoring, reminders, closure, and audit traceability.
 The product is complete only when HR can run certificate operations without
 developer intervention, spreadsheet side channels, manual database edits, or
 external workflow ownership.
+
+## Product Completion Bar
+
+The complete product must be usable as a day-to-day HR operations system, not
+only as an engineering demo. Completion requires all of the following:
+
+- HR can perform every routine operation from the UI without asking a developer
+  to edit the database, rerun a hidden script, or manually repair workflow state.
+- Backend APIs enforce the same business rules as the UI, so direct API use
+  cannot create states the product cannot explain or recover from.
+- Data changes that affect HR decisions are auditable and linked back to their
+  source document, AI result, human decision, certificate, reminder, or feedback
+  record.
+- Failed states are persisted, visible, and recoverable through the product
+  workflow.
+- Dashboard and report numbers are explainable through drill-down to source
+  records rather than being frontend-only approximations.
+- Dev and release deployments continue to use the existing GitHub Actions and
+  GitOps path with Web/API and Celery/Redis smoke checks.
 
 ## Source Of Truth
 
@@ -273,6 +303,21 @@ scripts, or spreadsheet side channels:
 14. Export operational data needed for HR review.
 15. Verify the promoted environment through Web/API and Celery/Redis smoke
     checks.
+
+## Acceptance Evidence
+
+Completion must be proven with concrete evidence, not asserted from code shape:
+
+- A clean local gate run covering backend lint, backend type check, backend
+  tests, frontend lint, and frontend build.
+- A promoted dev or release environment whose GitHub Actions build/promotion,
+  Web/API smoke, and Celery/Redis smoke all pass.
+- A recorded end-to-end HR scenario in that promoted environment covering
+  employee data, certificate type policy, upload confirmation, AI extraction,
+  review approval, certificate replacement, reminder dispatch or simulation,
+  feedback closure, dashboard drill-down, audit trace, and export.
+- A short gap report if any North Star capability remains unavailable, degraded,
+  manually operated, or only locally verified.
 
 ## Release Readiness Gates
 
