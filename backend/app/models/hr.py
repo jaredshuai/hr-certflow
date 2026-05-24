@@ -245,6 +245,21 @@ class ReminderTask(TimestampMixin, Base):
 
 class ReminderEvent(TimestampMixin, Base):
     __tablename__ = "reminder_event"
+    __table_args__ = (
+        Index(
+            "uq_reminder_event_success_once_per_day",
+            "reminder_task_id",
+            "event_type",
+            "channel",
+            "event_date",
+            unique=True,
+            postgresql_where=text(
+                "sent_at IS NOT NULL "
+                "AND channel IS NOT NULL "
+                "AND event_type IN ('FIRST_REMINDER', 'SECOND_REMINDER', 'ESCALATION')"
+            ),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     reminder_task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reminder_task.id"), nullable=False)
@@ -252,6 +267,7 @@ class ReminderEvent(TimestampMixin, Base):
         Enum(ReminderEventType, name="reminder_event_type", values_callable=enum_values),
         nullable=False,
     )
+    event_date: Mapped[date] = mapped_column(Date, default=date.today, nullable=False)
     channel: Mapped[str | None] = mapped_column(String(64))
     recipient: Mapped[str | None] = mapped_column(String(255))
     provider_message_id: Mapped[str | None] = mapped_column(String(255))

@@ -3,7 +3,12 @@
 ## Document Status
 
 This document is the final product target for HR CertFlow. It is not a sprint
-plan, release note, or description of the current implementation.
+plan, release note, MVP scope, demo scope, or description of the current
+implementation.
+
+All capabilities below are part of the final product contract. They may be
+delivered in increments, but the North Star itself must not be interpreted as a
+temporary milestone, prototype definition, or reduced implementation plan.
 
 If a capability in this document is not available to HR through the product UI,
 public backend API, scheduled job, GitHub Actions/GitOps workflow, or maintained
@@ -26,7 +31,7 @@ external workflow ownership.
 ## Product Completion Bar
 
 The complete product must be usable as a day-to-day HR operations system, not
-only as an engineering demo. Completion requires all of the following:
+as an engineering showcase. Completion requires all of the following:
 
 - HR can perform every routine operation from the UI without asking a developer
   to edit the database, rerun a hidden script, or manually repair workflow state.
@@ -187,7 +192,8 @@ Final capability:
 
 - Generate reminder tasks from certificate validity and policy rules.
 - Dispatch reminders through configured channels or simulate dispatch for
-  internal trial and demo environments.
+  non-production environments where real notification delivery is intentionally
+  disabled.
 - Track channel-level sent, failed, retry, skipped, and simulated outcomes.
 - Prevent duplicate sends for the same reminder event window.
 - Support feedback, closure, overdue escalation, and reminder task history.
@@ -261,7 +267,7 @@ Delivery standard:
   data visualization.
 - Keep frontend state as workflow presentation. Durable business state belongs
   to FastAPI/PostgreSQL.
-- Keep security proportional to the internal trial stage, but do not compromise
+- Keep security proportional to the deployment context, but do not compromise
   audit trust, data correctness, or workflow integrity.
 - Failed states must be visible and persisted, not only represented by transient
   React state.
@@ -275,9 +281,9 @@ Delivery standard:
 - Dify is not a workflow engine or source of business truth.
 - Paperless-ngx, RAGFlow, n8n, and Temporal are outside the main path unless
   explicitly reintroduced.
-- Heavy external-facing auth/RBAC is not required for the current internal
-  trial, though the product must not rely on freely forged actor data before
-  wider rollout.
+- Heavy external-facing auth/RBAC is not required for an internal network
+  deployment, though the product must not rely on freely forged actor data once
+  real HR operations begin.
 
 ## Final Completion Definition
 

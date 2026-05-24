@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import delete, select, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.routes.reminders import (
@@ -147,6 +147,7 @@ def test_dispatch_reminder_advances_state_after_successful_email(
     events = list(task.events)
     assert len(events) == 1
     assert events[0].channel == "email"
+    assert events[0].event_date == task.trigger_date
     assert events[0].sent_at is not None
     assert events[0].error is None
 
@@ -184,6 +185,7 @@ def test_dispatch_reminder_is_idempotent_for_successful_event_window(
     assert len(sent_emails) == 1
     assert len(events) == 1
     assert events[0].channel == "email"
+    assert events[0].event_date == task.trigger_date
     assert events[0].sent_at is not None
     assert events[0].payload["event_window_key"] == f"{task.id}:FIRST_REMINDER"
 
@@ -225,8 +227,10 @@ def test_dispatch_reminder_retries_unsent_channels_without_resending_successful_
     assert second_count == 1
     assert len(sent_emails) == 1
     assert len(email_events) == 1
+    assert email_events[0].event_date == task.trigger_date
     assert email_events[0].sent_at is not None
     assert len(wecom_events) == 2
+    assert {event.event_date for event in wecom_events} == {task.trigger_date}
     assert all(event.sent_at is None for event in wecom_events)
 
 
@@ -247,8 +251,80 @@ def test_dispatch_reminder_does_not_advance_when_smtp_settings_are_missing(db_se
     events = list(task.events)
     assert len(events) == 1
     assert events[0].channel == "email"
+    assert events[0].event_date == task.trigger_date
     assert events[0].sent_at is None
     assert events[0].error == "smtp_missing_or_no_recipients"
+
+
+def test_successful_reminder_event_is_unique_per_day_channel(db_session: Session) -> None:
+    task = _create_pending_reminder_task(db_session)
+    now = datetime(2026, 5, 6, 10, 0, tzinfo=UTC)
+    duplicate_events = [
+        ReminderEvent(
+            reminder_task_id=task.id,
+            event_type=ReminderEventType.FIRST_REMINDER,
+            event_date=date(2026, 5, 6),
+            channel="email",
+            recipient="hr@example.test",
+            payload={"status": "sent"},
+            sent_at=now,
+        ),
+        ReminderEvent(
+            reminder_task_id=task.id,
+            event_type=ReminderEventType.FIRST_REMINDER,
+            event_date=date(2026, 5, 6),
+            channel="email",
+            recipient="hr@example.test",
+            payload={"status": "sent"},
+            sent_at=now,
+        ),
+    ]
+    db_session.add_all(duplicate_events)
+
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+
+    db_session.rollback()
+    _clean_database(db_session)
+
+
+def test_failed_reminder_events_can_repeat_for_retry_diagnostics(db_session: Session) -> None:
+    task = _create_pending_reminder_task(db_session)
+    retry_events = [
+        ReminderEvent(
+            reminder_task_id=task.id,
+            event_type=ReminderEventType.FIRST_REMINDER,
+            event_date=date(2026, 5, 6),
+            channel="email",
+            recipient="hr@example.test",
+            payload={"status": "failed"},
+            error="smtp_missing_or_no_recipients",
+        ),
+        ReminderEvent(
+            reminder_task_id=task.id,
+            event_type=ReminderEventType.FIRST_REMINDER,
+            event_date=date(2026, 5, 6),
+            channel="email",
+            recipient="hr@example.test",
+            payload={"status": "failed"},
+            error="smtp_missing_or_no_recipients",
+        ),
+    ]
+    db_session.add_all(retry_events)
+    db_session.flush()
+
+    events = list(
+        db_session.scalars(
+            select(ReminderEvent).where(
+                ReminderEvent.reminder_task_id == task.id,
+                ReminderEvent.event_type == ReminderEventType.FIRST_REMINDER,
+                ReminderEvent.channel == "email",
+            )
+        ).all()
+    )
+    assert len(events) == 2
+    assert all(event.sent_at is None for event in events)
+    assert {event.event_date for event in events} == {date(2026, 5, 6)}
 
 
 def test_webhook_payloads_match_provider_contract() -> None:

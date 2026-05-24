@@ -546,6 +546,7 @@ def create_feedback(
         ReminderEvent(
             reminder_task_id=reminder_task.id,
             event_type=ReminderEventType.FEEDBACK,
+            event_date=now.date(),
             channel="hr_feedback",
             recipient=payload.created_by,
             payload=payload.model_dump(mode="json"),

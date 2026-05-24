@@ -152,6 +152,7 @@ class ReminderEventRead(ORMModel):
     id: UUID
     reminder_task_id: UUID
     event_type: ReminderEventType
+    event_date: date
     channel: str | None
     recipient: str | None
     provider_message_id: str | None

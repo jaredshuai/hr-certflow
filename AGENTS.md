@@ -7,7 +7,7 @@ This repo implements the approved HR certificate business management architectur
 - Keep business truth in FastAPI/PostgreSQL.
 - Treat Dify as an AI extraction provider only.
 - Treat object storage as S3-compatible; do not hard-code production architecture to one vendor.
-- Keep Paperless-ngx, RAGFlow, n8n, and Temporal outside the MVP main path unless explicitly requested.
+- Keep Paperless-ngx, RAGFlow, n8n, and Temporal outside the core product path unless explicitly requested.
 - HR review is required before AI output becomes formal certificate data.
 
 ## Preferred Implementation Shape

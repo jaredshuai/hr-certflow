@@ -122,6 +122,7 @@ async def dispatch_due_reminder_notifications(
                 ReminderEvent(
                     reminder_task_id=task.id,
                     event_type=event_type,
+                    event_date=scan_date,
                     channel=result.get("channel"),
                     recipient=",".join(message.recipients) or None,
                     provider_message_id=result.get("message_id"),
@@ -220,6 +221,7 @@ async def dispatch_single_reminder_task(
             ReminderEvent(
                 reminder_task_id=task.id,
                 event_type=event_type,
+                event_date=scan_date,
                 channel=result.get("channel"),
                 recipient=",".join(message.recipients) or operator,
                 provider_message_id=result.get("message_id"),
