@@ -92,6 +92,13 @@ export interface ReminderTask {
   idempotency_key: string;
   created_at: string;
   updated_at: string;
+  employee_name?: string;
+  employee_no?: string;
+  certificate_type_name?: string;
+  certificate_no?: string;
+  holder_name?: string;
+  valid_to?: string;
+  policy_name?: string;
 }
 
 export interface ReminderEvent {

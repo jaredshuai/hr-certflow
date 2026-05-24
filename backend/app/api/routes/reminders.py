@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import csv
+from collections.abc import Iterable
+from datetime import UTC, date, datetime
+from io import StringIO
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import (
@@ -18,7 +22,15 @@ from app.api.deps import (
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.domain.enums import FeedbackStatus, ReminderEventType, ReminderTaskStatus
-from app.models import CertificateType, EmployeeCertificate, Feedback, ReminderEvent, ReminderPolicy, ReminderTask
+from app.models import (
+    CertificateType,
+    Employee,
+    EmployeeCertificate,
+    Feedback,
+    ReminderEvent,
+    ReminderPolicy,
+    ReminderTask,
+)
 from app.schemas.reminders import (
     FeedbackCreate,
     FeedbackRead,
@@ -28,6 +40,7 @@ from app.schemas.reminders import (
     ReminderPolicyCreate,
     ReminderPolicyRead,
     ReminderPolicyUpdate,
+    ReminderTaskPageRead,
     ReminderTaskRead,
     ReminderTaskScanCreate,
     ReminderTaskScanRead,
@@ -37,6 +50,14 @@ from app.services.audit import record_audit
 from app.services.reminder_service import dispatch_single_reminder_task, scan_and_create_reminder_tasks
 
 router = APIRouter()
+
+OPEN_REMINDER_STATUSES = (
+    ReminderTaskStatus.PENDING,
+    ReminderTaskStatus.FIRST_SENT,
+    ReminderTaskStatus.WAITING_FEEDBACK,
+    ReminderTaskStatus.SECOND_SENT,
+    ReminderTaskStatus.ESCALATED,
+)
 
 
 def _policy_to_read(policy: ReminderPolicy) -> ReminderPolicyRead:
@@ -62,6 +83,144 @@ def _policy_snapshot(policy: ReminderPolicy) -> dict:
 def _ensure_certificate_type_exists(db: Session, certificate_type_id: UUID | None) -> None:
     if certificate_type_id and not db.get(CertificateType, certificate_type_id):
         raise HTTPException(status_code=404, detail="Certificate type not found")
+
+
+def _task_to_read(task: ReminderTask) -> ReminderTaskRead:
+    certificate = task.employee_certificate
+    employee = certificate.employee if certificate else None
+    certificate_type = certificate.certificate_type if certificate else None
+    policy = task.policy
+    return ReminderTaskRead.model_validate(task).model_copy(
+        update={
+            "employee_name": employee.name if employee else None,
+            "employee_no": employee.employee_no if employee else None,
+            "certificate_type_name": certificate_type.name if certificate_type else None,
+            "certificate_no": certificate.certificate_no if certificate else None,
+            "holder_name": certificate.holder_name if certificate else None,
+            "valid_to": certificate.valid_to if certificate else None,
+            "policy_name": policy.name if policy else None,
+        }
+    )
+
+
+def _task_statement_options():
+    return (
+        selectinload(ReminderTask.policy),
+        selectinload(ReminderTask.employee_certificate).selectinload(EmployeeCertificate.employee),
+        selectinload(ReminderTask.employee_certificate).selectinload(EmployeeCertificate.certificate_type),
+    )
+
+
+def _status_filters(
+    statuses: Iterable[ReminderTaskStatus] | None,
+    status_group: str | None,
+) -> tuple[ReminderTaskStatus, ...]:
+    if statuses:
+        return tuple(dict.fromkeys(statuses))
+    if status_group == "open":
+        return OPEN_REMINDER_STATUSES
+    if status_group == "attention":
+        return (ReminderTaskStatus.SECOND_SENT, ReminderTaskStatus.ESCALATED)
+    if status_group == "closed":
+        return (ReminderTaskStatus.RESOLVED, ReminderTaskStatus.CLOSED)
+    return ()
+
+
+def _reminder_task_statement(
+    *,
+    keyword: str | None = None,
+    statuses: Iterable[ReminderTaskStatus] | None = None,
+    status_group: str | None = None,
+    employee_certificate_id: UUID | None = None,
+    certificate_type_id: UUID | None = None,
+    trigger_date_from: date | None = None,
+    trigger_date_to: date | None = None,
+    due_date_from: date | None = None,
+    due_date_to: date | None = None,
+    include_options: bool = True,
+):
+    statement = (
+        select(ReminderTask)
+        .join(ReminderTask.employee_certificate)
+        .join(EmployeeCertificate.employee)
+        .join(EmployeeCertificate.certificate_type)
+    )
+    if include_options:
+        statement = statement.options(*_task_statement_options())
+    if keyword:
+        like = f"%{keyword.strip()}%"
+        statement = statement.where(
+            or_(
+                Employee.employee_no.ilike(like),
+                Employee.name.ilike(like),
+                Employee.department.ilike(like),
+                EmployeeCertificate.holder_name.ilike(like),
+                EmployeeCertificate.certificate_no.ilike(like),
+                CertificateType.name.ilike(like),
+                ReminderTask.closed_reason.ilike(like),
+                ReminderTask.idempotency_key.ilike(like),
+            )
+        )
+    task_statuses = _status_filters(statuses, status_group)
+    if task_statuses:
+        statement = statement.where(ReminderTask.status.in_(task_statuses))
+    if employee_certificate_id:
+        statement = statement.where(ReminderTask.employee_certificate_id == employee_certificate_id)
+    if certificate_type_id:
+        statement = statement.where(EmployeeCertificate.certificate_type_id == certificate_type_id)
+    if trigger_date_from:
+        statement = statement.where(ReminderTask.trigger_date >= trigger_date_from)
+    if trigger_date_to:
+        statement = statement.where(ReminderTask.trigger_date <= trigger_date_to)
+    if due_date_from:
+        statement = statement.where(ReminderTask.due_date >= due_date_from)
+    if due_date_to:
+        statement = statement.where(ReminderTask.due_date <= due_date_to)
+    return statement
+
+
+def build_reminder_tasks_csv(rows: Iterable[ReminderTask]) -> str:
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "员工",
+        "工号",
+        "证书类型",
+        "证书编号",
+        "持证人",
+        "到期日期",
+        "任务状态",
+        "触发日期",
+        "反馈截止",
+        "最近事件",
+        "解决时间",
+        "关闭原因",
+        "策略",
+        "创建时间",
+        "更新时间",
+    ])
+    for row in rows:
+        certificate = row.employee_certificate
+        employee = certificate.employee if certificate else None
+        certificate_type = certificate.certificate_type if certificate else None
+        writer.writerow([
+            employee.name if employee else "",
+            employee.employee_no if employee else "",
+            certificate_type.name if certificate_type else "",
+            certificate.certificate_no if certificate else "",
+            certificate.holder_name if certificate else "",
+            certificate.valid_to.isoformat() if certificate and certificate.valid_to else "",
+            row.status.value,
+            row.trigger_date.isoformat(),
+            row.due_date.isoformat() if row.due_date else "",
+            row.last_event_at.isoformat() if row.last_event_at else "",
+            row.resolved_at.isoformat() if row.resolved_at else "",
+            row.closed_reason or "",
+            row.policy.name if row.policy else "",
+            row.created_at.isoformat() if row.created_at else "",
+            row.updated_at.isoformat() if row.updated_at else "",
+        ])
+    return "\ufeff" + output.getvalue()
 
 
 @router.get("/policies", response_model=list[ReminderPolicyRead])
@@ -146,8 +305,95 @@ def update_policy(
 
 
 @router.get("/tasks", response_model=list[ReminderTaskRead])
-def list_tasks(db: Session = Depends(get_db)) -> list[ReminderTask]:
-    return list(db.scalars(select(ReminderTask).order_by(ReminderTask.created_at.desc())).all())
+def list_tasks(
+    db: Session = Depends(get_db),
+    status: list[ReminderTaskStatus] | None = Query(default=None),
+    status_group: str | None = None,
+) -> list[ReminderTaskRead]:
+    rows = db.scalars(
+        _reminder_task_statement(statuses=status, status_group=status_group).order_by(ReminderTask.created_at.desc())
+    ).all()
+    return [_task_to_read(row) for row in rows]
+
+
+@router.get("/tasks/page", response_model=ReminderTaskPageRead)
+def page_tasks(
+    db: Session = Depends(get_db),
+    current: int = 1,
+    page_size: int = 20,
+    keyword: str | None = None,
+    status: list[ReminderTaskStatus] | None = Query(default=None),
+    status_group: str | None = None,
+    employee_certificate_id: UUID | None = None,
+    certificate_type_id: UUID | None = None,
+    trigger_date_from: date | None = None,
+    trigger_date_to: date | None = None,
+    due_date_from: date | None = None,
+    due_date_to: date | None = None,
+) -> ReminderTaskPageRead:
+    current = max(current, 1)
+    page_size = min(max(page_size, 1), 200)
+    filtered = _reminder_task_statement(
+        keyword=keyword,
+        statuses=status,
+        status_group=status_group,
+        employee_certificate_id=employee_certificate_id,
+        certificate_type_id=certificate_type_id,
+        trigger_date_from=trigger_date_from,
+        trigger_date_to=trigger_date_to,
+        due_date_from=due_date_from,
+        due_date_to=due_date_to,
+    )
+    count_filtered = _reminder_task_statement(
+        keyword=keyword,
+        statuses=status,
+        status_group=status_group,
+        employee_certificate_id=employee_certificate_id,
+        certificate_type_id=certificate_type_id,
+        trigger_date_from=trigger_date_from,
+        trigger_date_to=trigger_date_to,
+        due_date_from=due_date_from,
+        due_date_to=due_date_to,
+        include_options=False,
+    )
+    total = int(db.scalar(select(func.count()).select_from(count_filtered.subquery())) or 0)
+    rows = db.scalars(
+        filtered.order_by(ReminderTask.created_at.desc()).limit(page_size).offset((current - 1) * page_size)
+    ).all()
+    return ReminderTaskPageRead(data=[_task_to_read(row) for row in rows], total=total)
+
+
+@router.get("/tasks/export.csv")
+def export_tasks_csv(
+    db: Session = Depends(get_db),
+    keyword: str | None = None,
+    status: list[ReminderTaskStatus] | None = Query(default=None),
+    status_group: str | None = None,
+    employee_certificate_id: UUID | None = None,
+    certificate_type_id: UUID | None = None,
+    trigger_date_from: date | None = None,
+    trigger_date_to: date | None = None,
+    due_date_from: date | None = None,
+    due_date_to: date | None = None,
+) -> Response:
+    rows = db.scalars(
+        _reminder_task_statement(
+            keyword=keyword,
+            statuses=status,
+            status_group=status_group,
+            employee_certificate_id=employee_certificate_id,
+            certificate_type_id=certificate_type_id,
+            trigger_date_from=trigger_date_from,
+            trigger_date_to=trigger_date_to,
+            due_date_from=due_date_from,
+            due_date_to=due_date_to,
+        ).order_by(ReminderTask.created_at.desc())
+    ).all()
+    return Response(
+        content=build_reminder_tasks_csv(rows),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="reminder-tasks.csv"'},
+    )
 
 
 @router.post("/tasks/scan", response_model=ReminderTaskScanRead)
@@ -180,7 +426,9 @@ def get_task_timeline(
     reminder_task_id: UUID,
     db: Session = Depends(get_db),
 ) -> ReminderTaskTimelineRead:
-    reminder_task = db.get(ReminderTask, reminder_task_id)
+    reminder_task = db.scalar(
+        select(ReminderTask).options(*_task_statement_options()).where(ReminderTask.id == reminder_task_id)
+    )
     if not reminder_task:
         raise HTTPException(status_code=404, detail="Reminder task not found")
 
@@ -199,7 +447,7 @@ def get_task_timeline(
         ).all()
     )
     return ReminderTaskTimelineRead(
-        task=ReminderTaskRead.model_validate(reminder_task),
+        task=_task_to_read(reminder_task),
         events=[ReminderEventRead.model_validate(event) for event in events],
         feedback_items=[FeedbackRead.model_validate(feedback) for feedback in feedback_items],
     )
@@ -247,7 +495,7 @@ async def dispatch_task(
     db.commit()
     db.refresh(reminder_task)
     return ReminderDispatchRead(
-        task=ReminderTaskRead.model_validate(reminder_task),
+        task=_task_to_read(reminder_task),
         event_type=event_type.value,
         simulated=payload.simulate,
         results=results,

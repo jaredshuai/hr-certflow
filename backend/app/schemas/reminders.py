@@ -94,6 +94,18 @@ class ReminderTaskRead(ORMModel):
     idempotency_key: str
     created_at: datetime
     updated_at: datetime
+    employee_name: str | None = None
+    employee_no: str | None = None
+    certificate_type_name: str | None = None
+    certificate_no: str | None = None
+    holder_name: str | None = None
+    valid_to: date | None = None
+    policy_name: str | None = None
+
+
+class ReminderTaskPageRead(BaseModel):
+    data: list[ReminderTaskRead]
+    total: int
 
 
 class ReminderDispatchCreate(BaseModel):

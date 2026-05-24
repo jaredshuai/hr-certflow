@@ -15,7 +15,7 @@ import { useMemo, useRef, useState } from 'react';
 
 import { useLocation } from '@umijs/max';
 
-import { createResource, getResource, listResource, postResource, updateResource } from '@/services/api';
+import { createResource, getResource, listResource, pageResource, postResource, updateResource } from '@/services/api';
 import type {
   FeedbackStatus,
   ReminderDispatchPayload,
@@ -33,6 +33,7 @@ import {
   reminderStatusLabel,
   reminderStatusValueEnum,
 } from '@/utils/displayLabels';
+import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
 import { certificateTypeSelectRequest } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
@@ -76,9 +77,36 @@ function parseDaysBeforeExpiry(value: string): number[] {
   return [...new Set(days)].sort((left, right) => right - left);
 }
 
+function cleanSearchParams(params: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(params).filter(([, value]) => {
+      if (Array.isArray(value)) return value.length > 0;
+      return value !== undefined && value !== null && value !== '';
+    }),
+  );
+}
+
+function reminderFiltersFromSearch(search: string): Record<string, unknown> {
+  const params = new URLSearchParams(search);
+  const statusGroup = params.get('status_group');
+  if (statusGroup) return { status_group: statusGroup };
+
+  const rawStatuses = params.getAll('status');
+  if (rawStatuses.includes('open')) return { status_group: 'open' };
+
+  const statuses = rawStatuses.filter((value): value is ReminderTaskStatus => value in reminderStatusValueEnum);
+  if (statuses.length === 2 && statuses.includes('SECOND_SENT') && statuses.includes('ESCALATED')) {
+    return { status_group: 'attention' };
+  }
+  if (statuses.length === 1) return { status: statuses[0] };
+  if (statuses.length > 1) return { status: statuses };
+  return {};
+}
+
 export default function RemindersPage() {
   const actionRef = useRef<ActionType>();
   const policyActionRef = useRef<ActionType>();
+  const lastSearchParamsRef = useRef<Record<string, unknown>>({});
   const location = useLocation();
   const [submittingId, setSubmittingId] = useState<string>();
   const [scanning, setScanning] = useState(false);
@@ -92,16 +120,7 @@ export default function RemindersPage() {
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [currentTimeline, setCurrentTimeline] = useState<ReminderTaskTimeline>();
 
-  const urlStatuses = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    const statuses = params.getAll('status').flatMap((value) => {
-      if (value === 'open') {
-        return ['PENDING', 'FIRST_SENT', 'WAITING_FEEDBACK', 'SECOND_SENT', 'ESCALATED'];
-      }
-      return value in reminderStatusValueEnum ? [value] : [];
-    });
-    return new Set(statuses as ReminderTaskStatus[]);
-  }, [location.search]);
+  const urlFilters = useMemo(() => reminderFiltersFromSearch(location.search), [location.search]);
 
   function openCreatePolicy() {
     setCurrentPolicy(undefined);
@@ -219,6 +238,15 @@ export default function RemindersPage() {
     }
   }
 
+  async function exportReminderTasks() {
+    try {
+      await downloadCsv('/reminders/tasks/export.csv', lastSearchParamsRef.current, 'reminder-tasks.csv');
+      message.success('提醒任务已开始导出');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '提醒任务导出失败');
+    }
+  }
+
   async function openTimeline(record: ReminderTask) {
     setTimelineOpen(true);
     setTimelineLoading(true);
@@ -234,9 +262,72 @@ export default function RemindersPage() {
   }
 
   const columns: ProColumns<ReminderTask>[] = [
-    { title: '证书记录', dataIndex: 'employee_certificate_id', ellipsis: true },
+    {
+      title: '关键字',
+      dataIndex: 'keyword',
+      hideInTable: true,
+      fieldProps: { placeholder: '员工、工号、证书编号、证书类型' },
+    },
+    {
+      title: '员工',
+      dataIndex: 'employee_name',
+      width: 180,
+      search: false,
+      renderText: (_, record) =>
+        record.employee_name
+          ? `${record.employee_name}${record.employee_no ? `（${record.employee_no}）` : ''}`
+          : record.holder_name || '-',
+    },
+    {
+      title: '证书类型',
+      dataIndex: 'certificate_type_name',
+      width: 180,
+      search: false,
+      renderText: (value) => value || '-',
+    },
+    {
+      title: '证书编号',
+      dataIndex: 'certificate_no',
+      width: 160,
+      search: false,
+      ellipsis: true,
+      renderText: (value) => value || '-',
+    },
+    {
+      title: '证书类型筛选',
+      dataIndex: 'certificate_type_id',
+      hideInTable: true,
+      valueType: 'select',
+      request: certificateTypeSelectRequest,
+      fieldProps: { showSearch: true },
+    },
+    { title: '到期日期', dataIndex: 'valid_to', valueType: 'date', width: 130, search: false },
     { title: '触发日期', dataIndex: 'trigger_date', valueType: 'date', width: 130 },
+    {
+      title: '触发区间',
+      dataIndex: 'trigger_date_range',
+      valueType: 'dateRange',
+      hideInTable: true,
+      search: {
+        transform: (value) => ({
+          trigger_date_from: value?.[0],
+          trigger_date_to: value?.[1],
+        }),
+      },
+    },
     { title: '反馈截止', dataIndex: 'due_date', valueType: 'date', width: 130 },
+    {
+      title: '反馈截止区间',
+      dataIndex: 'due_date_range',
+      valueType: 'dateRange',
+      hideInTable: true,
+      search: {
+        transform: (value) => ({
+          due_date_from: value?.[0],
+          due_date_to: value?.[1],
+        }),
+      },
+    },
     {
       title: '状态',
       dataIndex: 'status',
@@ -244,6 +335,7 @@ export default function RemindersPage() {
       valueType: 'select',
       valueEnum: reminderStatusValueEnum,
     },
+    { title: '提醒策略', dataIndex: 'policy_name', search: false, renderText: (value) => value || '-' },
     { title: '关闭原因', dataIndex: 'closed_reason', search: false },
     {
       title: '提醒与反馈',
@@ -400,13 +492,21 @@ export default function RemindersPage() {
         actionRef={actionRef}
         rowKey="id"
         columns={columns}
-        request={async () => {
+        params={urlFilters}
+        request={async (params) => {
           try {
-            const data = await listResource<ReminderTask>('/reminders/tasks');
-            const filteredData =
-              urlStatuses.size > 0 ? data.filter((task) => urlStatuses.has(task.status)) : data;
+            const { current, pageSize, trigger_date_range, due_date_range, ...searchParams } = params;
+            void trigger_date_range;
+            void due_date_range;
+            const nextSearchParams = cleanSearchParams(searchParams);
+            lastSearchParamsRef.current = nextSearchParams;
+            const result = await pageResource<ReminderTask>('/reminders/tasks/page', {
+              ...nextSearchParams,
+              current,
+              page_size: pageSize,
+            });
             setLoadError(undefined);
-            return { data: filteredData, success: true };
+            return { data: result.data, total: result.total, success: true };
           } catch (error) {
             const description = error instanceof Error ? error.message : '提醒任务加载失败';
             setLoadError(description);
@@ -439,9 +539,13 @@ export default function RemindersPage() {
             <Button key="scan" loading={scanning} onClick={scanReminderTasks}>
               扫描生成任务
             </Button>,
+            <Button key="export" onClick={exportReminderTasks}>
+              导出当前筛选
+            </Button>,
           ],
         }}
-        search={{ labelWidth: 88 }}
+        pagination={{ defaultPageSize: 20, showSizeChanger: true }}
+        search={{ labelWidth: 104 }}
       />
       <Drawer
         title="提醒任务详情"
@@ -459,6 +563,19 @@ export default function RemindersPage() {
                 </Descriptions.Item>
                 <Descriptions.Item label="证书记录">
                   {currentTimeline.task.employee_certificate_id}
+                </Descriptions.Item>
+                <Descriptions.Item label="员工">
+                  {currentTimeline.task.employee_name
+                    ? `${currentTimeline.task.employee_name}${
+                        currentTimeline.task.employee_no ? `（${currentTimeline.task.employee_no}）` : ''
+                      }`
+                    : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="证书类型">
+                  {currentTimeline.task.certificate_type_name || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="证书编号">
+                  {currentTimeline.task.certificate_no || '-'}
                 </Descriptions.Item>
                 <Descriptions.Item label="触发日期">{currentTimeline.task.trigger_date}</Descriptions.Item>
                 <Descriptions.Item label="反馈截止">

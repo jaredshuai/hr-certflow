@@ -12,7 +12,15 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api.routes.reminders import create_feedback, create_policy, dispatch_task, get_task_timeline, update_policy
+from app.api.routes.reminders import (
+    build_reminder_tasks_csv,
+    create_feedback,
+    create_policy,
+    dispatch_task,
+    get_task_timeline,
+    page_tasks,
+    update_policy,
+)
 from app.api.routes.reviews import approve_review_task
 from app.core.config import Settings
 from app.db.session import SessionLocal, engine
@@ -355,11 +363,75 @@ def test_reminder_timeline_returns_events_and_feedback(db_session: Session) -> N
     timeline = get_task_timeline(task.id, db_session)
 
     assert timeline.task.id == task.id
+    assert timeline.task.employee_name == "张三"
+    assert timeline.task.employee_no == "E001"
+    assert timeline.task.certificate_type_name == "安全生产资格证"
+    assert timeline.task.certificate_no == "CERT-001"
+    assert timeline.task.policy_name == "default"
     assert len(timeline.events) == 1
     assert timeline.events[0].event_type == ReminderEventType.FIRST_REMINDER
     assert timeline.events[0].payload == {"status": "sent", "simulate": True}
     assert len(timeline.feedback_items) == 1
     assert timeline.feedback_items[0].status == FeedbackStatus.PROCESSING
+
+
+def test_reminder_task_page_filters_and_returns_readable_labels(db_session: Session) -> None:
+    task = _create_pending_reminder_task(db_session)
+    other_employee = Employee(employee_no="E002", name="李四")
+    other_type = CertificateType(code="FORKLIFT", name="叉车证")
+    db_session.add_all([other_employee, other_type])
+    db_session.flush()
+    other_certificate = EmployeeCertificate(
+        employee_id=other_employee.id,
+        certificate_type_id=other_type.id,
+        certificate_no="CERT-002",
+        holder_name=other_employee.name,
+        status=CertificateStatus.ACTIVE,
+        valid_to=date(2026, 6, 20),
+    )
+    db_session.add(other_certificate)
+    db_session.flush()
+    db_session.add(
+        ReminderTask(
+            employee_certificate_id=other_certificate.id,
+            status=ReminderTaskStatus.CLOSED,
+            trigger_date=date(2026, 6, 1),
+            due_date=date(2026, 6, 8),
+            closed_reason="manual",
+            idempotency_key=f"{other_certificate.id}:manual",
+        )
+    )
+    db_session.commit()
+
+    open_page = page_tasks(db_session, status_group="open")
+    keyword_page = page_tasks(db_session, keyword="张三")
+    type_page = page_tasks(db_session, certificate_type_id=other_type.id)
+    closed_page = page_tasks(db_session, status_group="closed")
+
+    assert open_page.total == 1
+    assert open_page.data[0].id == task.id
+    assert open_page.data[0].employee_name == "张三"
+    assert open_page.data[0].employee_no == "E001"
+    assert open_page.data[0].certificate_type_name == "安全生产资格证"
+    assert open_page.data[0].certificate_no == "CERT-001"
+    assert open_page.data[0].holder_name == "张三"
+    assert open_page.data[0].valid_to == date(2026, 5, 20)
+    assert open_page.data[0].policy_name == "default"
+    assert keyword_page.total == 1
+    assert keyword_page.data[0].id == task.id
+    assert type_page.total == 1
+    assert type_page.data[0].employee_name == "李四"
+    assert closed_page.total == 1
+    assert closed_page.data[0].status == ReminderTaskStatus.CLOSED
+
+
+def test_build_reminder_tasks_csv_is_excel_friendly(db_session: Session) -> None:
+    task = _create_pending_reminder_task(db_session)
+    payload = build_reminder_tasks_csv([task])
+
+    assert payload.startswith("\ufeff")
+    assert "员工,工号,证书类型,证书编号,持证人,到期日期,任务状态" in payload
+    assert "张三,E001,安全生产资格证,CERT-001,张三,2026-05-20,PENDING" in payload
 
 
 def test_hr_can_create_and_update_reminder_policy(db_session: Session) -> None:
