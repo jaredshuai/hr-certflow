@@ -1,4 +1,4 @@
-import type { CertificateStatus, EmploymentStatus, ReminderTaskStatus, ReviewStatus } from '@/types/domain';
+import type { CertificateStatus, DocumentStatus, EmploymentStatus, ReminderTaskStatus, ReviewStatus } from '@/types/domain';
 
 type ProValueEnumStatus = 'Default' | 'Processing' | 'Success' | 'Warning' | 'Error';
 export type StatusValueEnum<K extends string = string> = Record<
@@ -195,7 +195,7 @@ export const forceManualReviewValueEnum: StatusValueEnum<'true' | 'false'> = {
   false: { text: '否', status: 'Success' },
 };
 
-export const documentStatusValueEnum: StatusValueEnum = {
+export const documentStatusValueEnum: StatusValueEnum<DocumentStatus> = {
   UPLOADED: { text: '已上传', status: 'Processing' },
   PARSING: { text: '解析中', status: 'Processing' },
   PENDING_REVIEW: { text: '待复核', status: 'Warning' },

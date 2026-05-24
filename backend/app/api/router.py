@@ -6,6 +6,7 @@ from app.api.routes import (
     audit,
     certificate_types,
     certificates,
+    dashboard,
     documents,
     employees,
     health,
@@ -15,6 +16,7 @@ from app.api.routes import (
 
 api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
+api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(employees.router, prefix="/employees", tags=["employees"])
 api_router.include_router(certificate_types.router, prefix="/certificate-types", tags=["certificate-types"])
 api_router.include_router(certificates.router, prefix="/certificates", tags=["certificates"])

@@ -16,6 +16,7 @@ export type ReminderTaskStatus =
   | 'ESCALATED'
   | 'RESOLVED'
   | 'CLOSED';
+export type DocumentStatus = 'UPLOADED' | 'PARSING' | 'PENDING_REVIEW' | 'CONFIRMED' | 'FAILED' | 'ARCHIVED';
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'NEEDS_INFO';
 export type FeedbackStatus =
   | 'NOTIFIED_EMPLOYEE'
@@ -71,6 +72,51 @@ export interface ReminderTask {
   trigger_date: string;
   due_date?: string;
   closed_reason?: string;
+}
+
+export interface CertificateDocument {
+  id: string;
+  employee_id?: string;
+  status: DocumentStatus;
+  storage_bucket: string;
+  storage_key: string;
+  original_filename: string;
+  content_type?: string;
+  file_size?: number;
+  sha256?: string;
+  paperless_document_id?: string;
+  failure_reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DashboardRiskRow {
+  id: string;
+  metric: string;
+  count: number;
+  status: string;
+}
+
+export interface DashboardChartRow {
+  category: string;
+  count: number;
+}
+
+export interface DashboardPipelineStep {
+  title: string;
+  description: string;
+  count: number;
+}
+
+export interface DashboardSummary {
+  expiring_count: number;
+  expired_count: number;
+  pending_review_count: number;
+  coverage: number;
+  certificate_status_rows: DashboardChartRow[];
+  workload_rows: DashboardChartRow[];
+  pipeline_steps: DashboardPipelineStep[];
+  risk_rows: DashboardRiskRow[];
 }
 
 export interface ReviewTask {
