@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain.enums import CertificateStatus, ReminderTaskStatus
+from app.domain.enums import CertificateStatus, EmploymentStatus, ReminderTaskStatus
 from app.models import CertificateType, Employee, EmployeeCertificate, ReminderTask
 
 _ACTIVE_CERTIFICATE_STATUSES = (
@@ -43,10 +43,13 @@ def validate_certificate_business_rules(
     holder_name: str,
     certificate_no: str | None,
     exclude_certificate_id: UUID | None = None,
+    require_active_employee: bool = False,
 ) -> None:
     employee = db.get(Employee, employee_id)
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
+    if require_active_employee and employee.employment_status == EmploymentStatus.LEFT:
+        raise HTTPException(status_code=409, detail="Cannot create current certificate for employee who has left")
 
     certificate_type = db.get(CertificateType, certificate_type_id)
     if not certificate_type:

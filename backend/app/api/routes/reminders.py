@@ -24,6 +24,7 @@ from app.core.config import get_settings
 from app.db.session import get_db
 from app.domain.enums import FeedbackStatus, ReminderEventType, ReminderTaskStatus
 from app.models import (
+    AuditLog,
     CertificateType,
     Employee,
     EmployeeCertificate,
@@ -32,6 +33,7 @@ from app.models import (
     ReminderPolicy,
     ReminderTask,
 )
+from app.schemas.certificates import TraceAuditLogRead
 from app.schemas.reminders import (
     FeedbackCreate,
     FeedbackRead,
@@ -110,6 +112,23 @@ def _task_statement_options():
         selectinload(ReminderTask.employee_certificate).selectinload(EmployeeCertificate.employee),
         selectinload(ReminderTask.employee_certificate).selectinload(EmployeeCertificate.certificate_type),
     )
+
+
+def _load_reminder_timeline_audit_logs(db: Session, reminder_task: ReminderTask) -> list[AuditLog]:
+    resource_ids = {str(reminder_task.id), str(reminder_task.employee_certificate_id)}
+    if reminder_task.policy_id:
+        resource_ids.add(str(reminder_task.policy_id))
+
+    logs = list(
+        db.scalars(
+            select(AuditLog)
+            .where(AuditLog.resource_id.in_(resource_ids))
+            .order_by(AuditLog.created_at.desc())
+            .limit(100)
+        ).all()
+    )
+    logs_by_id = {log.id: log for log in logs}
+    return sorted(logs_by_id.values(), key=lambda log: log.created_at, reverse=True)
 
 
 def _status_filters(
@@ -447,10 +466,24 @@ def get_task_timeline(
             .order_by(Feedback.created_at.desc())
         ).all()
     )
+    audit_logs = _load_reminder_timeline_audit_logs(db, reminder_task)
     return ReminderTaskTimelineRead(
         task=_task_to_read(reminder_task),
         events=[ReminderEventRead.model_validate(event) for event in events],
         feedback_items=[FeedbackRead.model_validate(feedback) for feedback in feedback_items],
+        audit_logs=[
+            TraceAuditLogRead(
+                id=log.id,
+                action=log.action,
+                resource_type=log.resource_type,
+                resource_id=log.resource_id,
+                actor_name=log.actor_name,
+                request_id=log.request_id,
+                ip_address=log.ip_address,
+                created_at=log.created_at,
+            )
+            for log in audit_logs
+        ],
     )
 
 

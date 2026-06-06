@@ -22,12 +22,15 @@ from app.api.deps import (
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.domain.enums import DocumentStatus, ReviewStatus
-from app.models import AiExtractionResult, CertificateDocument, ReviewTask
+from app.models import AiExtractionResult, AuditLog, CertificateDocument, EmployeeCertificate, ReviewTask
+from app.schemas.certificates import EmployeeCertificateRead, TraceAuditLogRead
 from app.schemas.documents import (
     ALLOWED_UPLOAD_CONTENT_TYPES,
     AiExtractionResultRead,
     CertificateDocumentPageRead,
     CertificateDocumentRead,
+    CertificateDocumentTraceRead,
+    ReviewTaskRead,
     UploadIntentCreate,
     UploadIntentRead,
 )
@@ -146,6 +149,31 @@ def build_certificate_documents_csv(rows: list[CertificateDocument]) -> str:
     return "\ufeff" + output.getvalue()
 
 
+def _load_document_trace_audit_logs(
+    db: Session,
+    *,
+    document: CertificateDocument,
+    ai_results: list[AiExtractionResult],
+    review_tasks: list[ReviewTask],
+    certificates: list[EmployeeCertificate],
+) -> list[AuditLog]:
+    resource_ids = {str(document.id)}
+    resource_ids.update(str(result.id) for result in ai_results)
+    resource_ids.update(str(task.id) for task in review_tasks)
+    resource_ids.update(str(certificate.id) for certificate in certificates)
+
+    logs = list(
+        db.scalars(
+            select(AuditLog)
+            .where(AuditLog.resource_id.in_(resource_ids))
+            .order_by(AuditLog.created_at.desc())
+            .limit(100)
+        ).all()
+    )
+    logs_by_id = {log.id: log for log in logs}
+    return sorted(logs_by_id.values(), key=lambda log: log.created_at, reverse=True)
+
+
 @router.get("", response_model=list[CertificateDocumentRead])
 def list_documents(
     db: Session = Depends(get_db),
@@ -212,6 +240,65 @@ def export_documents_csv(
         content=build_certificate_documents_csv(rows),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="certificate-documents.csv"'},
+    )
+
+
+@router.get("/{document_id}/trace", response_model=CertificateDocumentTraceRead)
+def get_certificate_document_trace(
+    document_id: UUID,
+    db: Session = Depends(get_db),
+) -> CertificateDocumentTraceRead:
+    document = db.get(CertificateDocument, document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    ai_results = list(
+        db.scalars(
+            select(AiExtractionResult)
+            .where(AiExtractionResult.document_id == document.id)
+            .order_by(AiExtractionResult.created_at.desc())
+        ).all()
+    )
+    review_tasks = list(
+        db.scalars(
+            select(ReviewTask)
+            .where(ReviewTask.document_id == document.id)
+            .order_by(ReviewTask.created_at.desc())
+        ).all()
+    )
+    certificates = list(
+        db.scalars(
+            select(EmployeeCertificate)
+            .where(EmployeeCertificate.source_document_id == document.id)
+            .order_by(EmployeeCertificate.created_at.desc())
+        ).all()
+    )
+    audit_logs = _load_document_trace_audit_logs(
+        db,
+        document=document,
+        ai_results=ai_results,
+        review_tasks=review_tasks,
+        certificates=certificates,
+    )
+
+    return CertificateDocumentTraceRead(
+        source_document=CertificateDocumentRead.model_validate(document),
+        ai_results=[AiExtractionResultRead.model_validate(result) for result in ai_results],
+        review_tasks=[ReviewTaskRead.model_validate(task) for task in review_tasks],
+        certificates=[EmployeeCertificateRead.model_validate(certificate) for certificate in certificates],
+        audit_logs=[
+            TraceAuditLogRead(
+                id=log.id,
+                action=log.action,
+                resource_type=log.resource_type,
+                resource_id=log.resource_id,
+                actor_name=log.actor_name,
+                request_id=log.request_id,
+                ip_address=log.ip_address,
+                created_at=log.created_at,
+            )
+            for log in audit_logs
+        ],
     )
 
 

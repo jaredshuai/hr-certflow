@@ -57,6 +57,7 @@ class CertificateType(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     issuing_authority: Mapped[str | None] = mapped_column(String(255))
     default_validity_months: Mapped[int | None] = mapped_column(Integer)
+    is_required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     force_manual_review: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
 

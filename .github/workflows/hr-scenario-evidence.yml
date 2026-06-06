@@ -1,0 +1,135 @@
+name: HR Scenario Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - release
+      employee_no:
+        description: Optional employee number selector. Do not use real personal data in public logs.
+        required: false
+        type: string
+      certificate_type_code:
+        description: Optional certificate type code selector.
+        required: false
+        type: string
+      certificate_no:
+        description: Optional certificate number selector. Prefer certificate_id for release evidence.
+        required: false
+        type: string
+      certificate_id:
+        description: Optional formal certificate UUID selector.
+        required: false
+        type: string
+      document_id:
+        description: Optional source document UUID selector.
+        required: false
+        type: string
+      review_task_id:
+        description: Optional review task UUID selector.
+        required: false
+        type: string
+      reminder_task_id:
+        description: Optional reminder task UUID selector.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  collect:
+    name: Collect HR scenario evidence
+    runs-on: k3s-hr-certflow-deployer
+    environment:
+      name: ${{ inputs.environment }}
+    env:
+      DEPLOY_ENV: ${{ inputs.environment }}
+      EMPLOYEE_NO: ${{ inputs.employee_no }}
+      CERTIFICATE_TYPE_CODE: ${{ inputs.certificate_type_code }}
+      CERTIFICATE_NO: ${{ inputs.certificate_no }}
+      CERTIFICATE_ID: ${{ inputs.certificate_id }}
+      DOCUMENT_ID: ${{ inputs.document_id }}
+      REVIEW_TASK_ID: ${{ inputs.review_task_id }}
+      REMINDER_TASK_ID: ${{ inputs.reminder_task_id }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve runner Python
+        shell: bash
+        run: |
+          if command -v python3 >/dev/null 2>&1; then
+            echo "PYTHON_BIN=$(command -v python3)" >> "${GITHUB_ENV}"
+          elif command -v python >/dev/null 2>&1; then
+            echo "PYTHON_BIN=$(command -v python)" >> "${GITHUB_ENV}"
+          else
+            echo "::error::Python is required on the shared-k3s runner"
+            exit 1
+          fi
+
+      - name: Resolve target URL
+        id: meta
+        shell: bash
+        run: |
+          case "${DEPLOY_ENV}" in
+            release)
+              WEB_URL="${{ vars.RELEASE_WEB_URL || 'http://10.34.200.180/hr-certflow/' }}"
+              ;;
+            dev)
+              WEB_URL="${{ vars.DEV_WEB_URL || 'http://10.34.200.180/hr-certflow-dev/' }}"
+              ;;
+            *)
+              echo "::error::Unsupported environment: ${DEPLOY_ENV}"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "deploy_env=${DEPLOY_ENV}"
+            echo "web_url=${WEB_URL}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Collect read-only scenario evidence
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/hr-certflow-evidence"
+          JSON_OUT="${RUNNER_TEMP}/hr-certflow-evidence/scenario-evidence.json"
+          MD_OUT="${RUNNER_TEMP}/hr-certflow-evidence/scenario-evidence.md"
+
+          ARGS=(
+            "--base-url" "${{ steps.meta.outputs.web_url }}"
+            "--output" "${JSON_OUT}"
+            "--markdown-output" "${MD_OUT}"
+          )
+
+          [[ -n "${EMPLOYEE_NO}" ]] && ARGS+=("--employee-no" "${EMPLOYEE_NO}")
+          [[ -n "${CERTIFICATE_TYPE_CODE}" ]] && ARGS+=("--certificate-type-code" "${CERTIFICATE_TYPE_CODE}")
+          [[ -n "${CERTIFICATE_NO}" ]] && ARGS+=("--certificate-no" "${CERTIFICATE_NO}")
+          [[ -n "${CERTIFICATE_ID}" ]] && ARGS+=("--certificate-id" "${CERTIFICATE_ID}")
+          [[ -n "${DOCUMENT_ID}" ]] && ARGS+=("--document-id" "${DOCUMENT_ID}")
+          [[ -n "${REVIEW_TASK_ID}" ]] && ARGS+=("--review-task-id" "${REVIEW_TASK_ID}")
+          [[ -n "${REMINDER_TASK_ID}" ]] && ARGS+=("--reminder-task-id" "${REMINDER_TASK_ID}")
+
+          set +e
+          "${PYTHON_BIN}" scripts/collect_hr_scenario_evidence.py "${ARGS[@]}"
+          STATUS=$?
+          set -e
+
+          {
+            echo "### hr-certflow HR scenario evidence"
+            echo "- Environment: \`${DEPLOY_ENV}\`"
+            echo "- Web URL: ${{ steps.meta.outputs.web_url }}"
+            echo
+            cat "${MD_OUT}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          exit "${STATUS}"

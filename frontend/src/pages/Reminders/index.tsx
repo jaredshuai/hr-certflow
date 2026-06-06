@@ -10,7 +10,7 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Alert, Button, Descriptions, Drawer, Empty, Input, Space, Timeline, Typography } from 'antd';
+import { Alert, Button, Descriptions, Drawer, Empty, Input, Space, Tag, Timeline, Typography } from 'antd';
 import { useMemo, useRef, useState } from 'react';
 
 import { useLocation } from '@umijs/max';
@@ -18,6 +18,8 @@ import { useLocation } from '@umijs/max';
 import { createResource, getResource, listResource, pageResource, postResource, updateResource } from '@/services/api';
 import type {
   FeedbackStatus,
+  ReminderEvent,
+  ReminderEventType,
   ReminderDispatchPayload,
   ReminderDispatchResult,
   ReminderPolicy,
@@ -28,7 +30,11 @@ import type {
   ReminderTaskTimeline,
 } from '@/types/domain';
 import {
+  auditActionLabel,
+  auditResourceTypeLabel,
   feedbackStatusLabel,
+  reminderChannelLabel,
+  reminderChannelOptions,
   reminderEventTypeLabel,
   reminderStatusLabel,
   reminderStatusValueEnum,
@@ -38,6 +44,7 @@ import { emptyTableText } from '@/utils/emptyStates';
 import { certificateTypeSelectRequest } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
 import { getCurrentOperator } from '@/utils/operatorContext';
+import { parseDaysBeforeExpiryText } from '@/utils/reminderPolicyForm';
 
 const feedbackActions: Array<{ label: string; status: FeedbackStatus; content: string; danger?: boolean }> = [
   { label: '已通知', status: 'NOTIFIED_EMPLOYEE', content: '人力已通知员工' },
@@ -48,12 +55,25 @@ const feedbackActions: Array<{ label: string; status: FeedbackStatus; content: s
   { label: '忽略', status: 'IGNORED', content: '人力忽略本次提醒', danger: true },
 ];
 
-const reminderChannelOptions = [
-  { label: '邮件', value: 'email' },
-  { label: '企业微信', value: 'wecom' },
-  { label: '钉钉', value: 'dingtalk' },
-  { label: '飞书', value: 'feishu' },
-];
+const dispatchEventTypes: ReminderEventType[] = ['FIRST_REMINDER', 'SECOND_REMINDER', 'ESCALATION'];
+
+type ChannelDispatchStatus = {
+  channel: string;
+  status: 'success' | 'failed' | 'pending';
+  attempts: number;
+  latestAt: string;
+  eventType: ReminderEventType;
+  eventDate: string;
+  error?: string;
+};
+
+type ChannelDispatchSummary = {
+  eventType: ReminderEventType;
+  eventDate: string;
+  statuses: ChannelDispatchStatus[];
+  retryChannels: string[];
+  requestChannels: string[];
+};
 
 type ReminderPolicyFormValues = {
   certificate_type_id?: string;
@@ -64,18 +84,6 @@ type ReminderPolicyFormValues = {
   channels: string[];
   enabled: boolean;
 };
-
-function parseDaysBeforeExpiry(value: string): number[] {
-  const days = value
-    .split(/[,\s，]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => Number(item));
-  if (days.length === 0 || days.some((item) => !Number.isInteger(item) || item < 0)) {
-    throw new Error('提前提醒天数必须是非负整数，可用逗号分隔');
-  }
-  return [...new Set(days)].sort((left, right) => right - left);
-}
 
 function cleanSearchParams(params: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
@@ -101,6 +109,78 @@ function reminderFiltersFromSearch(search: string): Record<string, unknown> {
   if (statuses.length === 1) return { status: statuses[0] };
   if (statuses.length > 1) return { status: statuses };
   return {};
+}
+
+function isDispatchEvent(event: ReminderEvent): event is ReminderEvent & { channel: string } {
+  return dispatchEventTypes.includes(event.event_type) && Boolean(event.channel);
+}
+
+function isSuccessfulDispatchEvent(event: ReminderEvent): boolean {
+  const payloadStatus = event.payload?.status;
+  return Boolean(event.sent_at && !event.error && (payloadStatus === undefined || payloadStatus === 'sent'));
+}
+
+function buildChannelDispatchSummary(timeline?: ReminderTaskTimeline): ChannelDispatchSummary | undefined {
+  const dispatchEvents = (timeline?.events || [])
+    .filter(isDispatchEvent)
+    .sort((left, right) => right.created_at.localeCompare(left.created_at));
+
+  if (dispatchEvents.length === 0) return undefined;
+
+  const latestEvent = dispatchEvents[0];
+  const currentWindowEvents = dispatchEvents.filter(
+    (event) => event.event_type === latestEvent.event_type && event.event_date === latestEvent.event_date,
+  );
+  const eventsByChannel = new Map<string, ReminderEvent[]>();
+
+  currentWindowEvents.forEach((event) => {
+    const channelEvents = eventsByChannel.get(event.channel) || [];
+    channelEvents.push(event);
+    eventsByChannel.set(event.channel, channelEvents);
+  });
+
+  const statuses = Array.from(eventsByChannel.entries())
+    .map(([channel, channelEvents]) => {
+      const sortedEvents = [...channelEvents].sort((left, right) => right.created_at.localeCompare(left.created_at));
+      const latestChannelEvent = sortedEvents[0];
+      const hasSuccess = sortedEvents.some(isSuccessfulDispatchEvent);
+      const status: ChannelDispatchStatus['status'] = hasSuccess
+        ? 'success'
+        : latestChannelEvent.error
+          ? 'failed'
+          : 'pending';
+
+      return {
+        channel,
+        status,
+        attempts: sortedEvents.length,
+        latestAt: latestChannelEvent.created_at,
+        eventType: latestEvent.event_type,
+        eventDate: latestEvent.event_date,
+        error: latestChannelEvent.error,
+      };
+    })
+    .sort((left, right) => reminderChannelLabel(left.channel).localeCompare(reminderChannelLabel(right.channel)));
+
+  return {
+    eventType: latestEvent.event_type,
+    eventDate: latestEvent.event_date,
+    statuses,
+    retryChannels: statuses.filter((item) => item.status !== 'success').map((item) => item.channel),
+    // 后端用同一轮全部渠道判断幂等窗口；已成功渠道会自动跳过，只补发未成功渠道。
+    requestChannels: statuses.map((item) => item.channel),
+  };
+}
+
+function channelDispatchSubmitId(recordId: string, simulate: boolean, channels?: string[]): string {
+  const channelKey = channels && channels.length > 0 ? [...channels].sort().join('|') : 'all';
+  return `${recordId}:dispatch:${simulate ? 'simulate' : 'send'}:${channelKey}`;
+}
+
+function channelStatusTag(status: ChannelDispatchStatus['status']): { color: string; text: string } {
+  if (status === 'success') return { color: 'success', text: '已成功' };
+  if (status === 'failed') return { color: 'error', text: '失败' };
+  return { color: 'warning', text: '未确认' };
 }
 
 export default function RemindersPage() {
@@ -135,7 +215,7 @@ export default function RemindersPage() {
   async function handlePolicyFinish(values: ReminderPolicyFormValues): Promise<boolean> {
     let daysBeforeExpiry: number[];
     try {
-      daysBeforeExpiry = parseDaysBeforeExpiry(values.days_before_expiry_text);
+      daysBeforeExpiry = parseDaysBeforeExpiryText(values.days_before_expiry_text);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '提前提醒天数格式不正确');
       return false;
@@ -190,26 +270,43 @@ export default function RemindersPage() {
     }
   }
 
-  async function dispatchReminder(record: ReminderTask, simulate: boolean) {
+  async function loadTimeline(reminderTaskId: string, reset: boolean) {
+    setTimelineLoading(true);
+    if (reset) setCurrentTimeline(undefined);
+    try {
+      const data = await getResource<ReminderTaskTimeline>(`/reminders/tasks/${reminderTaskId}/timeline`);
+      setCurrentTimeline(data);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '提醒详情加载失败');
+    } finally {
+      setTimelineLoading(false);
+    }
+  }
+
+  async function dispatchReminder(record: ReminderTask, simulate: boolean, channels?: string[]) {
     const operator = dispatchOperator.trim() || feedbackActor.trim();
     if (!operator) {
       message.warning('请先填写操作人');
       return;
     }
 
-    setSubmittingId(`${record.id}:dispatch:${simulate ? 'simulate' : 'send'}`);
+    const normalizedChannels = channels?.filter(Boolean);
+    setSubmittingId(channelDispatchSubmitId(record.id, simulate, normalizedChannels));
     try {
+      const payload: ReminderDispatchPayload = { operator, simulate };
+      if (normalizedChannels && normalizedChannels.length > 0) payload.channels = normalizedChannels;
+
       const result = await postResource<ReminderDispatchResult, ReminderDispatchPayload>(
         `/reminders/tasks/${record.id}/dispatch`,
-        {
-          operator,
-          simulate,
-        },
+        payload,
       );
       message.success(
         `${simulate ? '模拟提醒' : '提醒发送'}已记录：${result.event_type}，${result.results.length} 个渠道`,
       );
       actionRef.current?.reload();
+      if (timelineOpen && currentTimeline?.task.id === record.id) {
+        await loadTimeline(record.id, false);
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '提醒派发失败');
     } finally {
@@ -249,16 +346,7 @@ export default function RemindersPage() {
 
   async function openTimeline(record: ReminderTask) {
     setTimelineOpen(true);
-    setTimelineLoading(true);
-    setCurrentTimeline(undefined);
-    try {
-      const data = await getResource<ReminderTaskTimeline>(`/reminders/tasks/${record.id}/timeline`);
-      setCurrentTimeline(data);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '提醒详情加载失败');
-    } finally {
-      setTimelineLoading(false);
-    }
+    await loadTimeline(record.id, true);
   }
 
   const columns: ProColumns<ReminderTask>[] = [
@@ -346,7 +434,7 @@ export default function RemindersPage() {
           <Button
             size="small"
             type="link"
-            loading={submittingId === `${record.id}:dispatch:simulate`}
+            loading={submittingId === channelDispatchSubmitId(record.id, true)}
             onClick={() => void dispatchReminder(record, true)}
           >
             模拟提醒
@@ -354,7 +442,7 @@ export default function RemindersPage() {
           <Button
             size="small"
             type="link"
-            loading={submittingId === `${record.id}:dispatch:send`}
+            loading={submittingId === channelDispatchSubmitId(record.id, false)}
             onClick={() => void dispatchReminder(record, false)}
           >
             发送提醒
@@ -378,6 +466,12 @@ export default function RemindersPage() {
       ),
     },
   ];
+
+  const channelDispatchSummary = useMemo(
+    () => buildChannelDispatchSummary(currentTimeline),
+    [currentTimeline],
+  );
+  const timelineAuditLogs = currentTimeline?.audit_logs || [];
 
   const policyColumns: ProColumns<ReminderPolicy>[] = [
     { title: '策略名称', dataIndex: 'name' },
@@ -458,7 +552,7 @@ export default function RemindersPage() {
           closable={{ onClose: () => setLoadError(undefined) }}
         />
       ) : null}
-      <ProCard title="提醒策略" bordered style={{ marginBottom: 16 }}>
+      <ProCard title="提醒策略" style={{ marginBottom: 16 }}>
         <ProTable<ReminderPolicy>
           actionRef={policyActionRef}
           rowKey="id"
@@ -551,12 +645,12 @@ export default function RemindersPage() {
         title="提醒任务详情"
         open={timelineOpen}
         onClose={() => setTimelineOpen(false)}
-        width={760}
+        size={760}
         loading={timelineLoading}
       >
         {currentTimeline ? (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <ProCard title="任务概要" bordered>
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
+            <ProCard title="任务概要">
               <Descriptions column={2} size="small">
                 <Descriptions.Item label="任务状态">
                   {reminderStatusLabel(currentTimeline.task.status)}
@@ -590,16 +684,95 @@ export default function RemindersPage() {
               </Descriptions>
             </ProCard>
 
-            <ProCard title={`派发与系统事件（${currentTimeline.events.length}）`} bordered>
+            <ProCard title="渠道派发状态">
+              {channelDispatchSummary ? (
+                <Space orientation="vertical" size={12} style={{ width: '100%' }}>
+                  <Alert
+                    type={channelDispatchSummary.retryChannels.length > 0 ? 'warning' : 'success'}
+                    showIcon
+                    title={`当前事件：${reminderEventTypeLabel(channelDispatchSummary.eventType)} / ${channelDispatchSummary.eventDate}`}
+                    description={
+                      channelDispatchSummary.retryChannels.length > 0
+                        ? `未成功渠道：${channelDispatchSummary.retryChannels
+                            .map(reminderChannelLabel)
+                            .join('、')}。重试会带上本轮全部渠道，后端会自动跳过已成功渠道。`
+                        : '本轮所有已记录渠道均已成功。'
+                    }
+                  />
+                  <Space wrap>
+                    {channelDispatchSummary.statuses.map((item) => {
+                      const tag = channelStatusTag(item.status);
+                      return (
+                        <Tag key={item.channel} color={tag.color}>
+                          {reminderChannelLabel(item.channel)}：{tag.text}，尝试 {item.attempts} 次
+                          {item.error ? `，${item.error}` : ''}
+                        </Tag>
+                      );
+                    })}
+                  </Space>
+                  {channelDispatchSummary.retryChannels.length > 0 ? (
+                    <Space wrap>
+                      <Button
+                        loading={
+                          submittingId ===
+                          channelDispatchSubmitId(
+                            currentTimeline.task.id,
+                            true,
+                            channelDispatchSummary.requestChannels,
+                          )
+                        }
+                        onClick={() =>
+                          void dispatchReminder(
+                            currentTimeline.task,
+                            true,
+                            channelDispatchSummary.requestChannels,
+                          )
+                        }
+                      >
+                        模拟重试未成功渠道
+                      </Button>
+                      <Button
+                        type="primary"
+                        danger
+                        loading={
+                          submittingId ===
+                          channelDispatchSubmitId(
+                            currentTimeline.task.id,
+                            false,
+                            channelDispatchSummary.requestChannels,
+                          )
+                        }
+                        onClick={() =>
+                          void dispatchReminder(
+                            currentTimeline.task,
+                            false,
+                            channelDispatchSummary.requestChannels,
+                          )
+                        }
+                      >
+                        重试未成功渠道
+                      </Button>
+                    </Space>
+                  ) : null}
+                </Space>
+              ) : (
+                <Alert type="info" showIcon title="尚无派发事件" description="发送或模拟提醒后，这里会显示各渠道状态。" />
+              )}
+            </ProCard>
+
+            <ProCard title={`派发与系统事件（${currentTimeline.events.length}）`}>
               {currentTimeline.events.length > 0 ? (
                 <Timeline
                   items={currentTimeline.events.map((event) => ({
                     color: event.error ? 'red' : event.sent_at ? 'green' : 'gray',
-                    children: (
-                      <Space direction="vertical" size={4}>
+                    content: (
+                      <Space orientation="vertical" size={4}>
                         <Typography.Text strong>
                           {reminderEventTypeLabel(event.event_type)} / {event.channel || '-'} /{' '}
                           {event.created_at}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          事件日期：{event.event_date || '-'}
                         </Typography.Text>
                         <Typography.Text type={event.error ? 'danger' : undefined}>
                           {event.error || `已记录：${event.sent_at || '未发送'}`}
@@ -622,13 +795,13 @@ export default function RemindersPage() {
               )}
             </ProCard>
 
-            <ProCard title={`反馈记录（${currentTimeline.feedback_items.length}）`} bordered>
+            <ProCard title={`反馈记录（${currentTimeline.feedback_items.length}）`}>
               {currentTimeline.feedback_items.length > 0 ? (
                 <Timeline
                   items={currentTimeline.feedback_items.map((feedback) => ({
                     color: feedback.status === 'RENEWED' ? 'green' : 'blue',
-                    children: (
-                      <Space direction="vertical" size={4}>
+                    content: (
+                      <Space orientation="vertical" size={4}>
                         <Typography.Text strong>
                           {feedbackStatusLabel(feedback.status)} / {feedback.created_by} /{' '}
                           {feedback.created_at}
@@ -640,6 +813,31 @@ export default function RemindersPage() {
                 />
               ) : (
                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无反馈记录" />
+              )}
+            </ProCard>
+
+            <ProCard title={`关联审计记录（${timelineAuditLogs.length}）`}>
+              {timelineAuditLogs.length > 0 ? (
+                <Timeline
+                  items={timelineAuditLogs.map((log) => ({
+                    color: log.resource_type === 'reminder_task' ? 'blue' : 'gray',
+                    content: (
+                      <Space orientation="vertical" size={4}>
+                        <Typography.Text strong>
+                          {auditActionLabel(log.action)} / {auditResourceTypeLabel(log.resource_type)}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          {log.created_at} / 操作人：{log.actor_name || '未知'} / 请求：{log.request_id || '-'}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          资源：{log.resource_id || '-'} / IP：{log.ip_address || '-'}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无关联审计记录" />
               )}
             </ProCard>
           </Space>

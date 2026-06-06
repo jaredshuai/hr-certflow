@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 from app.domain.enums import DocumentStatus, ReviewStatus
-from app.schemas.certificates import EmployeeCertificateRead
+from app.schemas.certificates import EmployeeCertificateRead, TraceAuditLogRead
 from app.schemas.common import ORMModel
 
 MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024
@@ -127,3 +127,19 @@ class ReviewRejectCreate(BaseModel):
 class ReviewDecisionRead(BaseModel):
     review_task: ReviewTaskRead
     certificate: EmployeeCertificateRead | None = None
+
+
+class ReviewTaskTraceRead(BaseModel):
+    review_task: ReviewTaskRead
+    source_document: CertificateDocumentRead | None
+    ai_result: AiExtractionResultRead | None
+    certificate: EmployeeCertificateRead | None
+    audit_logs: list[TraceAuditLogRead]
+
+
+class CertificateDocumentTraceRead(BaseModel):
+    source_document: CertificateDocumentRead
+    ai_results: list[AiExtractionResultRead]
+    review_tasks: list[ReviewTaskRead]
+    certificates: list[EmployeeCertificateRead]
+    audit_logs: list[TraceAuditLogRead]

@@ -1,6 +1,7 @@
 import {
   ModalForm,
   PageContainer,
+  ProCard,
   ProFormSelect,
   ProFormText,
   ProTable,
@@ -8,16 +9,26 @@ import {
   type ProColumns,
 } from '@ant-design/pro-components';
 import { UploadOutlined } from '@ant-design/icons';
-import { Alert, Button, Modal, Table, Upload } from 'antd';
+import { Alert, Button, Descriptions, Drawer, Empty, Modal, Space, Table, Timeline, Typography, Upload } from 'antd';
 import type { UploadProps } from 'antd';
 import { useMemo, useRef, useState } from 'react';
 
 import { useLocation } from '@umijs/max';
 
-import { createResource, pageResource, updateResource, uploadResource } from '@/services/api';
-import type { Employee, EmploymentStatus } from '@/types/domain';
+import { createResource, getResource, pageResource, updateResource, uploadResource } from '@/services/api';
+import type { Employee, EmployeeTrace, EmploymentStatus } from '@/types/domain';
 import { emptyTableText } from '@/utils/emptyStates';
-import { employmentStatusOptions, employmentStatusValueEnum } from '@/utils/displayLabels';
+import {
+  auditActionLabel,
+  auditResourceTypeLabel,
+  certificateStatusLabel,
+  documentStatusLabel,
+  employmentStatusLabel,
+  employmentStatusOptions,
+  employmentStatusValueEnum,
+  reminderStatusLabel,
+  reviewStatusLabel,
+} from '@/utils/displayLabels';
 import { message } from '@/utils/messageApi';
 import { downloadCsv } from '@/utils/download';
 
@@ -59,16 +70,21 @@ export default function EmployeesPage() {
   const [loadError, setLoadError] = useState<string>();
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<EmployeeImportResult>();
+  const [traceOpen, setTraceOpen] = useState(false);
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [currentTrace, setCurrentTrace] = useState<EmployeeTrace>();
 
   const urlFilters = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const department = params.get('department');
     const employmentStatus = params.get('employment_status');
+    const missingCertificateTypeId = params.get('missing_certificate_type_id');
     return {
       ...(department ? { department } : {}),
       ...(employmentStatus && employmentStatus in employmentStatusValueEnum
         ? { employment_status: employmentStatus as EmploymentStatus }
         : {}),
+      ...(missingCertificateTypeId ? { missing_certificate_type_id: missingCertificateTypeId } : {}),
     };
   }, [location.search]);
 
@@ -125,6 +141,15 @@ export default function EmployeesPage() {
     }
   }
 
+  async function downloadImportTemplate() {
+    try {
+      await downloadCsv('/employees/import-template.csv', {}, 'employees-import-template.csv');
+      message.success('人员导入模板已开始下载');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '人员导入模板下载失败');
+    }
+  }
+
   async function importEmployees(file: File) {
     const formData = new FormData();
     formData.append('file', file);
@@ -138,6 +163,20 @@ export default function EmployeesPage() {
       message.error(error instanceof Error ? error.message : '人员导入失败');
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function openTrace(record: Employee) {
+    setTraceOpen(true);
+    setTraceLoading(true);
+    setCurrentTrace(undefined);
+    try {
+      const trace = await getResource<EmployeeTrace>(`/employees/${record.id}/trace`);
+      setCurrentTrace(trace);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '人员追溯链路加载失败');
+    } finally {
+      setTraceLoading(false);
     }
   }
 
@@ -167,11 +206,16 @@ export default function EmployeesPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 100,
+      width: 150,
       render: (_, record) => (
-        <Button type="link" size="small" onClick={() => openEdit(record)}>
-          编辑
-        </Button>
+        <Space>
+          <Button type="link" size="small" onClick={() => openTrace(record)}>
+            追溯
+          </Button>
+          <Button type="link" size="small" onClick={() => openEdit(record)}>
+            编辑
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -215,6 +259,9 @@ export default function EmployeesPage() {
         toolbar={{
           title: '人员列表',
           actions: [
+            <Button key="template" onClick={downloadImportTemplate}>
+              下载导入模板
+            </Button>,
             <Upload key="import" {...importUploadProps}>
               <Button icon={<UploadOutlined />} loading={importing}>
                 导入CSV
@@ -290,7 +337,7 @@ export default function EmployeesPage() {
             <Alert
               type={importResult.failed > 0 ? 'warning' : 'success'}
               showIcon
-              message={`共处理 ${importResult.total} 行，新增 ${importResult.created} 人，更新 ${importResult.updated} 人，失败 ${importResult.failed} 行`}
+              title={`共处理 ${importResult.total} 行，新增 ${importResult.created} 人，更新 ${importResult.updated} 人，失败 ${importResult.failed} 行`}
               style={{ marginBottom: 16 }}
             />
             {importResult.errors.length > 0 ? (
@@ -309,6 +356,117 @@ export default function EmployeesPage() {
           </>
         ) : null}
       </Modal>
+
+      <Drawer
+        title="人员全链路追溯"
+        open={traceOpen}
+        onClose={() => setTraceOpen(false)}
+        size={840}
+        loading={traceLoading}
+      >
+        {currentTrace ? (
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
+            <ProCard title="人员档案">
+              <Descriptions column={2} size="small">
+                <Descriptions.Item label="姓名">{currentTrace.employee.name}</Descriptions.Item>
+                <Descriptions.Item label="工号">{currentTrace.employee.employee_no}</Descriptions.Item>
+                <Descriptions.Item label="部门">{currentTrace.employee.department || '-'}</Descriptions.Item>
+                <Descriptions.Item label="岗位">{currentTrace.employee.position || '-'}</Descriptions.Item>
+                <Descriptions.Item label="在职状态">
+                  {employmentStatusLabel(currentTrace.employee.employment_status)}
+                </Descriptions.Item>
+                <Descriptions.Item label="邮箱">{currentTrace.employee.email || '-'}</Descriptions.Item>
+              </Descriptions>
+            </ProCard>
+
+            <ProCard title={`持证记录（${currentTrace.certificates.length}）`}>
+              {currentTrace.certificates.length > 0 ? (
+                <Timeline
+                  items={currentTrace.certificates.map((certificate) => ({
+                    color: certificate.status === 'ACTIVE' || certificate.status === 'EXPIRING' ? 'green' : 'gray',
+                    content: (
+                      <Space orientation="vertical" size={4}>
+                        <Typography.Text strong>
+                          {certificate.certificate_type_name || certificate.certificate_type_id} /{' '}
+                          {certificate.certificate_no || '-'} / {certificateStatusLabel(certificate.status)}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          持证人：{certificate.holder_name} / 到期：{certificate.valid_to || '-'}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          确认：{certificate.confirmed_by || '-'} / {certificate.confirmed_at || '-'}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无持证记录" />
+              )}
+            </ProCard>
+
+            <ProCard title={`源文件（${currentTrace.documents.length}）`}>
+              {currentTrace.documents.length > 0 ? (
+                <Timeline
+                  items={currentTrace.documents.map((document) => ({
+                    color: document.status === 'FAILED' ? 'red' : 'blue',
+                    content: (
+                      <Space orientation="vertical" size={4}>
+                        <Typography.Text strong>
+                          {document.original_filename} / {documentStatusLabel(document.status)}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          SHA256：{document.sha256 || '-'} / 失败原因：{document.failure_reason || '-'}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无关联源文件" />
+              )}
+            </ProCard>
+
+            <ProCard title="复核与提醒">
+              <Timeline
+                items={[
+                  ...currentTrace.review_tasks.map((task) => ({
+                    color: task.status === 'APPROVED' ? 'green' : task.status === 'REJECTED' ? 'red' : 'blue',
+                    content: `复核：${reviewStatusLabel(task.status)} / ${
+                      task.reviewed_by || '未复核'
+                    } / ${task.reviewed_at || task.created_at}`,
+                  })),
+                  ...currentTrace.reminder_tasks.map((task) => ({
+                    color: task.status === 'ESCALATED' ? 'red' : 'blue',
+                    content: `提醒：${reminderStatusLabel(task.status)} / 触发 ${task.trigger_date} / 截止 ${
+                      task.due_date || '-'
+                    }`,
+                  })),
+                ]}
+              />
+              {currentTrace.review_tasks.length === 0 && currentTrace.reminder_tasks.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无复核或提醒记录" />
+              ) : null}
+            </ProCard>
+
+            <ProCard title={`审计记录（${currentTrace.audit_logs.length}）`}>
+              {currentTrace.audit_logs.length > 0 ? (
+                <Timeline
+                  items={currentTrace.audit_logs.map((log) => ({
+                    content: `${log.created_at} / ${auditActionLabel(log.action)} / ${auditResourceTypeLabel(
+                      log.resource_type,
+                    )} / ${log.actor_name || '-'}`,
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无审计记录" />
+              )}
+            </ProCard>
+          </Space>
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请选择人员查看追溯链路" />
+        )}
+      </Drawer>
     </PageContainer>
   );
 }

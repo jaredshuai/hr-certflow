@@ -18,24 +18,113 @@ Star wins and this file should be corrected.
 - `Evidence gap`: code may exist, but the promoted dev/release scenario has not
   been proven end to end.
 
+## Completion Evidence Rule
+
+This register tracks progress toward the complete product; it must not redefine
+the North Star into a smaller milestone. A row can only be treated as
+delivery-grade when all of the following are true:
+
+- The capability is available through the HR UI, public backend API, scheduled
+  worker, GitHub Actions/GitOps workflow, or maintained runbook.
+- The capability uses FastAPI/PostgreSQL as the business source of truth and
+  does not depend on Dify, object storage, spreadsheets, manual SQL, or local
+  scripts as workflow owners.
+- The capability has visible empty, loading, error, and recovery behavior where
+  an HR operator would otherwise be blocked.
+- The capability writes bounded audit/trace data for material business changes.
+- Local verification passes for the touched backend/frontend surface.
+- A promoted dev or release environment has non-secret evidence for the relevant
+  scenario when the change is claimed as delivered rather than merely
+  implemented locally.
+
+`Partial` therefore means "usable implementation progress exists", not "the
+complete product requirement is satisfied".
+
 ## Current Gap Checklist
 
 | Area | Status | Remaining product work |
 | --- | --- | --- |
-| Employee master data | Partial | Keep CRUD/search/page/import/export usable; add stronger duplicate-name and inactive-employee safeguards where certificate ownership could become ambiguous. |
-| Certificate type master data | Partial | Keep CRUD/search/page/import/export usable; finish policy-to-review/ledger/reminder consistency so type changes are auditable and reflected everywhere. |
+| Employee master data | Partial | CRUD/search/page/import/export and certificate-owner safeguards for duplicate names and left employees exist; still needs HR-facing acceptance evidence for bad-row imports and ambiguous employee selection. |
+| Certificate type master data | Partial | CRUD/search/page/import/export are usable; default validity flows from review approval into the formal ledger and reminder scan; certificate-type forms can now create/update a bound default reminder policy and maintain required/optional certificate policy that feeds missing-required risk reporting. Still needs promoted acceptance evidence for type-policy changes. |
 | Upload integrity | Partial | Upload intent, confirm-upload, type/size/object/hash handling exist; still needs promoted end-to-end evidence and failure recovery verification with real object storage. |
-| Dify extraction normalization | Partial | Strict output normalization exists; still needs regression tests around `<think>`, Markdown fences, nested JSON strings, oversized fields, and suspicious-point pollution as permanent contract coverage. |
-| Human review | Partial | Approval/reject/stale protection and duplicate task cleanup exist in product flow; still needs stronger business validation for holder/employee/type mismatches and concurrent HR behavior. |
-| Formal certificate ledger | Partial | Replacement-by-status/linkage and trace views exist; still needs database-level uniqueness and concurrency protection for active certificate correctness. |
-| Reminder operations | Partial | Scan, dispatch/simulate, feedback, closure, timeline, paging, filtering, export, and successful-event daily idempotency guardrails exist; still needs channel-level retry operations UX and promoted scenario evidence. |
-| Dashboard and reports | Partial | Dashboard/reporting/drill-down/export and AntV charts exist; still needs full explainability audit so every card/chart number routes to the exact filtered source records. |
-| Audit and traceability | Partial | Audit records and certificate trace views exist; still needs reliable actor/request context, bounded PII-safe payloads, and trace coverage from every major workflow surface. |
-| Frontend states | Partial | AntD/ProComponents empty/error/workflow states are improved; still needs browser smoke for real data, stale-action UX, and recovery states across every page. |
-| Import/export coverage | Partial | Employee/type/certificate/document/reminder/report exports and master-data imports exist in parts; still needs one HR-facing import/export acceptance pass with bad-row validation evidence. |
+| Dify extraction normalization | Partial | Strict output normalization and regression tests for `<think>`, Markdown fences, nested JSON strings, oversized fields, suspicious-point pollution, and percentage confidence exist; still needs promoted Dify scenario evidence. |
+| Human review | Partial | Approval/reject/stale protection, stale-action UI recovery, duplicate task cleanup, holder/employee/type validation, document-state checks, and certificate-number guardrails exist; still needs promoted concurrent-HR acceptance evidence. |
+| Formal certificate ledger | Partial | Replacement-by-status/linkage, trace views, database-level active-certificate uniqueness, duplicate-number guardrails, and approval locking exist; still needs promoted certificate-replacement scenario evidence. |
+| Reminder operations | Partial | Scan, dispatch/simulate, feedback, closure, timeline with audit chain, paging, filtering, export, successful-event daily idempotency guardrails, and channel-level retry UX exist; still needs promoted scenario evidence and real/simulated provider failure acceptance. |
+| Dashboard and reports | Partial | Dashboard/reporting/export, AntV charts, precise drill-down paths, and dashboard risk-item trace drawers exist for workload, pipeline, certificate status, expiry month, department coverage, missing required certificates with employee/type trace details, and certificate-type risk sub-metrics; local browser smoke has verified the expired-certificate risk trace path, but promoted scenario evidence is still missing. |
+| Audit and traceability | Partial | Audit records, employee trace views, certificate-type trace views, source-document trace views, certificate trace views, review-task trace views, reminder-task timeline trace views, dashboard risk-item trace views, bounded PII-safe audit payloads, UI-supplied operator context, and backend request ID propagation exist; still needs promoted scenario evidence. |
+| Frontend states | Partial | AntD/ProComponents empty/error/workflow states and stale review-action recovery are improved; dashboard risk trace has local real-data browser smoke coverage with a clean console, but recovery states across every page still need browser evidence. |
+| Import/export coverage | Partial | Employee/type/certificate/document/reminder/report exports, master-data imports, import templates, bad-row validation, certificate-type required policy import/export, and duplicate-key import errors for employee numbers and certificate type codes exist; local browser acceptance now covers employee/type duplicate-key import modals and employee/type CSV downloads; still needs promoted scenario evidence for the full export set. |
 | Local verification | Done | Keep backend lint, backend type check, backend tests, frontend lint, and frontend build green for every increment. |
-| Dev/release promotion | Evidence gap | Continue using GitHub Actions + GitOps only; each promoted increment needs Web/API and Celery/Redis smoke evidence. |
-| End-to-end HR scenario | Evidence gap | Record a promoted dev or release run covering employee/type setup, upload confirmation, Dify extraction, review approval, certificate replacement, reminder simulation, feedback closure, dashboard drill-down, audit trace, and export. |
+| Dev/release promotion | Evidence gap | Continue using GitHub Actions + GitOps only; each promoted increment needs Web/API and Celery/Redis smoke evidence. The release runbook now includes a read-only promoted HR scenario evidence collector, but it still needs to be run against dev/release after promotion. |
+| End-to-end HR scenario | Evidence gap | A read-only HTTP evidence collector now checks a completed promoted scenario for employee/type setup, upload confirmation, Dify extraction, review approval, certificate replacement, reminder timeline, feedback closure, dashboard/report drill-down, audit trace, and exports. The actual promoted dev/release evidence report is still missing. |
+
+## Local Evidence Notes
+
+- 2026-05-25: Local browser smoke on `http://127.0.0.1:8001/#/dashboard`
+  verified the dashboard expired-certificate risk row, the risk trace drawer,
+  associated certificate evidence, audit summary, and a clean warning/error
+  console. This does not replace the required promoted dev/release end-to-end
+  HR scenario evidence.
+- 2026-05-25: Local backend tests verified that employee and certificate-type
+  CSV imports keep valid rows while reporting invalid rows, and now also report
+  duplicate employee numbers or certificate type codes inside the same import
+  file as HR-readable row errors. This reduces import ambiguity but still needs
+  browser-level and promoted-environment acceptance evidence.
+- 2026-05-25: Local browser smoke verified employee and certificate-type CSV
+  imports from the UI. Duplicate employee numbers and duplicate certificate
+  type codes are shown in HR-facing result dialogs with row number, key, and
+  reason, and both employee and certificate-type export buttons downloaded
+  CSV files with the expected localized headers. The smoke ran with a clean
+  warning/error console after replacing deprecated AntD Alert `message` props
+  with `title`.
+- 2026-05-25: Local backend tests verified that review approval derives a
+  missing certificate `valid_to` from the selected certificate type's
+  `default_validity_months`, records the derivation in the review decision, and
+  allows the derived expiry date to generate reminder tasks through the normal
+  reminder scan. Explicit HR-entered `valid_to` still takes precedence.
+- 2026-06-06: Product code and database-backed integration coverage were added
+  for certificate type forms creating/updating a bound default reminder policy,
+  keeping policy identity on update, auditing policy create/update, and feeding
+  the normal reminder scan from the updated certificate-type policy. The current
+  local run has no `DATABASE_URL`, so DB-backed workflow tests were skipped;
+  backend lint/type, non-DB tests, frontend lint, and frontend build pass
+  locally. Promoted-environment acceptance evidence is still required.
+- 2026-06-06: Product code and local regression coverage were added for
+  certificate type required/optional policy. The field is in the database model,
+  migration, create/update/read schemas, certificate-type CSV import/export and
+  template, certificate-type UI form/table/trace, coverage report rows/export,
+  and dashboard "missing required certificate" risk item. Local tests verify
+  that optional certificate types do not create missing-employee risk while
+  required types do; backend lint/type/tests and frontend lint/build pass
+  locally. Browser and promoted-environment acceptance evidence are still
+  required.
+- 2026-06-06: The dashboard "missing required certificate" risk trace now
+  returns and renders concrete missing employee/certificate-type pairs with
+  employee number, employee name, department, certificate type code/name, and a
+  drill-down path back to the filtered employee list. Local dashboard regression
+  tests verify the trace payload; backend lint/type/tests and frontend
+  lint/build pass locally. Browser and promoted-environment acceptance evidence
+  are still required.
+- 2026-06-06: A read-only promoted scenario evidence collector was added at
+  `scripts/collect_hr_scenario_evidence.py`, with regression coverage in
+  `backend/tests/test_collect_hr_scenario_evidence.py`, a manual GitHub Actions
+  entrypoint in `.github/workflows/hr-scenario-evidence.yml`, and runbook
+  instructions in `docs/release-runbook.md`. It verifies health, dashboard/report
+  drill-down, CSV exports, certificate trace, source-document trace, review
+  trace, upload integrity metadata, normalized AI result, approved review,
+  replacement history, reminder timeline, feedback closure, and audit context
+  without seeding data or printing selector values. The collector is tooling
+  progress only; North Star evidence still requires running it against a
+  promoted dev or release scenario.
+- 2026-06-06: The read-only collector was run against
+  `http://10.34.200.180/hr-certflow-dev` without business selectors and wrote
+  ignored local artifacts under `.tmp/`. Current dev evidence is not sufficient:
+  API health passed, CSV exports passed, dashboard returned drill-down paths,
+  but report drill-down paths were absent, the `pending-reviews` risk trace
+  endpoint returned 404, and no formal certificate scenario anchor was found.
+  This confirms the promoted end-to-end HR scenario remains an evidence gap,
+  not a completed North Star item.
 
 ## Next Delivery Order
 

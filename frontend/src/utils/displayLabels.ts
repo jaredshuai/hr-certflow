@@ -75,6 +75,13 @@ const feedbackStatusLabels: Record<string, string> = {
   IGNORED: '已忽略',
 };
 
+export const reminderChannelOptions = [
+  { label: '邮件', value: 'email' },
+  { label: '企业微信', value: 'wecom' },
+  { label: '钉钉', value: 'dingtalk' },
+  { label: '飞书', value: 'feishu' },
+];
+
 const auditActionLabels: Record<string, string> = {
   'certificate_document.upload_intent.create': '创建证书文件上传任务',
   'certificate_document.upload.confirm': '确认证书文件上传',
@@ -85,6 +92,8 @@ const auditActionLabels: Record<string, string> = {
   'employee_certificate.update': '更新持证记录',
   'certificate_type.create': '创建证书类型',
   'certificate_type.update': '更新证书类型',
+  'certificate_type.default_reminder_policy.create': '创建证书类型默认提醒策略',
+  'certificate_type.default_reminder_policy.update': '更新证书类型默认提醒策略',
   'employee.create': '创建人员档案',
   'employee.update': '更新人员档案',
   'reminder_policy.create': '创建提醒策略',
@@ -172,6 +181,11 @@ export function feedbackStatusLabel(value: string | null | undefined): string {
   return labelFromMap(value, feedbackStatusLabels);
 }
 
+export function reminderChannelLabel(value: string | null | undefined): string {
+  if (!value) return '-';
+  return reminderChannelOptions.find((option) => option.value === value)?.label || value;
+}
+
 export function auditActionLabel(value: string | null | undefined): string {
   return labelFromMap(value, auditActionLabels);
 }
@@ -217,6 +231,11 @@ export const reminderStatusValueEnum: StatusValueEnum<ReminderTaskStatus> = {
 export const forceManualReviewValueEnum: StatusValueEnum<'true' | 'false'> = {
   true: { text: '是', status: 'Warning' },
   false: { text: '否', status: 'Success' },
+};
+
+export const certificateTypeRequiredValueEnum: StatusValueEnum<'true' | 'false'> = {
+  true: { text: '必备', status: 'Error' },
+  false: { text: '可选', status: 'Default' },
 };
 
 export const documentStatusValueEnum: StatusValueEnum<DocumentStatus> = {

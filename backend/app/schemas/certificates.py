@@ -3,11 +3,46 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.domain.enums import CertificateStatus, FeedbackStatus, ReminderTaskStatus, ReviewStatus
 from app.schemas.common import ORMModel
 from app.schemas.employees import EmployeeRead
+
+
+class CertificateTypeDefaultReminderPolicyUpsert(BaseModel):
+    name: str | None = Field(default=None, max_length=128)
+    days_before_expiry: list[int] = Field(default_factory=lambda: [60, 30, 7], min_length=1)
+    second_reminder_after_days: int = Field(default=7, ge=1)
+    escalation_after_days: int = Field(default=5, ge=1)
+    channels: list[str] = Field(default_factory=lambda: ["email"], min_length=1)
+    enabled: bool = True
+
+    @field_validator("days_before_expiry")
+    @classmethod
+    def validate_days_before_expiry(cls, value: list[int]) -> list[int]:
+        if any(days < 0 for days in value):
+            raise ValueError("days_before_expiry must contain non-negative integers")
+        return sorted(set(value), reverse=True)
+
+    @field_validator("channels")
+    @classmethod
+    def validate_channels(cls, value: list[str]) -> list[str]:
+        channels = [channel.strip() for channel in value if channel.strip()]
+        if not channels:
+            raise ValueError("channels must not be empty")
+        return list(dict.fromkeys(channels))
+
+
+class CertificateTypeDefaultReminderPolicyRead(BaseModel):
+    id: UUID
+    name: str
+    days_before_expiry: list[int]
+    second_reminder_after_days: int
+    escalation_after_days: int
+    channels: list[str]
+    enabled: bool
+    updated_at: datetime
 
 
 class CertificateTypeCreate(BaseModel):
@@ -15,16 +50,20 @@ class CertificateTypeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     issuing_authority: str | None = Field(default=None, max_length=255)
     default_validity_months: int | None = Field(default=None, ge=1)
+    is_required: bool = True
     force_manual_review: bool = True
     description: str | None = None
+    default_reminder_policy: CertificateTypeDefaultReminderPolicyUpsert | None = None
 
 
 class CertificateTypeUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     issuing_authority: str | None = Field(default=None, max_length=255)
     default_validity_months: int | None = Field(default=None, ge=1)
+    is_required: bool | None = None
     force_manual_review: bool | None = None
     description: str | None = None
+    default_reminder_policy: CertificateTypeDefaultReminderPolicyUpsert | None = None
 
 
 class CertificateTypeRead(ORMModel):
@@ -33,10 +72,12 @@ class CertificateTypeRead(ORMModel):
     name: str
     issuing_authority: str | None
     default_validity_months: int | None
+    is_required: bool
     force_manual_review: bool
     description: str | None
     created_at: datetime
     updated_at: datetime
+    default_reminder_policy: CertificateTypeDefaultReminderPolicyRead | None = None
 
 
 class CertificateTypePageRead(BaseModel):
@@ -174,6 +215,19 @@ class TraceAuditLogRead(BaseModel):
     created_at: datetime
 
 
+class TraceReminderPolicyRead(BaseModel):
+    id: UUID
+    certificate_type_id: UUID | None
+    name: str
+    days_before_expiry: list[int]
+    second_reminder_after_days: int
+    escalation_after_days: int
+    channels: list[str]
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+
 class TraceReviewTaskRead(BaseModel):
     id: UUID
     document_id: UUID
@@ -197,4 +251,12 @@ class EmployeeCertificateTraceRead(BaseModel):
     review_tasks: list[TraceReviewTaskRead]
     reminder_tasks: list[TraceReminderTaskRead]
     feedback_items: list[TraceFeedbackRead]
+    audit_logs: list[TraceAuditLogRead]
+
+
+class CertificateTypeTraceRead(BaseModel):
+    certificate_type: CertificateTypeRead
+    reminder_policies: list[TraceReminderPolicyRead]
+    certificates: list[EmployeeCertificateRead]
+    reminder_tasks: list[TraceReminderTaskRead]
     audit_logs: list[TraceAuditLogRead]

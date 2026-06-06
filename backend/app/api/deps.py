@@ -3,8 +3,13 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import unquote
 
 from fastapi import Header, Request
+
+REQUEST_CONTEXT_STATE_KEY = "request_context"
+REQUEST_ID_HEADER = "X-Request-ID"
+HR_ACTOR_HEADER = "X-HR-Actor"
 
 
 @dataclass(frozen=True)
@@ -44,15 +49,52 @@ def audit_ip_address(context: object | None) -> str | None:
     return normalized.ip_address if normalized else None
 
 
+def _clean_header(value: str | None) -> str | None:
+    cleaned = value.strip() if value else ""
+    return cleaned or None
+
+
+def _clean_actor_header(value: str | None) -> str | None:
+    cleaned = _clean_header(value)
+    if not cleaned:
+        return None
+    return _clean_header(unquote(cleaned))
+
+
+def _request_client_ip(request: Request) -> str | None:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        first_hop = forwarded_for.split(",")[0].strip()
+        if first_hop:
+            return first_hop
+    return request.client.host if request.client else None
+
+
+def build_request_context(
+    request: Request,
+    *,
+    x_hr_actor: str | None = None,
+    x_request_id: str | None = None,
+) -> RequestContext:
+    actor_name = _clean_actor_header(x_hr_actor if x_hr_actor is not None else request.headers.get(HR_ACTOR_HEADER))
+    request_id = _clean_header(x_request_id if x_request_id is not None else request.headers.get(REQUEST_ID_HEADER))
+    return RequestContext(
+        actor_name=actor_name,
+        request_id=request_id or str(uuid.uuid4()),
+        ip_address=_request_client_ip(request),
+    )
+
+
 def get_request_context(
     request: Request,
-    x_hr_actor: str | None = Header(default=None, alias="X-HR-Actor"),
-    x_request_id: str | None = Header(default=None, alias="X-Request-ID"),
+    x_hr_actor: str | None = Header(default=None, alias=HR_ACTOR_HEADER),
+    x_request_id: str | None = Header(default=None, alias=REQUEST_ID_HEADER),
 ) -> RequestContext:
-    actor_name = x_hr_actor.strip() if x_hr_actor else None
-    request_id = (x_request_id.strip() if x_request_id else None) or str(uuid.uuid4())
-    forwarded_for = request.headers.get("x-forwarded-for")
-    ip_address = forwarded_for.split(",")[0].strip() if forwarded_for else None
-    if not ip_address and request.client:
-        ip_address = request.client.host
-    return RequestContext(actor_name=actor_name or None, request_id=request_id, ip_address=ip_address)
+    state = getattr(request, "state", None)
+    existing = normalize_request_context(getattr(state, REQUEST_CONTEXT_STATE_KEY, None))
+    if existing:
+        return existing
+    context = build_request_context(request, x_hr_actor=x_hr_actor, x_request_id=x_request_id)
+    if state is not None:
+        setattr(state, REQUEST_CONTEXT_STATE_KEY, context)
+    return context

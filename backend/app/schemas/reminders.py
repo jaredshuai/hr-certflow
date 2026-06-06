@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from app.domain.enums import FeedbackStatus, ReminderEventType, ReminderTaskStatus
+from app.schemas.certificates import TraceAuditLogRead
 from app.schemas.common import ORMModel
 
 
@@ -167,3 +168,4 @@ class ReminderTaskTimelineRead(BaseModel):
     task: ReminderTaskRead
     events: list[ReminderEventRead]
     feedback_items: list[FeedbackRead]
+    audit_logs: list[TraceAuditLogRead] = Field(default_factory=list)

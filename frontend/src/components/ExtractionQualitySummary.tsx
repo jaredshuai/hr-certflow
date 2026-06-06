@@ -63,7 +63,7 @@ export function ExtractionQualitySummary({ output, compact = false }: Extraction
   }
 
   return (
-    <Space direction="vertical" size={compact ? 4 : 8} style={{ width: '100%' }}>
+    <Space orientation="vertical" size={compact ? 4 : 8} style={{ width: '100%' }}>
       <Space wrap size={[4, 4]}>
         <Tag color={quality.complete ? 'green' : 'gold'}>{quality.complete ? '字段完整' : '待补字段'}</Tag>
         {quality.missingLabels.map((label) => (

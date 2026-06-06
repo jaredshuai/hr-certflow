@@ -20,12 +20,17 @@ class CertificateCoverageDepartmentRow(BaseModel):
 class CertificateTypeRiskRow(BaseModel):
     certificate_type_id: str
     certificate_type_name: str
+    is_required: bool
     active_count: int
     expiring_count: int
     expired_count: int
     missing_employee_count: int
     risk_count: int
     target_path: str
+    active_target_path: str
+    expiring_target_path: str
+    expired_target_path: str
+    missing_employee_target_path: str
 
 
 class CertificateCoverageReportRead(BaseModel):

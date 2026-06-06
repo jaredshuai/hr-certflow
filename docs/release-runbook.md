@@ -146,6 +146,84 @@ Release smoke expects:
 
 `promote-existing-image.yml` is the normal release promotion and rollback entrypoint: it updates release values, waits for live Deployments to reach the requested tag, then runs HTTP and Celery/Redis smoke.
 
+## Promoted HR Scenario Evidence
+
+Web/API smoke and Celery/Redis smoke prove runtime health. They do not prove the
+complete HR business loop. After a dev promotion, and before claiming North Star
+delivery, collect non-secret evidence from a completed HR scenario in the
+promoted environment.
+
+Use an existing scenario that already contains:
+
+- employee and certificate type master data,
+- confirmed upload with file size, content type, and SHA256,
+- normalized Dify extraction result,
+- approved review task,
+- formal certificate linked to source document and AI result,
+- replacement history for the same employee and certificate type,
+- reminder task with event timeline,
+- feedback that resolves or closes the reminder,
+- dashboard/report drill-down paths,
+- audit records with actor and request context,
+- CSV export endpoints.
+
+The evidence collector is read-only. It calls `GET` endpoints only, does not
+upload files, does not seed records, and does not print selector values such as
+employee numbers, certificate type codes, or certificate numbers.
+
+Preferred GitHub Actions entrypoint:
+
+```bash
+gh workflow run hr-scenario-evidence.yml \
+  --repo jaredshuai/hr-certflow \
+  --ref main \
+  -f environment=dev \
+  -f certificate_id=<dev-smoke-certificate-id> \
+  -f document_id=<dev-smoke-document-id> \
+  -f review_task_id=<dev-smoke-review-task-id> \
+  -f reminder_task_id=<dev-smoke-reminder-task-id>
+```
+
+For release evidence, prefer UUID selectors over employee numbers or
+certificate numbers. Workflow inputs may be visible in GitHub run metadata, so
+do not use real personal data or sensitive certificate numbers as selectors if
+a UUID is available.
+
+Dev example:
+
+```bash
+uv run --project backend --extra dev python scripts/collect_hr_scenario_evidence.py \
+  --base-url http://10.34.200.180/hr-certflow-dev \
+  --employee-no <dev-smoke-employee-no> \
+  --certificate-type-code <dev-smoke-certificate-type-code> \
+  --certificate-no <dev-smoke-certificate-no> \
+  --output .tmp/hr-certflow-dev-scenario-evidence.json \
+  --markdown-output .tmp/hr-certflow-dev-scenario-evidence.md
+```
+
+Release example:
+
+```bash
+uv run --project backend --extra dev python scripts/collect_hr_scenario_evidence.py \
+  --base-url http://10.34.200.180/hr-certflow \
+  --certificate-id <controlled-release-certificate-id> \
+  --document-id <controlled-release-document-id> \
+  --review-task-id <controlled-release-review-task-id> \
+  --reminder-task-id <controlled-release-reminder-task-id> \
+  --output .tmp/hr-certflow-release-scenario-evidence.json \
+  --markdown-output .tmp/hr-certflow-release-scenario-evidence.md
+```
+
+Attach the Markdown summary to the promotion issue, PR, or release notes. Keep
+the JSON artifact in a non-public evidence location if it is needed for audit.
+Do not paste raw API responses, signed document URLs, personal data, certificate
+numbers, tokens, Redis URLs, kubeconfigs, or passwords into GitHub comments.
+
+If the collector returns a non-zero exit code, do not claim the full HR scenario
+as proven. The failed check names the missing product evidence, such as missing
+replacement history, missing feedback closure, missing trace linkage, or missing
+audit context.
+
 ## Rollback
 
 Rollback is a GitOps values promotion to the last known-good image tag.

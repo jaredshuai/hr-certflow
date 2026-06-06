@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 
 import { CurrentOperator } from '@/components/CurrentOperator';
 import { setMessageInstance } from '@/utils/messageApi';
-import { buildRequestId, getCurrentOperator } from '@/utils/operatorContext';
+import { buildRequestId, encodeOperatorHeader, getCurrentOperator } from '@/utils/operatorContext';
 
 const appTheme: ThemeConfig = {
   cssVar: true,
@@ -88,7 +88,7 @@ export const request: RequestConfig = {
       const headers = {
         ...(config.headers || {}),
         'X-Request-ID': buildRequestId(),
-        ...(operator ? { 'X-HR-Actor': operator } : {}),
+        ...(operator ? { 'X-HR-Actor': encodeOperatorHeader(operator) } : {}),
       };
       return { ...config, headers };
     },

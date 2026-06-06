@@ -84,6 +84,10 @@ def _certificate_statement(
         statement = statement.where(EmployeeCertificate.issuing_authority.ilike(f"%{issuing_authority.strip()}%"))
     if status_filter:
         statement = statement.where(EmployeeCertificate.status == status_filter)
+    elif status_group == "current":
+        statement = statement.where(
+            EmployeeCertificate.status.in_([CertificateStatus.ACTIVE, CertificateStatus.EXPIRING])
+        )
     elif status_group == "risk":
         statement = statement.where(
             EmployeeCertificate.status.in_([CertificateStatus.EXPIRING, CertificateStatus.EXPIRED])
@@ -434,6 +438,7 @@ def create_employee_certificate(
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
 ) -> EmployeeCertificate:
+    target_status = payload.status
     validate_certificate_dates(
         issue_date=payload.issue_date,
         valid_from=payload.valid_from,
@@ -445,9 +450,9 @@ def create_employee_certificate(
         certificate_type_id=payload.certificate_type_id,
         holder_name=payload.holder_name,
         certificate_no=payload.certificate_no,
+        require_active_employee=is_current_certificate_status(target_status),
     )
     now = datetime.now(UTC)
-    target_status = payload.status
     certificate_status = CertificateStatus.DRAFT if is_current_certificate_status(target_status) else target_status
     certificate = EmployeeCertificate(
         **payload.model_dump(exclude={"confirmed_by", "status"}),
@@ -493,6 +498,7 @@ def update_employee_certificate(
     valid_from = update_data.get("valid_from", certificate.valid_from)
     valid_to = update_data.get("valid_to", certificate.valid_to)
     validate_certificate_dates(issue_date=issue_date, valid_from=valid_from, valid_to=valid_to)
+    target_status = update_data.get("status", certificate.status)
     validate_certificate_business_rules(
         db,
         employee_id=update_data.get("employee_id", certificate.employee_id),
@@ -500,6 +506,7 @@ def update_employee_certificate(
         holder_name=update_data.get("holder_name", certificate.holder_name),
         certificate_no=update_data.get("certificate_no", certificate.certificate_no),
         exclude_certificate_id=certificate.id,
+        require_active_employee=is_current_certificate_status(target_status),
     )
 
     before = EmployeeCertificateRead.model_validate(certificate).model_dump(mode="json")

@@ -24,6 +24,7 @@ Thumbs.db
 
 data/
 uploads/
+.tmp/
 
 # Local agent/editor artifacts
 .ace-tool/

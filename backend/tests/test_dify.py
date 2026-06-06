@@ -88,3 +88,45 @@ def test_normalize_dify_outputs_removes_unclosed_think_and_drops_unexpected_scal
         "raw_text": '{"ocr": "允许作为原文摘要保留"}',
         "suspicious_points": [],
     }
+
+
+def test_normalize_dify_outputs_accepts_percentage_confidence_without_top_level_override() -> None:
+    output = normalize_dify_outputs(
+        {
+            "outputs": {
+                "holder_name": "赵六",
+                "confidence": "88%",
+            }
+        }
+    )
+
+    assert output["holder_name"] == "赵六"
+    assert output["confidence"] == 0.88
+
+
+def test_normalize_dify_outputs_bounds_oversized_fields_and_suspicious_point_pollution() -> None:
+    long_text = "证" * 800
+    output = normalize_dify_outputs(
+        {
+            "answer": {
+                "holder_name": long_text,
+                "raw_text": "原文" * 12000,
+                "suspicious_points": [
+                    "<think>hidden chain of thought</think>证书编号区域模糊",
+                    {"reason": "钢印不清晰" * 200},
+                    {"message": "钢印不清晰" * 200},
+                    {"url": "https://example.test/drop-me"},
+                ],
+                "malicious_url": "https://example.test/drop-me",
+                "replace_status": "ACTIVE",
+            }
+        }
+    )
+
+    assert set(output) == {"holder_name", "raw_text", "suspicious_points"}
+    assert output["holder_name"] == long_text[:512]
+    assert len(output["raw_text"]) == 20000
+    assert output["suspicious_points"] == [
+        "证书编号区域模糊",
+        ("钢印不清晰" * 200)[:512],
+    ]

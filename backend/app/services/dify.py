@@ -182,11 +182,16 @@ class DifyCertificateOutput(BaseModel):
     def clean_confidence(cls, value: Any) -> float | None:
         if value is None or value == "":
             return None
+        is_percentage = False
+        if isinstance(value, str):
+            text = value.strip()
+            is_percentage = text.endswith("%")
+            value = text[:-1].strip() if is_percentage else text
         try:
             confidence = float(value)
         except (TypeError, ValueError):
             return None
-        if isinstance(value, str) and value.strip().endswith("%"):
+        if is_percentage:
             confidence = confidence / 100
         elif confidence > 1 and confidence <= 100:
             confidence = confidence / 100

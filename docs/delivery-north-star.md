@@ -1,9 +1,9 @@
-# HR CertFlow Product North Star
+# HR CertFlow Complete Product North Star
 
 ## Document Status
 
-This document is the final product target for HR CertFlow. It is not a sprint
-plan, release note, MVP scope, demo scope, or description of the current
+This document is the final complete-product target for HR CertFlow. It is not a
+sprint plan, release note, MVP scope, demo scope, or description of the current
 implementation.
 
 All capabilities below are part of the final product contract. They may be
@@ -15,6 +15,10 @@ public backend API, scheduled job, GitHub Actions/GitOps workflow, or maintained
 runbook, the product has not reached the North Star. One-off scripts, manual
 database edits, local-only patches, and developer-only operating knowledge do
 not count as completed product capability.
+
+Any older wording in the repository that describes HR CertFlow as an MVP should
+be treated as historical scaffold context only. The target state for future
+product work is the complete HR operations product defined here.
 
 ## Purpose
 
@@ -46,6 +50,85 @@ as an engineering showcase. Completion requires all of the following:
   records rather than being frontend-only approximations.
 - Dev and release deployments continue to use the existing GitHub Actions and
   GitOps path with Web/API and Celery/Redis smoke checks.
+
+## Final Product Shape
+
+The North Star product is a complete HR operations application with four
+first-class surfaces:
+
+- HR web console: the primary Chinese UI for daily operators and HR leads,
+  covering master data, upload, review, certificate ledger, reminders,
+  dashboard, reports, exports, and trace views.
+- Backend business API: the FastAPI contract that enforces workflow state,
+  validation, replacement rules, reminder behavior, audit recording, and
+  reporting semantics independent of the frontend.
+- Scheduled and asynchronous workers: Celery jobs for recognition follow-up,
+  reminder scanning/dispatch simulation, retries, overdue handling, and
+  operational maintenance that should not depend on a browser staying open.
+- Delivery and operations layer: GitHub Actions, GitOps manifests, smoke
+  checks, runbooks, and non-secret evidence collection proving that the same
+  product loop works after promotion to dev or release.
+
+The final product is not considered complete if a capability only exists as a
+developer script, a local-only fixture, an ad hoc database mutation, or an
+implicit convention known only from chat history.
+
+## Role Workspaces
+
+Each target user must have a coherent product workspace, not isolated pages that
+only work when the user already knows the database model.
+
+### HR Operator Workspace
+
+The operator experience must make the next action obvious:
+
+- Maintain employees and certificate type policies.
+- Upload originals and see whether upload integrity has been confirmed.
+- Run or retry recognition and understand failed recognition states.
+- Review AI candidates against the source document.
+- Approve, reject, or request more information with clear validation feedback.
+- See the resulting formal certificate and any replaced certificate history.
+- Handle reminder tasks, record feedback, retry failed channels, and close work.
+
+### HR Lead Workspace
+
+The lead experience must explain operational risk:
+
+- See coverage, expiry, missing required certificates, backlog, stale reviews,
+  reminder pressure, and closure progress.
+- Drill from every number or chart to the exact employee, certificate type,
+  document, review, certificate, reminder, feedback, or audit records behind it.
+- Export management-facing data without using spreadsheets as the hidden source
+  of truth.
+
+### System Operator Workspace
+
+The operator experience must prove product health without exposing secrets:
+
+- Verify local gates, promoted Web/API smoke, and Celery/Redis smoke.
+- Collect non-secret end-to-end scenario evidence.
+- Use runbooks for promotion, rollback, upload/review workflow checks, reminder
+  operation checks, and known failure recovery.
+
+## Core Business Objects
+
+The final product must treat these objects as durable business entities with
+clear ownership and traceability:
+
+| Object | Source of truth | Completion requirement |
+| --- | --- | --- |
+| Employee | FastAPI/PostgreSQL | Searchable, importable/exportable, status-aware, and safe for certificate ownership decisions. |
+| Certificate type | FastAPI/PostgreSQL | Defines validity, required/optional policy, issuing authority, renewal rules, manual review, and reminder defaults. |
+| Source document | FastAPI/PostgreSQL plus object storage | Has upload intent, confirmed object metadata, hash/integrity data, recognition state, and trace linkage. |
+| AI extraction result | FastAPI/PostgreSQL | Stores normalized bounded Dify output, confidence/suspicion signals, failure reason, and immutable snapshot linkage. |
+| Review task | FastAPI/PostgreSQL | Represents the human decision gate before formal certificate creation, with stale-action and duplicate-task protection. |
+| Formal certificate | FastAPI/PostgreSQL | Immutable ledger record linked to employee, type, document, extraction, reviewer, replacement chain, and reminder outcomes. |
+| Reminder task/event | FastAPI/PostgreSQL plus Celery | Tracks policy-driven follow-up, channel outcomes, retries, feedback, escalation, closure, and idempotency. |
+| Dashboard/report row | FastAPI/PostgreSQL | Must be explainable by filtered source records, not frontend-only computed approximations. |
+| Audit log | FastAPI/PostgreSQL | Captures bounded material state changes with actor/request context and trace links. |
+
+If any of these objects can be created, changed, or made obsolete without a
+recoverable product path and audit trail, the product is below the North Star.
 
 ## Source Of Truth
 
@@ -96,6 +179,9 @@ The final product must support this full loop end to end:
 12. Audit trails connect every material state change to actor, request context,
     before/after summary, source document, AI result, reviewer, certificate,
     reminder, and feedback where applicable.
+
+This loop must work for a normal HR operator through the product, not by
+combining UI clicks with manual SQL, local scripts, or developer-only recovery.
 
 ## Product Modules
 
@@ -284,6 +370,26 @@ Delivery standard:
 - Heavy external-facing auth/RBAC is not required for an internal network
   deployment, though the product must not rely on freely forged actor data once
   real HR operations begin.
+
+## What Does Not Count As North Star Completion
+
+The following are useful engineering progress but do not count as final product
+completion by themselves:
+
+- Local lint/test/build passing without promoted dev or release evidence.
+- A page rendering correctly with seeded fixtures while the real API workflow is
+  missing or manually repaired.
+- AI extraction returning fields while upload confirmation, schema
+  normalization, review approval, and formal ledger linkage remain incomplete.
+- Dashboard totals without drill-down to the exact source records.
+- Reminder rows without dispatch/simulation, feedback, retry/escalation, and
+  closure behavior.
+- Audit rows that cannot explain actor, request context, before/after summary,
+  and source business linkage.
+- A successful GitHub Actions promotion that only proves Web/API health but not
+  the full HR scenario.
+- Documentation or runbooks that describe a manual workaround instead of a
+  product-supported recovery path.
 
 ## Final Completion Definition
 

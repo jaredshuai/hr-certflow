@@ -3,10 +3,19 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 
-from app.api.routes.certificate_types import build_certificate_types_csv, parse_certificate_type_import_csv
+from app.api.routes.certificate_types import (
+    build_certificate_type_import_template_csv,
+    build_certificate_types_csv,
+    parse_certificate_type_import_csv,
+)
 from app.api.routes.certificates import build_employee_certificates_csv
 from app.api.routes.documents import build_certificate_documents_csv
-from app.api.routes.employees import build_employees_csv, parse_employee_import_csv
+from app.api.routes.employees import (
+    _employee_statement,
+    build_employee_import_template_csv,
+    build_employees_csv,
+    parse_employee_import_csv,
+)
 from app.domain.enums import CertificateStatus, DocumentStatus, EmploymentStatus
 from app.models import CertificateDocument, CertificateType, Employee, EmployeeCertificate
 
@@ -98,6 +107,17 @@ def test_parse_employee_import_csv_accepts_export_headers_and_status_labels() ->
     assert payload.employment_status == EmploymentStatus.ACTIVE
 
 
+def test_employee_import_template_is_parseable() -> None:
+    rows, errors = parse_employee_import_csv(build_employee_import_template_csv().lstrip("\ufeff"))
+
+    assert errors == []
+    assert len(rows) == 1
+    _, payload = rows[0]
+    assert payload.employee_no == "E001"
+    assert payload.name == "张三"
+    assert payload.employment_status == EmploymentStatus.ACTIVE
+
+
 def test_parse_employee_import_csv_collects_row_errors_without_dropping_valid_rows() -> None:
     rows, errors = parse_employee_import_csv(
         "employee_no,name,employment_status,email\n"
@@ -112,12 +132,42 @@ def test_parse_employee_import_csv_collects_row_errors_without_dropping_valid_ro
     assert [(error.row_number, error.employee_no) for error in errors] == [(3, None), (4, "E005")]
 
 
+def test_parse_employee_import_csv_reports_duplicate_employee_numbers() -> None:
+    rows, errors = parse_employee_import_csv(
+        "工号,姓名,部门\n"
+        "E006,孙七,工程部\n"
+        "E006,孙七重复,维保部\n"
+    )
+
+    assert len(rows) == 1
+    assert rows[0][1].employee_no == "E006"
+    assert [(error.row_number, error.employee_no, error.message) for error in errors] == [
+        (3, "E006", "同一导入文件内工号重复，请保留一行后重试")
+    ]
+
+
+def test_employee_statement_supports_missing_certificate_type_drill_down() -> None:
+    certificate_type_id = uuid.uuid4()
+
+    statement = _employee_statement(
+        employment_status=EmploymentStatus.ACTIVE,
+        missing_certificate_type_id=certificate_type_id,
+    )
+
+    statement_text = str(statement)
+    assert "employee.employment_status" in statement_text
+    assert "employee.id NOT IN" in statement_text
+    assert "employee_certificate.certificate_type_id" in statement_text
+    assert "employee_certificate.status IN" in statement_text
+
+
 def test_build_certificate_types_csv_uses_importable_headers() -> None:
     certificate_type = CertificateType(
         code="SAFETY",
         name="安全员证",
         issuing_authority="住建局",
         default_validity_months=36,
+        is_required=True,
         force_manual_review=True,
         description="施工现场安全管理",
     )
@@ -125,14 +175,14 @@ def test_build_certificate_types_csv_uses_importable_headers() -> None:
     payload = build_certificate_types_csv([certificate_type])
 
     assert payload.startswith("\ufeff")
-    assert "编码,证书类型,发证机构,默认有效期(月),强制复核,说明" in payload
-    assert "SAFETY,安全员证,住建局,36,是,施工现场安全管理" in payload
+    assert "编码,证书类型,发证机构,默认有效期(月),是否必备,强制复核,说明" in payload
+    assert "SAFETY,安全员证,住建局,36,是,是,施工现场安全管理" in payload
 
 
 def test_parse_certificate_type_import_csv_accepts_chinese_headers() -> None:
     rows, errors = parse_certificate_type_import_csv(
-        "编码,证书类型,发证机构,默认有效期(月),强制复核,说明\n"
-        "ELEC,电工证,应急管理局,72,否,特种作业证\n"
+        "编码,证书类型,发证机构,默认有效期(月),是否必备,强制复核,说明\n"
+        "ELEC,电工证,应急管理局,72,可选,否,特种作业证\n"
     )
 
     assert errors == []
@@ -143,18 +193,47 @@ def test_parse_certificate_type_import_csv_accepts_chinese_headers() -> None:
     assert payload.name == "电工证"
     assert payload.issuing_authority == "应急管理局"
     assert payload.default_validity_months == 72
+    assert payload.is_required is False
     assert payload.force_manual_review is False
+
+
+def test_certificate_type_import_template_is_parseable() -> None:
+    rows, errors = parse_certificate_type_import_csv(build_certificate_type_import_template_csv().lstrip("\ufeff"))
+
+    assert errors == []
+    assert len(rows) == 1
+    _, payload = rows[0]
+    assert payload.code == "SAFETY"
+    assert payload.name == "安全员证"
+    assert payload.default_validity_months == 36
+    assert payload.is_required is True
+    assert payload.force_manual_review is True
 
 
 def test_parse_certificate_type_import_csv_collects_errors() -> None:
     rows, errors = parse_certificate_type_import_csv(
-        "code,name,default_validity_months,force_manual_review\n"
-        "WELD,焊工证,36,true\n"
+        "code,name,default_validity_months,is_required,force_manual_review\n"
+        "WELD,焊工证,36,true,true\n"
         ",缺编码,36,true\n"
-        "BAD,错误有效期,0,maybe\n"
+        "BAD,错误有效期,0,unknown,maybe\n"
     )
 
     assert len(rows) == 1
     assert rows[0][1].code == "WELD"
+    assert rows[0][1].is_required is True
     assert rows[0][1].force_manual_review is True
     assert [(error.row_number, error.code) for error in errors] == [(3, None), (4, "BAD")]
+
+
+def test_parse_certificate_type_import_csv_reports_duplicate_codes() -> None:
+    rows, errors = parse_certificate_type_import_csv(
+        "编码,证书类型,默认有效期(月)\n"
+        "FORK,叉车证,48\n"
+        "FORK,叉车证重复,60\n"
+    )
+
+    assert len(rows) == 1
+    assert rows[0][1].code == "FORK"
+    assert [(error.row_number, error.code, error.message) for error in errors] == [
+        (3, "FORK", "同一导入文件内编码重复，请保留一行后重试")
+    ]

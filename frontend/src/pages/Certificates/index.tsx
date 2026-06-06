@@ -35,7 +35,7 @@ import {
 } from '@/utils/displayLabels';
 import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
-import { certificateTypeSelectRequest, employeeSelectRequest } from '@/utils/formOptions';
+import { certificateTypeSelectRequest, employeeOptionLabel, employeeSelectOption, employeeSelectRequest } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
 
 interface CertificateFormValues {
@@ -102,7 +102,7 @@ export default function CertificatesPage() {
   }, []);
 
   const employeeNameById = useMemo(
-    () => new Map(employees.map((employee) => [employee.id, `${employee.name}（${employee.employee_no}）`])),
+    () => new Map(employees.map((employee) => [employee.id, employeeOptionLabel(employee)])),
     [employees],
   );
   const certificateTypeNameById = useMemo(
@@ -198,10 +198,7 @@ export default function CertificatesPage() {
       valueType: 'select',
       fieldProps: {
         showSearch: true,
-        options: employees.map((employee) => ({
-          label: `${employee.name}（${employee.employee_no}）`,
-          value: employee.id,
-        })),
+        options: employees.map(employeeSelectOption),
       },
     },
     {
@@ -374,12 +371,12 @@ export default function CertificatesPage() {
         title="持证记录全链路追溯"
         open={traceOpen}
         onClose={() => setTraceOpen(false)}
-        width={840}
+        size={840}
         loading={traceLoading}
       >
         {currentTrace ? (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <ProCard title="正式持证记录" bordered>
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
+            <ProCard title="正式持证记录">
               <Descriptions column={2} size="small">
                 <Descriptions.Item label="持证人">{currentTrace.certificate.holder_name}</Descriptions.Item>
                 <Descriptions.Item label="证书编号">
@@ -398,7 +395,7 @@ export default function CertificatesPage() {
               </Descriptions>
             </ProCard>
 
-            <ProCard title="人员与证书类型" bordered>
+            <ProCard title="人员与证书类型">
               <Descriptions column={2} size="small">
                 <Descriptions.Item label="员工">
                   {currentTrace.employee
@@ -417,7 +414,7 @@ export default function CertificatesPage() {
               </Descriptions>
             </ProCard>
 
-            <ProCard title="源文件与 AI 识别" bordered>
+            <ProCard title="源文件与 AI 识别">
               {currentTrace.source_document ? (
                 <Descriptions column={1} size="small">
                   <Descriptions.Item label="文件名">
@@ -449,7 +446,7 @@ export default function CertificatesPage() {
               />
             </ProCard>
 
-            <ProCard title="复核、提醒与反馈" bordered>
+            <ProCard title="复核、提醒与反馈">
               <Collapse
                 items={[
                   {
@@ -459,7 +456,7 @@ export default function CertificatesPage() {
                       currentTrace.review_tasks.length > 0 ? (
                         <Timeline
                           items={currentTrace.review_tasks.map((task) => ({
-                            children: `${reviewStatusLabel(task.status)} / ${task.reviewed_by || '未复核'} / ${
+                            content: `${reviewStatusLabel(task.status)} / ${task.reviewed_by || '未复核'} / ${
                               task.reviewed_at || task.created_at
                             }`,
                           }))}
@@ -475,7 +472,7 @@ export default function CertificatesPage() {
                       currentTrace.reminder_tasks.length > 0 ? (
                         <Timeline
                           items={currentTrace.reminder_tasks.map((task) => ({
-                            children: `${reminderStatusLabel(task.status)} / 触发 ${task.trigger_date} / 截止 ${
+                            content: `${reminderStatusLabel(task.status)} / 触发 ${task.trigger_date} / 截止 ${
                               task.due_date || '-'
                             }`,
                           }))}
@@ -491,7 +488,7 @@ export default function CertificatesPage() {
                       currentTrace.feedback_items.length > 0 ? (
                         <Timeline
                           items={currentTrace.feedback_items.map((feedback) => ({
-                            children: `${feedbackStatusLabel(feedback.status)} / ${feedback.created_by} / ${
+                            content: `${feedbackStatusLabel(feedback.status)} / ${feedback.created_by} / ${
                               feedback.content || '-'
                             }`,
                           }))}
@@ -504,11 +501,11 @@ export default function CertificatesPage() {
               />
             </ProCard>
 
-            <ProCard title="审计摘要" bordered>
+            <ProCard title="审计摘要">
               {currentTrace.audit_logs.length > 0 ? (
                 <Timeline
                   items={currentTrace.audit_logs.map((log) => ({
-                    children: `${log.created_at} / ${auditActionLabel(log.action)} / ${auditResourceTypeLabel(
+                    content: `${log.created_at} / ${auditActionLabel(log.action)} / ${auditResourceTypeLabel(
                       log.resource_type,
                     )} / ${log.actor_name || '-'}`,
                   }))}

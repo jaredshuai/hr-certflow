@@ -1,13 +1,29 @@
 import { AlertOutlined, AuditOutlined, CheckCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { Column, Pie } from '@ant-design/charts';
 import { PageContainer, ProCard, ProTable, StatisticCard } from '@ant-design/pro-components';
-import { Alert, Button, Empty, Space, Steps, Typography } from 'antd';
+import { Alert, Button, Descriptions, Drawer, Empty, Space, Steps, Timeline, Typography } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 
 import { history, request } from '@umijs/max';
 
-import type { DashboardRiskRow, DashboardSummary } from '@/types/domain';
+import { getResource } from '@/services/api';
+import type {
+  DashboardChartRow,
+  DashboardMissingRequiredItem,
+  DashboardRiskRow,
+  DashboardRiskTrace,
+  DashboardSummary,
+} from '@/types/domain';
+import {
+  auditActionLabel,
+  auditResourceTypeLabel,
+  certificateStatusLabel,
+  documentStatusLabel,
+  reminderStatusLabel,
+  reviewStatusLabel,
+} from '@/utils/displayLabels';
 import { emptyTableText } from '@/utils/emptyStates';
+import { message } from '@/utils/messageApi';
 
 const emptyDashboardSummary: DashboardSummary = {
   expiring_count: 0,
@@ -38,6 +54,9 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary>(emptyDashboardSummary);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
+  const [riskTraceOpen, setRiskTraceOpen] = useState(false);
+  const [riskTraceLoading, setRiskTraceLoading] = useState(false);
+  const [currentRiskTrace, setCurrentRiskTrace] = useState<DashboardRiskTrace>();
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +113,20 @@ export default function DashboardPage() {
     if (targetPath) navigateTo(targetPath);
   }
 
+  async function openRiskTrace(record: DashboardRiskRow) {
+    setRiskTraceOpen(true);
+    setRiskTraceLoading(true);
+    setCurrentRiskTrace(undefined);
+    try {
+      const trace = await getResource<DashboardRiskTrace>(`/dashboard/risk-items/${record.id}/trace`);
+      setCurrentRiskTrace(trace);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '风险项追溯加载失败');
+    } finally {
+      setRiskTraceLoading(false);
+    }
+  }
+
   return (
     <PageContainer title="工作台">
       {loadError ? <Alert title="工作台数据加载失败" description={loadError} type="error" showIcon style={{ marginBottom: 16 }} /> : null}
@@ -132,7 +165,7 @@ export default function DashboardPage() {
         />
         <StatisticCard
           loading={loading}
-          onClick={() => navigateTo('/certificates?status=ACTIVE')}
+          onClick={() => navigateTo('/reports')}
           style={{ cursor: 'pointer' }}
           statistic={{
             title: '覆盖率',
@@ -206,7 +239,7 @@ export default function DashboardPage() {
               items={metrics.pipelineSteps.map((step) => ({
                 title: step.title,
                 description: (
-                  <Space direction="vertical" size={4}>
+                  <Space orientation="vertical" size={4}>
                     <span>{step.description}</span>
                     <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigateTo(step.target_path)}>
                       查看明细
@@ -245,16 +278,184 @@ export default function DashboardPage() {
             {
               title: '追溯',
               valueType: 'option',
-              width: 100,
+              width: 170,
               render: (_, record) => (
-                <Button type="link" size="small" onClick={() => navigateTo(record.target_path)}>
-                  查看明细
-                </Button>
+                <Space>
+                  <Button type="link" size="small" onClick={() => openRiskTrace(record)}>
+                    追溯
+                  </Button>
+                  <Button type="link" size="small" onClick={() => navigateTo(record.target_path)}>
+                    明细
+                  </Button>
+                </Space>
               ),
             },
           ]}
         />
       </ProCard>
+
+      <Drawer
+        title="风险项追溯"
+        open={riskTraceOpen}
+        onClose={() => setRiskTraceOpen(false)}
+        size={840}
+        loading={riskTraceLoading}
+      >
+        {currentRiskTrace ? (
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
+            <ProCard title="风险摘要">
+              <Descriptions column={2} size="small">
+                <Descriptions.Item label="指标">{currentRiskTrace.risk.metric}</Descriptions.Item>
+                <Descriptions.Item label="数量">{currentRiskTrace.risk.count}</Descriptions.Item>
+                <Descriptions.Item label="状态">{currentRiskTrace.risk.status}</Descriptions.Item>
+                <Descriptions.Item label="完整列表">
+                  <Button type="link" size="small" onClick={() => navigateTo(currentRiskTrace.risk.target_path)}>
+                    打开筛选结果
+                  </Button>
+                </Descriptions.Item>
+              </Descriptions>
+            </ProCard>
+
+            <ProCard title={`缺失必备证书（${currentRiskTrace.missing_required_items.length}）`}>
+              {currentRiskTrace.missing_required_items.length > 0 ? (
+                <ProTable<DashboardMissingRequiredItem>
+                  rowKey={(record) => `${record.employee_id}-${record.certificate_type_id}`}
+                  search={false}
+                  options={false}
+                  pagination={{ pageSize: 10, hideOnSinglePage: true }}
+                  dataSource={currentRiskTrace.missing_required_items}
+                  columns={[
+                    { title: '工号', dataIndex: 'employee_no', width: 100 },
+                    { title: '姓名', dataIndex: 'employee_name', width: 100 },
+                    { title: '部门', dataIndex: 'department', width: 120 },
+                    {
+                      title: '缺失证书',
+                      dataIndex: 'certificate_type_name',
+                      renderText: (_, record) => `${record.certificate_type_name}（${record.certificate_type_code}）`,
+                    },
+                    {
+                      title: '操作',
+                      valueType: 'option',
+                      width: 100,
+                      render: (_, record) => (
+                        <Button type="link" size="small" onClick={() => navigateTo(record.target_path)}>
+                          查看员工
+                        </Button>
+                      ),
+                    },
+                  ]}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无缺失必备证书明细" />
+              )}
+            </ProCard>
+
+            <ProCard title={`关联证书（${currentRiskTrace.certificates.length}）`}>
+              {currentRiskTrace.certificates.length > 0 ? (
+                <Timeline
+                  items={currentRiskTrace.certificates.map((certificate) => ({
+                    color: certificate.status === 'EXPIRED' ? 'red' : 'blue',
+                    content: (
+                      <Space orientation="vertical" size={4}>
+                        <Typography.Text strong>
+                          {certificate.holder_name} / {certificate.certificate_no || '-'} /{' '}
+                          {certificateStatusLabel(certificate.status)}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          到期：{certificate.valid_to || '-'} / 确认：{certificate.confirmed_by || '-'}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无关联证书" />
+              )}
+            </ProCard>
+
+            <ProCard title={`关联文件（${currentRiskTrace.documents.length}）`}>
+              {currentRiskTrace.documents.length > 0 ? (
+                <Timeline
+                  items={currentRiskTrace.documents.map((document) => ({
+                    color: document.status === 'FAILED' ? 'red' : 'blue',
+                    content: (
+                      <Space orientation="vertical" size={4}>
+                        <Typography.Text strong>
+                          {document.original_filename} / {documentStatusLabel(document.status)}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          SHA256：{document.sha256 || '-'} / 失败原因：{document.failure_reason || '-'}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无关联文件" />
+              )}
+            </ProCard>
+
+            <ProCard title={`复核任务（${currentRiskTrace.review_tasks.length}）`}>
+              {currentRiskTrace.review_tasks.length > 0 ? (
+                <Timeline
+                  items={currentRiskTrace.review_tasks.map((task) => ({
+                    color: task.status === 'NEEDS_INFO' ? 'orange' : 'blue',
+                    content: (
+                      <Space orientation="vertical" size={4}>
+                        <Typography.Text strong>
+                          {reviewStatusLabel(task.status)} / {task.document_original_filename || task.document_id}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          更新：{task.updated_at} / 复核人：{task.reviewed_by || '-'}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无关联复核任务" />
+              )}
+            </ProCard>
+
+            <ProCard title={`提醒任务（${currentRiskTrace.reminder_tasks.length}）`}>
+              {currentRiskTrace.reminder_tasks.length > 0 ? (
+                <Timeline
+                  items={currentRiskTrace.reminder_tasks.map((task) => ({
+                    color: task.status === 'ESCALATED' ? 'red' : 'orange',
+                    content: (
+                      <Space orientation="vertical" size={4}>
+                        <Typography.Text strong>{reminderStatusLabel(task.status)}</Typography.Text>
+                        <Typography.Text type="secondary">
+                          触发：{task.trigger_date} / 截止：{task.due_date || '-'} / 关闭原因：
+                          {task.closed_reason || '-'}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无关联提醒任务" />
+              )}
+            </ProCard>
+
+            <ProCard title={`审计摘要（${currentRiskTrace.audit_logs.length}）`}>
+              {currentRiskTrace.audit_logs.length > 0 ? (
+                <Timeline
+                  items={currentRiskTrace.audit_logs.map((log) => ({
+                    content: `${log.created_at} / ${auditActionLabel(log.action)} / ${auditResourceTypeLabel(
+                      log.resource_type,
+                    )} / ${log.actor_name || '-'} / 请求 ${log.request_id || '-'}`,
+                  }))}
+                />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无关联审计记录" />
+              )}
+            </ProCard>
+          </Space>
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请选择风险项查看追溯链路" />
+        )}
+      </Drawer>
     </PageContainer>
   );
 }

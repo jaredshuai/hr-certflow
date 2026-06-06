@@ -21,6 +21,7 @@ import type {
   ReviewTask,
   UploadIntent,
 } from '@/types/domain';
+import { apiErrorMessage, isReviewStaleActionError, reviewStaleActionMessage } from '@/utils/apiErrors';
 import { documentStatusLabel } from '@/utils/displayLabels';
 import { certificateTypeSelectRequest, employeeSelectRequest } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
@@ -279,7 +280,16 @@ export default function UploadRecognitionPage() {
       setReviewTaskUpdatedAt(undefined);
       message.success('已生成正式持证记录');
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '确认失败');
+      if (isReviewStaleActionError(error)) {
+        const description = reviewStaleActionMessage(error);
+        setErrorMessage(`${description} 系统已重新获取当前待复核任务，请确认字段后再提交。`);
+        if (documentId) {
+          await findPendingReviewTask(documentId);
+        }
+        message.warning(description);
+      } else {
+        message.error(apiErrorMessage(error, '确认失败'));
+      }
     } finally {
       setApproving(false);
     }
@@ -463,7 +473,11 @@ export default function UploadRecognitionPage() {
             <ProFormText name="issuing_authority" label="发证机构" />
             <ProFormDatePicker name="issue_date" label="发证日期" />
             <ProFormDatePicker name="valid_from" label="有效开始" />
-            <ProFormDatePicker name="valid_to" label="有效截止" />
+            <ProFormDatePicker
+              name="valid_to"
+              label="有效截止"
+              tooltip="留空时，系统会按证书类型默认有效期和有效开始/发证日期自动计算"
+            />
             <ProFormDatePicker name="review_date" label="复审日期" />
             <ProFormText name="reviewed_by" label="复核人" rules={[{ required: true, message: '请输入复核人' }]} />
             <ProFormText name="notes" label="复核备注" />

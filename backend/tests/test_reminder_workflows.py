@@ -12,6 +12,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.api.routes.certificate_types import create_certificate_type, update_certificate_type
 from app.api.routes.reminders import (
     build_reminder_tasks_csv,
     create_feedback,
@@ -27,6 +28,7 @@ from app.db.session import SessionLocal, engine
 from app.domain.enums import (
     CertificateStatus,
     DocumentStatus,
+    EmploymentStatus,
     FeedbackStatus,
     ReminderEventType,
     ReminderTaskStatus,
@@ -45,11 +47,16 @@ from app.models import (
     ReminderTask,
     ReviewTask,
 )
+from app.schemas.certificates import (
+    CertificateTypeCreate,
+    CertificateTypeDefaultReminderPolicyUpsert,
+    CertificateTypeUpdate,
+)
 from app.schemas.documents import ReviewApproveCreate
 from app.schemas.reminders import FeedbackCreate, ReminderDispatchCreate, ReminderPolicyCreate, ReminderPolicyUpdate
 from app.services.certificates import replace_active_certificates
 from app.services.notifications import NotificationMessage, NotificationRouter
-from app.services.reminder_service import dispatch_due_reminder_notifications
+from app.services.reminder_service import dispatch_due_reminder_notifications, scan_and_create_reminder_tasks
 
 
 @pytest.fixture()
@@ -433,7 +440,43 @@ def test_reminder_timeline_returns_events_and_feedback(db_session: Session) -> N
         content="员工正在办理续证",
         created_by="Alice HR",
     )
-    db_session.add_all([event, feedback])
+    task_audit = AuditLog(
+        action="reminder_task.feedback.create",
+        resource_type="reminder_task",
+        resource_id=str(task.id),
+        actor_name="Alice HR",
+        request_id="req-reminder-task",
+        ip_address="127.0.0.1",
+        created_at=now + timedelta(seconds=3),
+    )
+    certificate_audit = AuditLog(
+        action="employee_certificate.update",
+        resource_type="employee_certificate",
+        resource_id=str(task.employee_certificate_id),
+        actor_name="Bob HR",
+        request_id="req-certificate",
+        ip_address="127.0.0.1",
+        created_at=now + timedelta(seconds=2),
+    )
+    policy_audit = AuditLog(
+        action="reminder_policy.update",
+        resource_type="reminder_policy",
+        resource_id=str(task.policy_id),
+        actor_name="Carol HR",
+        request_id="req-policy",
+        ip_address="127.0.0.1",
+        created_at=now + timedelta(seconds=1),
+    )
+    unrelated_audit = AuditLog(
+        action="employee.update",
+        resource_type="employee",
+        resource_id=str(uuid.uuid4()),
+        actor_name="Mallory",
+        request_id="req-unrelated",
+        ip_address="127.0.0.1",
+        created_at=now + timedelta(seconds=4),
+    )
+    db_session.add_all([event, feedback, task_audit, certificate_audit, policy_audit, unrelated_audit])
     db_session.flush()
 
     timeline = get_task_timeline(task.id, db_session)
@@ -449,6 +492,13 @@ def test_reminder_timeline_returns_events_and_feedback(db_session: Session) -> N
     assert timeline.events[0].payload == {"status": "sent", "simulate": True}
     assert len(timeline.feedback_items) == 1
     assert timeline.feedback_items[0].status == FeedbackStatus.PROCESSING
+    assert [log.action for log in timeline.audit_logs] == [
+        "reminder_task.feedback.create",
+        "employee_certificate.update",
+        "reminder_policy.update",
+    ]
+    assert timeline.audit_logs[0].actor_name == "Alice HR"
+    assert timeline.audit_logs[0].request_id == "req-reminder-task"
 
 
 def test_reminder_task_page_filters_and_returns_readable_labels(db_session: Session) -> None:
@@ -556,6 +606,90 @@ def test_hr_can_create_and_update_reminder_policy(db_session: Session) -> None:
     assert audit_actions == ["reminder_policy.create", "reminder_policy.update"]
 
 
+def test_certificate_type_default_reminder_policy_feeds_scan(
+    db_session: Session,
+) -> None:
+    employee = Employee(employee_no="E900", name="默认策略员工")
+    db_session.add(employee)
+    db_session.flush()
+
+    certificate_type = create_certificate_type(
+        CertificateTypeCreate(
+            code="DEFAULT-POLICY",
+            name="默认提醒证书",
+            default_validity_months=12,
+            default_reminder_policy=CertificateTypeDefaultReminderPolicyUpsert(
+                name="默认提醒证书初始策略",
+                days_before_expiry=[60, 30, 30],
+                second_reminder_after_days=4,
+                escalation_after_days=2,
+                channels=["email", "wecom", "email"],
+                enabled=True,
+            ),
+        ),
+        db_session,
+    )
+
+    assert certificate_type.default_reminder_policy is not None
+    assert certificate_type.default_reminder_policy.name == "默认提醒证书初始策略"
+    assert certificate_type.default_reminder_policy.days_before_expiry == [60, 30]
+    assert certificate_type.default_reminder_policy.channels == ["email", "wecom"]
+
+    updated = update_certificate_type(
+        certificate_type.id,
+        CertificateTypeUpdate(
+            name="默认提醒证书",
+            default_reminder_policy=CertificateTypeDefaultReminderPolicyUpsert(
+                name="默认提醒证书正式策略",
+                days_before_expiry=[45],
+                second_reminder_after_days=5,
+                escalation_after_days=3,
+                channels=["dingtalk"],
+                enabled=True,
+            ),
+        ),
+        db_session,
+    )
+
+    assert updated.default_reminder_policy is not None
+    assert updated.default_reminder_policy.id == certificate_type.default_reminder_policy.id
+    assert updated.default_reminder_policy.name == "默认提醒证书正式策略"
+    assert updated.default_reminder_policy.days_before_expiry == [45]
+    assert updated.default_reminder_policy.channels == ["dingtalk"]
+
+    certificate = EmployeeCertificate(
+        employee_id=employee.id,
+        certificate_type_id=certificate_type.id,
+        holder_name=employee.name,
+        status=CertificateStatus.ACTIVE,
+        valid_to=date(2026, 8, 15),
+    )
+    db_session.add(certificate)
+    db_session.flush()
+
+    created_count = scan_and_create_reminder_tasks(db_session, today=date(2026, 7, 1))
+    db_session.flush()
+    task = db_session.scalar(select(ReminderTask).where(ReminderTask.employee_certificate_id == certificate.id))
+
+    assert created_count == 1
+    assert task is not None
+    assert task.policy_id == updated.default_reminder_policy.id
+    assert task.trigger_date == date(2026, 7, 1)
+    assert task.due_date == date(2026, 7, 6)
+
+    audit_actions = list(
+        db_session.scalars(
+            select(AuditLog.action)
+            .where(AuditLog.resource_id == str(updated.default_reminder_policy.id))
+            .order_by(AuditLog.created_at.asc())
+        ).all()
+    )
+    assert audit_actions == [
+        "certificate_type.default_reminder_policy.create",
+        "certificate_type.default_reminder_policy.update",
+    ]
+
+
 def test_reminder_policy_rejects_missing_certificate_type(db_session: Session) -> None:
     with pytest.raises(HTTPException) as exc_info:
         create_policy(
@@ -645,6 +779,107 @@ def test_review_approval_creates_active_certificate_and_replaces_old_one(db_sess
     assert reminder_task.closed_reason == "certificate_replaced"
 
 
+def test_review_approval_derives_valid_to_from_certificate_type_default(
+    db_session: Session,
+) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    certificate_type.default_validity_months = 12
+    policy = ReminderPolicy(
+        certificate_type_id=certificate_type.id,
+        name="证书类型默认提醒",
+        days_before_expiry=[30],
+        channels=["email"],
+    )
+    document = CertificateDocument(
+        employee_id=employee.id,
+        status=DocumentStatus.PENDING_REVIEW,
+        storage_bucket="jxccs-shared-infra-oss-cn-hangzhou",
+        storage_key="hr-certflow/dev/certificates/default-validity.pdf",
+        original_filename="default-validity.pdf",
+    )
+    db_session.add_all([policy, document])
+    db_session.flush()
+    review_task = ReviewTask(document_id=document.id, status=ReviewStatus.PENDING)
+    db_session.add(review_task)
+    db_session.flush()
+
+    decision = approve_review_task(
+        review_task.id,
+        ReviewApproveCreate(
+            employee_id=employee.id,
+            certificate_type_id=certificate_type.id,
+            certificate_no="CERT-DEFAULT-VALIDITY",
+            holder_name=employee.name,
+            issue_date=date(2026, 5, 20),
+            reviewed_by="Alice HR",
+            expected_updated_at=review_task.updated_at,
+        ),
+        db_session,
+    )
+
+    assert decision.certificate is not None
+    assert decision.certificate.valid_to == date(2027, 5, 20)
+    assert review_task.decision_payload is not None
+    assert review_task.decision_payload["valid_to_derivation"] == {
+        "source": "certificate_type.default_validity_months",
+        "base_field": "issue_date",
+        "base_date": "2026-05-20",
+        "months": 12,
+        "valid_to": "2027-05-20",
+    }
+
+    created = scan_and_create_reminder_tasks(db_session, today=date(2027, 4, 20))
+    db_session.flush()
+    reminder_task = db_session.scalar(
+        select(ReminderTask).where(ReminderTask.employee_certificate_id == decision.certificate.id)
+    )
+
+    assert created == 1
+    assert reminder_task is not None
+    assert reminder_task.policy_id == policy.id
+    assert reminder_task.trigger_date == date(2027, 4, 20)
+    assert reminder_task.status == ReminderTaskStatus.PENDING
+
+
+def test_review_approval_keeps_explicit_valid_to_over_certificate_type_default(
+    db_session: Session,
+) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    certificate_type.default_validity_months = 12
+    document = CertificateDocument(
+        employee_id=employee.id,
+        status=DocumentStatus.PENDING_REVIEW,
+        storage_bucket="jxccs-shared-infra-oss-cn-hangzhou",
+        storage_key="hr-certflow/dev/certificates/explicit-validity.pdf",
+        original_filename="explicit-validity.pdf",
+    )
+    db_session.add(document)
+    db_session.flush()
+    review_task = ReviewTask(document_id=document.id, status=ReviewStatus.PENDING)
+    db_session.add(review_task)
+    db_session.flush()
+
+    decision = approve_review_task(
+        review_task.id,
+        ReviewApproveCreate(
+            employee_id=employee.id,
+            certificate_type_id=certificate_type.id,
+            certificate_no="CERT-EXPLICIT-VALIDITY",
+            holder_name=employee.name,
+            issue_date=date(2026, 5, 20),
+            valid_to=date(2026, 8, 1),
+            reviewed_by="Alice HR",
+            expected_updated_at=review_task.updated_at,
+        ),
+        db_session,
+    )
+
+    assert decision.certificate is not None
+    assert decision.certificate.valid_to == date(2026, 8, 1)
+    assert review_task.decision_payload is not None
+    assert "valid_to_derivation" not in review_task.decision_payload
+
+
 def test_review_approval_rejects_holder_name_mismatch(db_session: Session) -> None:
     employee, certificate_type = _create_master_data(db_session)
     document = CertificateDocument(
@@ -716,6 +951,40 @@ def test_review_approval_rejects_duplicate_certificate_number(db_session: Sessio
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == "certificate_no already exists for this employee and type"
+
+
+def test_review_approval_rejects_left_employee_for_current_certificate(db_session: Session) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    employee.employment_status = EmploymentStatus.LEFT
+    document = CertificateDocument(
+        employee_id=employee.id,
+        status=DocumentStatus.PENDING_REVIEW,
+        storage_bucket="jxccs-shared-infra-oss-cn-hangzhou",
+        storage_key="hr-certflow/dev/certificates/left-employee.pdf",
+        original_filename="left-employee.pdf",
+    )
+    db_session.add(document)
+    db_session.flush()
+    review_task = ReviewTask(document_id=document.id, status=ReviewStatus.PENDING)
+    db_session.add(review_task)
+    db_session.flush()
+
+    with pytest.raises(HTTPException) as exc_info:
+        approve_review_task(
+            review_task.id,
+            ReviewApproveCreate(
+                employee_id=employee.id,
+                certificate_type_id=certificate_type.id,
+                certificate_no="CERT-LEFT",
+                holder_name=employee.name,
+                reviewed_by="Alice HR",
+                expected_updated_at=review_task.updated_at,
+            ),
+            db_session,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Cannot create current certificate for employee who has left"
 
 
 def test_review_approval_requires_pending_review_document(db_session: Session) -> None:

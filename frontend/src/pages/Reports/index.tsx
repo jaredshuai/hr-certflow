@@ -1,7 +1,7 @@
 import { Column, Pie } from '@ant-design/charts';
 import { PageContainer, ProCard, ProTable, StatisticCard, type ProColumns } from '@ant-design/pro-components';
 import { Alert, Button, Empty } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { history } from '@umijs/max';
 
@@ -14,6 +14,7 @@ import type {
 } from '@/types/domain';
 import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
+import { certificateTypeRequiredValueEnum } from '@/utils/displayLabels';
 import { message } from '@/utils/messageApi';
 
 const emptyReport: CertificateCoverageReport = {
@@ -38,6 +39,12 @@ function chartTargetPath<T extends { target_path?: string }>(event: unknown): st
   const datum = chartEvent.data?.data ?? chartEvent.data?.datum;
   return typeof datum?.target_path === 'string' ? datum.target_path : undefined;
 }
+
+type CertificateRiskBreakdownRow = {
+  category: string;
+  count: number;
+  target_path: string;
+};
 
 export default function ReportsPage() {
   const [report, setReport] = useState<CertificateCoverageReport>(emptyReport);
@@ -89,12 +96,87 @@ export default function ReportsPage() {
     if (targetPath) history.push(targetPath);
   }
 
+  const certificateRiskBreakdownRows = useMemo<CertificateRiskBreakdownRow[]>(
+    () =>
+      report.certificate_type_risk_rows.flatMap((row) => [
+        {
+          category: `${row.certificate_type_name} / 即将到期`,
+          count: row.expiring_count,
+          target_path: row.expiring_target_path,
+        },
+        {
+          category: `${row.certificate_type_name} / 已过期`,
+          count: row.expired_count,
+          target_path: row.expired_target_path,
+        },
+        {
+          category: `${row.certificate_type_name} / 缺失员工`,
+          count: row.missing_employee_count,
+          target_path: row.missing_employee_target_path,
+        },
+      ]).filter((row) => row.count > 0),
+    [report.certificate_type_risk_rows],
+  );
+
   const riskColumns: ProColumns<CertificateTypeRiskRow>[] = [
     { title: '证书类型', dataIndex: 'certificate_type_name' },
-    { title: '有效数', dataIndex: 'active_count', valueType: 'digit', width: 90 },
-    { title: '即将到期', dataIndex: 'expiring_count', valueType: 'digit', width: 110 },
-    { title: '已过期', dataIndex: 'expired_count', valueType: 'digit', width: 90 },
-    { title: '缺失员工数', dataIndex: 'missing_employee_count', valueType: 'digit', width: 120 },
+    {
+      title: '策略',
+      dataIndex: 'is_required',
+      width: 90,
+      valueType: 'select',
+      valueEnum: certificateTypeRequiredValueEnum,
+      renderText: (val: boolean) => String(val),
+    },
+    {
+      title: '有效数',
+      dataIndex: 'active_count',
+      valueType: 'digit',
+      width: 90,
+      render: (_, record) => (
+        <Button type="link" size="small" disabled={record.active_count === 0} onClick={() => history.push(record.active_target_path)}>
+          {record.active_count}
+        </Button>
+      ),
+    },
+    {
+      title: '即将到期',
+      dataIndex: 'expiring_count',
+      valueType: 'digit',
+      width: 110,
+      render: (_, record) => (
+        <Button type="link" size="small" disabled={record.expiring_count === 0} onClick={() => history.push(record.expiring_target_path)}>
+          {record.expiring_count}
+        </Button>
+      ),
+    },
+    {
+      title: '已过期',
+      dataIndex: 'expired_count',
+      valueType: 'digit',
+      width: 90,
+      render: (_, record) => (
+        <Button type="link" size="small" disabled={record.expired_count === 0} onClick={() => history.push(record.expired_target_path)}>
+          {record.expired_count}
+        </Button>
+      ),
+    },
+    {
+      title: '缺失员工数',
+      dataIndex: 'missing_employee_count',
+      valueType: 'digit',
+      width: 120,
+      render: (_, record) => (
+        <Button
+          type="link"
+          size="small"
+          disabled={record.missing_employee_count === 0}
+          onClick={() => history.push(record.missing_employee_target_path)}
+        >
+          {record.missing_employee_count}
+        </Button>
+      ),
+    },
     { title: '风险合计', dataIndex: 'risk_count', valueType: 'digit', width: 100 },
     {
       title: '操作',
@@ -161,16 +243,16 @@ export default function ReportsPage() {
         </ProCard>
 
         <ProCard title="证书类型风险分布" loading={loading}>
-          {report.certificate_type_risk_rows.some((row) => row.risk_count > 0) ? (
+          {certificateRiskBreakdownRows.length > 0 ? (
             <Pie
-              data={report.certificate_type_risk_rows.filter((row) => row.risk_count > 0)}
-              angleField="risk_count"
-              colorField="certificate_type_name"
+              data={certificateRiskBreakdownRows}
+              angleField="count"
+              colorField="category"
               height={280}
               innerRadius={0.62}
               legend={{ color: { position: 'bottom' } }}
-              tooltip={{ title: 'certificate_type_name', items: [{ field: 'risk_count', name: '风险数' }] }}
-              onEvent={(_, event) => handleChartEvent<CertificateTypeRiskRow>(event)}
+              tooltip={{ title: 'category', items: [{ field: 'count', name: '风险数' }] }}
+              onEvent={(_, event) => handleChartEvent<CertificateRiskBreakdownRow>(event)}
             />
           ) : (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无证书类型风险" />

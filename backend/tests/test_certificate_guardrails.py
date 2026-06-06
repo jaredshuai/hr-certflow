@@ -5,9 +5,12 @@ from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any
 
-from app.domain.enums import CertificateStatus
-from app.models import EmployeeCertificate
-from app.services.certificates import replace_active_certificates
+import pytest
+from fastapi import HTTPException
+
+from app.domain.enums import CertificateStatus, EmploymentStatus
+from app.models import CertificateType, Employee, EmployeeCertificate
+from app.services.certificates import replace_active_certificates, validate_certificate_business_rules
 
 
 class FakeScalarResult:
@@ -33,6 +36,22 @@ class FakeCertificateDb:
 
     def flush(self) -> None:
         self.flush_count += 1
+
+
+class FakeBusinessRuleDb:
+    def __init__(self, employee: Employee, certificate_type: CertificateType) -> None:
+        self.employee = employee
+        self.certificate_type = certificate_type
+
+    def get(self, model: type, item_id: Any) -> Any:
+        if model is Employee and item_id == self.employee.id:
+            return self.employee
+        if model is CertificateType and item_id == self.certificate_type.id:
+            return self.certificate_type
+        return None
+
+    def scalar(self, statement: Any) -> Any:
+        return None
 
 
 def test_employee_certificate_guardrail_indexes_are_declared() -> None:
@@ -86,3 +105,27 @@ def test_replace_active_certificates_uses_target_status_for_draft_replacement() 
     assert old_certificate.status == CertificateStatus.REPLACED
     assert old_certificate.replaced_by_id == new_certificate.id
     assert db.flush_count == 1
+
+
+def test_validate_certificate_business_rules_rejects_left_employee_for_current_certificate() -> None:
+    employee = Employee(
+        id=uuid.uuid4(),
+        employee_no="E009",
+        name="赵六",
+        employment_status=EmploymentStatus.LEFT,
+    )
+    certificate_type = CertificateType(id=uuid.uuid4(), code="SAFETY", name="安全员证")
+    db = FakeBusinessRuleDb(employee, certificate_type)
+
+    with pytest.raises(HTTPException) as exc_info:
+        validate_certificate_business_rules(
+            db,
+            employee_id=employee.id,
+            certificate_type_id=certificate_type.id,
+            holder_name=employee.name,
+            certificate_no="CERT-LEFT",
+            require_active_employee=True,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Cannot create current certificate for employee who has left"
