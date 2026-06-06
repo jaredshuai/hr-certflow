@@ -50,6 +50,7 @@ jobs:
   collect:
     name: Collect HR scenario evidence
     runs-on: k3s-hr-certflow-deployer
+    timeout-minutes: 15
     environment:
       name: ${{ inputs.environment }}
     env:
@@ -63,6 +64,7 @@ jobs:
       REMINDER_TASK_ID: ${{ inputs.reminder_task_id }}
     steps:
       - uses: actions/checkout@v6
+        timeout-minutes: 5
 
       - name: Resolve runner Python
         shell: bash
