@@ -46,18 +46,18 @@ complete product requirement is satisfied".
 | --- | --- | --- |
 | Employee master data | Partial | CRUD/search/page/import/export and certificate-owner safeguards for duplicate names and left employees exist; still needs HR-facing acceptance evidence for bad-row imports and ambiguous employee selection. |
 | Certificate type master data | Partial | CRUD/search/page/import/export are usable; default validity flows from review approval into the formal ledger and reminder scan; certificate-type forms can now create/update a bound default reminder policy and maintain required/optional certificate policy that feeds missing-required risk reporting. Still needs promoted acceptance evidence for type-policy changes. |
-| Upload integrity | Partial | Upload intent, confirm-upload, type/size/object/hash handling exist; still needs promoted end-to-end evidence and failure recovery verification with real object storage. |
-| Dify extraction normalization | Partial | Strict output normalization and regression tests for `<think>`, Markdown fences, nested JSON strings, oversized fields, suspicious-point pollution, and percentage confidence exist; still needs promoted Dify scenario evidence. |
-| Human review | Partial | Approval/reject/stale protection, stale-action UI recovery, duplicate task cleanup, holder/employee/type validation, document-state checks, and certificate-number guardrails exist; still needs promoted concurrent-HR acceptance evidence. |
-| Formal certificate ledger | Partial | Replacement-by-status/linkage, trace views, database-level active-certificate uniqueness, duplicate-number guardrails, and approval locking exist; still needs promoted certificate-replacement scenario evidence. |
-| Reminder operations | Partial | Scan, dispatch/simulate, feedback, closure, timeline with audit chain, paging, filtering, export, successful-event daily idempotency guardrails, and channel-level retry UX exist; still needs promoted scenario evidence and real/simulated provider failure acceptance. |
-| Dashboard and reports | Partial | Dashboard/reporting/export, AntV charts, precise drill-down paths, and dashboard risk-item trace drawers exist for workload, pipeline, certificate status, expiry month, department coverage, missing required certificates with employee/type trace details, and certificate-type risk sub-metrics; local browser smoke has verified the expired-certificate risk trace path, but promoted scenario evidence is still missing. |
-| Audit and traceability | Partial | Audit records, employee trace views, certificate-type trace views, source-document trace views, certificate trace views, review-task trace views, reminder-task timeline trace views, dashboard risk-item trace views, bounded PII-safe audit payloads, UI-supplied operator context, and backend request ID propagation exist; still needs promoted scenario evidence. |
+| Upload integrity | Partial | Upload intent, confirm-upload, type/size/object/hash handling exist; promoted dev scenario evidence confirms confirmed object hash/type/size on the sample loop. Still needs failure recovery verification with real object storage and release evidence. |
+| Dify extraction normalization | Partial | Strict output normalization and regression tests for `<think>`, Markdown fences, nested JSON strings, oversized fields, suspicious-point pollution, and percentage confidence exist; promoted dev scenario evidence confirms structured AI fields were persisted for the sample loop. Still needs release evidence and broader live Dify failure/pollution acceptance. |
+| Human review | Partial | Approval/reject/stale protection, stale-action UI recovery, duplicate task cleanup, holder/employee/type validation, document-state checks, and certificate-number guardrails exist; promoted dev scenario evidence confirms an approved review linked to the AI result. Still needs promoted concurrent-HR acceptance evidence. |
+| Formal certificate ledger | Partial | Replacement-by-status/linkage, trace views, database-level active-certificate uniqueness, duplicate-number guardrails, and approval locking exist; promoted dev scenario evidence confirms formal ledger/source linkage and replacement history. Still needs release evidence and broader replacement edge-case acceptance. |
+| Reminder operations | Partial | Scan, dispatch/simulate, feedback, closure, timeline with audit chain, paging, filtering, export, successful-event daily idempotency guardrails, and channel-level retry UX exist; promoted dev scenario evidence confirms reminder timeline and feedback closure. Still needs real/simulated provider failure acceptance and release evidence. |
+| Dashboard and reports | Partial | Dashboard/reporting/export, AntV charts, precise drill-down paths, and dashboard risk-item trace drawers exist for workload, pipeline, certificate status, expiry month, department coverage, missing required certificates with employee/type trace details, and certificate-type risk sub-metrics; promoted dev scenario evidence confirms dashboard/report drill-down paths and a non-zero risk trace. Still needs broader browser recovery-state evidence and release evidence. |
+| Audit and traceability | Partial | Audit records, employee trace views, certificate-type trace views, source-document trace views, certificate trace views, review-task trace views, reminder-task timeline trace views, dashboard risk-item trace views, bounded PII-safe audit payloads, UI-supplied operator context, and backend request ID propagation exist; promoted dev scenario evidence confirms actor/request context and trace linkage on the sample loop. Still needs release evidence and broader audit payload review. |
 | Frontend states | Partial | AntD/ProComponents empty/error/workflow states and stale review-action recovery are improved; dashboard risk trace has local real-data browser smoke coverage with a clean console, but recovery states across every page still need browser evidence. |
-| Import/export coverage | Partial | Employee/type/certificate/document/reminder/report exports, master-data imports, import templates, bad-row validation, certificate-type required policy import/export, and duplicate-key import errors for employee numbers and certificate type codes exist; local browser acceptance now covers employee/type duplicate-key import modals and employee/type CSV downloads; still needs promoted scenario evidence for the full export set. |
+| Import/export coverage | Partial | Employee/type/certificate/document/reminder/report exports, master-data imports, import templates, bad-row validation, certificate-type required policy import/export, and duplicate-key import errors for employee numbers and certificate type codes exist; local browser acceptance covers employee/type duplicate-key import modals and employee/type CSV downloads, and promoted dev scenario evidence confirms the core CSV export set. Still needs promoted import acceptance and release evidence. |
 | Local verification | Done | Keep backend lint, backend type check, backend tests, frontend lint, and frontend build green for every increment. |
-| Dev/release promotion | Evidence gap | Continue using GitHub Actions + GitOps only; each promoted increment needs Web/API and Celery/Redis smoke evidence. The release runbook now includes a read-only promoted HR scenario evidence collector, but it still needs to be run against dev/release after promotion. |
-| End-to-end HR scenario | Evidence gap | A read-only HTTP evidence collector now checks a completed promoted scenario for employee/type setup, upload confirmation, Dify extraction, review approval, certificate replacement, reminder timeline, feedback closure, dashboard/report drill-down, audit trace, and exports. The actual promoted dev/release evidence report is still missing. |
+| Dev/release promotion | Partial | Dev promotion for feature commit `b642cad` completed through GitHub Actions/GitOps in run `27065420964` and promotion commit `938ef54`, with Web/API and Celery/Redis smoke passing. Release promotion/evidence for the same product slice is still missing. |
+| End-to-end HR scenario | Partial | A read-only HTTP evidence collector checks a completed promoted scenario for employee/type setup, upload confirmation, Dify extraction, review approval, certificate replacement, reminder timeline, feedback closure, dashboard/report drill-down, audit trace, and exports. Promoted dev scenario run `27066100965` passed against a seeded sample loop; release scenario evidence is still missing. |
 
 ## Local Evidence Notes
 
@@ -125,6 +125,25 @@ complete product requirement is satisfied".
   endpoint returned 404, and no formal certificate scenario anchor was found.
   This confirms the promoted end-to-end HR scenario remains an evidence gap,
   not a completed North Star item.
+- 2026-06-06: Feature commit `b642cad` was promoted to dev by release workflow
+  run `27065420964` and promotion commit `938ef54`; Web/API smoke and
+  Celery/Redis smoke passed. Local read-only evidence collection against the
+  dev URL then passed with sample anchors for certificate, source document,
+  review task, reminder task, AI result, employee, and certificate type.
+- 2026-06-06: GitHub Actions HR scenario evidence run `27066100965` passed
+  against promoted dev using the same sample anchors. The collector reported
+  `Overall: PASS` for API health, dashboard/report drill-down paths, dashboard
+  risk tracing, CSV exports, employee and certificate-type trace, upload
+  integrity, structured Dify output, approved human review, formal certificate
+  source linkage, replacement history, source-document trace, review trace,
+  audit actor/request context, reminder timeline, and reminder feedback closure.
+  This closes the dev scenario evidence gap for the current product slice, but
+  it does not close release evidence or all final-product edge cases.
+- 2026-06-06: HR scenario evidence workflow run `27065708624` was cancelled
+  after a single checkout step hung before the collector started. Commit
+  `b5e9586` adds job and checkout timeouts to prevent future evidence runs from
+  hanging without a bounded result; CI run `27066095568` passed for that
+  workflow reliability change.
 
 ## Next Delivery Order
 
@@ -135,5 +154,5 @@ complete product requirement is satisfied".
    paths, stale-action UI, and reminder channel retry operations.
 3. Close explainability gaps: dashboard/report drill-down, audit trace coverage,
    and PII-bounded before/after payloads.
-4. Close delivery evidence gaps: local gates, dev promotion, smoke checks, and a
-   recorded end-to-end HR scenario.
+4. Close delivery evidence gaps: release promotion, release smoke checks, and a
+   recorded release end-to-end HR scenario.
