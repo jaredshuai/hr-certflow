@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from calendar import monthrange
 from datetime import UTC, date, datetime
 from uuid import UUID
 
+from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -47,11 +47,7 @@ def _assert_review_task_is_current(review_task: ReviewTask, expected_updated_at:
 
 
 def _add_calendar_months(value: date, months: int) -> date:
-    month_index = value.month - 1 + months
-    target_year = value.year + month_index // 12
-    target_month = month_index % 12 + 1
-    target_day = min(value.day, monthrange(target_year, target_month)[1])
-    return date(target_year, target_month, target_day)
+    return value + relativedelta(months=months)
 
 
 def _resolve_valid_to(

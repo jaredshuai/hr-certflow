@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.routes.dashboard import build_dashboard_summary, get_dashboard_risk_trace, get_dashboard_summary
-from app.db.session import SessionLocal, engine
+from app.db.session import SessionLocal, get_engine
 from app.domain.enums import CertificateStatus, DocumentStatus, EmploymentStatus, ReminderTaskStatus, ReviewStatus
 from app.models import (
     AiExtractionResult,
@@ -261,7 +261,7 @@ def db_session() -> Generator[Session, None, None]:
         pytest.skip("DATABASE_URL is required for dashboard integration tests")
 
     try:
-        with engine.connect() as connection:
+        with get_engine().connect() as connection:
             connection.execute(text("select 1"))
     except SQLAlchemyError as exc:
         pytest.skip(f"Database is not available: {exc}")

@@ -23,7 +23,7 @@ from app.api.routes.reminders import (
 )
 from app.api.routes.reviews import approve_review_task
 from app.core.config import Settings
-from app.db.session import SessionLocal, engine
+from app.db.session import SessionLocal, get_engine
 from app.domain.enums import (
     CertificateStatus,
     DocumentStatus,
@@ -64,7 +64,7 @@ def db_session() -> Generator[Session, None, None]:
         pytest.skip("DATABASE_URL is required for workflow integration tests")
 
     try:
-        with engine.connect() as connection:
+        with get_engine().connect() as connection:
             connection.execute(text("select 1"))
     except SQLAlchemyError as exc:
         pytest.skip(f"Database is not available: {exc}")
