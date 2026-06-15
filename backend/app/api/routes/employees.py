@@ -396,20 +396,15 @@ def _load_employee_trace_audit_logs(
     review_tasks: Iterable[ReviewTask],
     reminder_tasks: Iterable[ReminderTask],
 ) -> list[AuditLog]:
+    from app.services.audit import load_audit_logs_for_resources
+
     resource_ids = {str(employee.id)}
     resource_ids.update(str(certificate.id) for certificate in certificates)
     resource_ids.update(str(document.id) for document in documents)
     resource_ids.update(str(task.id) for task in review_tasks)
     resource_ids.update(str(task.id) for task in reminder_tasks)
 
-    return list(
-        db.scalars(
-            select(AuditLog)
-            .where(AuditLog.resource_id.in_(resource_ids))
-            .order_by(AuditLog.created_at.desc())
-            .limit(100)
-        ).all()
-    )
+    return load_audit_logs_for_resources(db, resource_ids)
 
 
 @router.get("/{employee_id}/trace", response_model=EmployeeTraceRead)

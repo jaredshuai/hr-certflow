@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -118,7 +117,7 @@ def test_recognize_document_passes_presigned_read_url_to_dify(monkeypatch) -> No
         def __init__(self, settings: Settings) -> None:
             self.settings = settings
 
-        async def run_certificate_extraction(self, request):
+        def run_certificate_extraction(self, request):
             dify_requests.append(request)
             return DifyExtractionResponse(
                 workflow_run_id="wf-1",
@@ -132,7 +131,7 @@ def test_recognize_document_passes_presigned_read_url_to_dify(monkeypatch) -> No
     monkeypatch.setattr(documents_route, "DifyClient", FakeDifyClient)
     monkeypatch.setattr(documents_route, "record_audit", lambda *args, **kwargs: None)
 
-    result = asyncio.run(documents_route.recognize_document(document_id=document_id, user="hr", db=db))
+    result = documents_route.recognize_document(document_id=document_id, user="hr", db=db)
 
     assert document.status == DocumentStatus.PENDING_REVIEW
     assert result.workflow_run_id == "wf-1"
@@ -175,7 +174,7 @@ def test_recognize_document_closes_existing_open_review_task(monkeypatch) -> Non
         def __init__(self, settings: Settings) -> None:
             self.settings = settings
 
-        async def run_certificate_extraction(self, request):
+        def run_certificate_extraction(self, request):
             return DifyExtractionResponse(
                 workflow_run_id="wf-2",
                 model_name="test-model",
@@ -188,7 +187,7 @@ def test_recognize_document_closes_existing_open_review_task(monkeypatch) -> Non
     monkeypatch.setattr(documents_route, "DifyClient", FakeDifyClient)
     monkeypatch.setattr(documents_route, "record_audit", lambda *args, **kwargs: None)
 
-    result = asyncio.run(documents_route.recognize_document(document_id=document_id, user="hr", db=db))
+    result = documents_route.recognize_document(document_id=document_id, user="hr", db=db)
 
     assert result.workflow_run_id == "wf-2"
     assert old_task.status == ReviewStatus.REJECTED
@@ -222,7 +221,7 @@ def test_recognize_document_marks_document_failed_when_dify_fails(monkeypatch) -
         def __init__(self, settings: Settings) -> None:
             self.settings = settings
 
-        async def run_certificate_extraction(self, request):
+        def run_certificate_extraction(self, request):
             raise RuntimeError("dify unavailable")
 
     monkeypatch.setattr(documents_route, "get_settings", lambda: Settings())
@@ -231,7 +230,7 @@ def test_recognize_document_marks_document_failed_when_dify_fails(monkeypatch) -
     monkeypatch.setattr(documents_route, "record_audit", lambda *args, **kwargs: None)
 
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(documents_route.recognize_document(document_id=document_id, user="hr", db=db))
+        documents_route.recognize_document(document_id=document_id, user="hr", db=db)
 
     assert exc_info.value.status_code == 502
     assert document.status == DocumentStatus.FAILED
@@ -370,7 +369,7 @@ def test_recognize_document_rejects_unconfirmed_upload() -> None:
     db = FakeDb(document)
 
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(documents_route.recognize_document(document_id=document_id, user="hr", db=db))
+        documents_route.recognize_document(document_id=document_id, user="hr", db=db)
 
     assert exc_info.value.status_code == 409
     assert db.commits == 0

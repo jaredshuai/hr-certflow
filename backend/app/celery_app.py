@@ -19,7 +19,7 @@ celery_app = Celery(
     "hr_certflow",
     broker=settings.resolved_celery_broker_url,
     backend=settings.resolved_celery_result_backend,
-    include=["app.tasks.probe", "app.tasks.reminders"],
+    include=["app.tasks.probe", "app.tasks.reminders", "app.tasks.documents"],
 )
 
 celery_app.conf.update(

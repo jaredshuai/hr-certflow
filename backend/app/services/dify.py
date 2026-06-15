@@ -242,7 +242,7 @@ class DifyClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
-    async def run_certificate_extraction(
+    def run_certificate_extraction(
         self,
         request: DifyExtractionRequest,
     ) -> DifyExtractionResponse:
@@ -260,8 +260,8 @@ class DifyClient:
         }
         headers = {"Authorization": f"Bearer {self.settings.dify_api_key}"}
 
-        async with httpx.AsyncClient(base_url=str(self.settings.dify_base_url), timeout=120) as client:
-            response = await client.post("/v1/workflows/run", json=payload, headers=headers)
+        with httpx.Client(base_url=str(self.settings.dify_base_url), timeout=120) as client:
+            response = client.post("/v1/workflows/run", json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
 

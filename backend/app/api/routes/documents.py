@@ -30,6 +30,8 @@ from app.schemas.documents import (
     CertificateDocumentPageRead,
     CertificateDocumentRead,
     CertificateDocumentTraceRead,
+    RecognitionDispatchRead,
+    RecognitionStatusRead,
     ReviewTaskRead,
     UploadIntentCreate,
     UploadIntentRead,
@@ -157,21 +159,14 @@ def _load_document_trace_audit_logs(
     review_tasks: list[ReviewTask],
     certificates: list[EmployeeCertificate],
 ) -> list[AuditLog]:
+    from app.services.audit import load_audit_logs_for_resources
+
     resource_ids = {str(document.id)}
     resource_ids.update(str(result.id) for result in ai_results)
     resource_ids.update(str(task.id) for task in review_tasks)
     resource_ids.update(str(certificate.id) for certificate in certificates)
 
-    logs = list(
-        db.scalars(
-            select(AuditLog)
-            .where(AuditLog.resource_id.in_(resource_ids))
-            .order_by(AuditLog.created_at.desc())
-            .limit(100)
-        ).all()
-    )
-    logs_by_id = {log.id: log for log in logs}
-    return sorted(logs_by_id.values(), key=lambda log: log.created_at, reverse=True)
+    return load_audit_logs_for_resources(db, resource_ids)
 
 
 @router.get("", response_model=list[CertificateDocumentRead])
@@ -417,8 +412,8 @@ def confirm_document_upload(
     return document
 
 
-@router.post("/{document_id}/recognize", response_model=AiExtractionResultRead)
-async def recognize_document(
+@router.post("/{document_id}/recognize", response_model=AiExtractionResultRead, deprecated=True)
+def recognize_document(
     document_id: UUID,
     user: Annotated[str, Query(min_length=1, max_length=128)],
     db: Session = Depends(get_db),
@@ -443,7 +438,7 @@ async def recognize_document(
     try:
         file_url = storage.create_read_url(bucket=document.storage_bucket, key=document.storage_key)
         client = DifyClient(settings)
-        extraction = await client.run_certificate_extraction(
+        extraction = client.run_certificate_extraction(
             DifyExtractionRequest(file_url=file_url, document_id=str(document.id), user=user)
         )
         normalized_output = normalize_dify_outputs(extraction.output)
@@ -523,3 +518,75 @@ async def recognize_document(
     db.commit()
     db.refresh(result)
     return result
+
+
+@router.post(
+    "/{document_id}/recognize-async",
+    response_model=RecognitionDispatchRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def recognize_document_async(
+    document_id: UUID,
+    user: Annotated[str, Query(min_length=1, max_length=128)],
+    db: Session = Depends(get_db),
+    request_context: RequestContext | None = Depends(get_request_context),
+) -> RecognitionDispatchRead:
+    document = db.get(CertificateDocument, document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if document.status == DocumentStatus.PENDING_UPLOAD or (
+        document.status == DocumentStatus.FAILED and not document.sha256
+    ):
+        raise HTTPException(status_code=409, detail="Document upload is not confirmed")
+    if document.status in {DocumentStatus.CONFIRMED, DocumentStatus.ARCHIVED}:
+        raise HTTPException(status_code=409, detail="Document is already closed")
+
+    document.status = DocumentStatus.PARSING
+    record_audit(
+        db,
+        action="certificate_document.recognize.dispatched",
+        resource_type="certificate_document",
+        resource_id=str(document.id),
+        after={"status": DocumentStatus.PARSING.value, "user": user},
+        actor_name=audit_actor_name(request_context, user),
+        request_id=audit_request_id(request_context),
+        ip_address=audit_ip_address(request_context),
+    )
+    db.commit()
+
+    from app.tasks.documents import run_certificate_recognition
+
+    task = run_certificate_recognition.delay(str(document.id), user)
+    return RecognitionDispatchRead(
+        document_id=document.id,
+        status=DocumentStatus.PARSING,
+        task_id=task.id,
+    )
+
+
+@router.get("/{document_id}/recognition-status", response_model=RecognitionStatusRead)
+def get_recognition_status(
+    document_id: UUID,
+    db: Session = Depends(get_db),
+) -> RecognitionStatusRead:
+    document = db.get(CertificateDocument, document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    ai_result_id = None
+    if document.status == DocumentStatus.PENDING_REVIEW or document.status == DocumentStatus.CONFIRMED:
+        latest_result = db.scalar(
+            select(AiExtractionResult)
+            .where(AiExtractionResult.document_id == document.id)
+            .order_by(AiExtractionResult.created_at.desc())
+            .limit(1)
+        )
+        if latest_result:
+            ai_result_id = latest_result.id
+
+    return RecognitionStatusRead(
+        document_id=document.id,
+        status=document.status,
+        ai_result_id=ai_result_id,
+        failure_reason=document.failure_reason,
+    )

@@ -12,10 +12,12 @@ import { Alert, Button, Divider, Form, Input, Result, Space, Steps, Typography, 
 import { useMemo, useState } from 'react';
 
 import { ExtractionQualitySummary, outputText } from '@/components/ExtractionQualitySummary';
-import { listResource, postResource } from '@/services/api';
+import { getResource, listResource, postResource } from '@/services/api';
 import type {
   AiExtractionResult,
   CertificateDocument,
+  RecognitionDispatch,
+  RecognitionStatus,
   ReviewApprovePayload,
   ReviewDecision,
   ReviewTask,
@@ -132,25 +134,56 @@ export default function UploadRecognitionPage() {
 
   async function recognizeDocument(targetDocumentId: string, actor: string) {
     setRecognitionStatus('识别中');
-    const result = await postResource<AiExtractionResult>(
-      `/documents/${targetDocumentId}/recognize?user=${encodeURIComponent(actor)}`,
-    );
-    setExtractionResult(result);
-    setRecognitionStatus('待人工确认');
-    setDocumentStatus('PENDING_REVIEW');
-    await findPendingReviewTask(targetDocumentId);
 
-    const output = result.output_json;
-    form.setFieldsValue({
-      holder_name: outputText(output, 'holder_name'),
-      certificate_name: outputText(output, 'certificate_name'),
-      certificate_no: outputText(output, 'certificate_no'),
-      issuing_authority: outputText(output, 'issuing_authority'),
-      issue_date: outputText(output, 'issue_date'),
-      valid_from: outputText(output, 'valid_from'),
-      valid_to: outputText(output, 'valid_to'),
-      review_date: outputText(output, 'review_date'),
-    });
+    await postResource<RecognitionDispatch>(
+      `/documents/${targetDocumentId}/recognize-async?user=${encodeURIComponent(actor)}`,
+    );
+
+    const pollIntervalMs = 2000;
+    const timeoutMs = 180000;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeoutMs) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, pollIntervalMs);
+      });
+      const poll = await getResource<RecognitionStatus>(
+        `/documents/${targetDocumentId}/recognition-status`,
+      );
+
+      if (poll.status === 'PENDING_REVIEW') {
+        if (poll.ai_result_id) {
+          const result = await getResource<AiExtractionResult>(
+            `/documents/${targetDocumentId}/trace`,
+          ).then((trace) =>
+            trace.ai_results.find((r) => r.id === poll.ai_result_id) ?? trace.ai_results[0],
+          );
+          setExtractionResult(result);
+          const output = result.output_json;
+          form.setFieldsValue({
+            holder_name: outputText(output, 'holder_name'),
+            certificate_name: outputText(output, 'certificate_name'),
+            certificate_no: outputText(output, 'certificate_no'),
+            issuing_authority: outputText(output, 'issuing_authority'),
+            issue_date: outputText(output, 'issue_date'),
+            valid_from: outputText(output, 'valid_from'),
+            valid_to: outputText(output, 'valid_to'),
+            review_date: outputText(output, 'review_date'),
+          });
+        }
+
+        await findPendingReviewTask(targetDocumentId);
+        setDocumentStatus('PENDING_REVIEW');
+        setRecognitionStatus('待人工确认');
+        return;
+      }
+
+      if (poll.status === 'FAILED') {
+        throw new Error(poll.failure_reason || '识别失败');
+      }
+    }
+
+    throw new Error('识别超时（超过 180 秒），请在文件台账中查看状态');
   }
 
   async function uploadAndRecognize() {

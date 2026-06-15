@@ -488,7 +488,7 @@ def get_task_timeline(
 
 
 @router.post("/tasks/{reminder_task_id}/dispatch", response_model=ReminderDispatchRead)
-async def dispatch_task(
+def dispatch_task(
     reminder_task_id: UUID,
     payload: ReminderDispatchCreate,
     db: Session = Depends(get_db),
@@ -510,7 +510,7 @@ async def dispatch_task(
         raise HTTPException(status_code=409, detail="Reminder task is already closed or escalated")
 
     try:
-        event_type, results = await dispatch_single_reminder_task(
+        event_type, results = dispatch_single_reminder_task(
             db,
             get_settings(),
             reminder_task,

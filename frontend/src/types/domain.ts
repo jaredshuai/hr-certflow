@@ -364,6 +364,19 @@ export interface AiExtractionResult {
   updated_at: string;
 }
 
+export interface RecognitionDispatch {
+  document_id: string;
+  status: DocumentStatus;
+  task_id: string;
+}
+
+export interface RecognitionStatus {
+  document_id: string;
+  status: DocumentStatus;
+  ai_result_id?: string;
+  failure_reason?: string;
+}
+
 export interface ReviewApprovePayload {
   employee_id: string;
   certificate_type_id: string;

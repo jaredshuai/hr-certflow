@@ -141,22 +141,15 @@ def _load_review_trace_audit_logs(
     review_task: ReviewTask,
     certificate: EmployeeCertificate | None,
 ) -> list[AuditLog]:
+    from app.services.audit import load_audit_logs_for_resources
+
     resource_ids = {str(review_task.id), str(review_task.document_id)}
     if review_task.ai_result_id:
         resource_ids.add(str(review_task.ai_result_id))
     if certificate:
         resource_ids.add(str(certificate.id))
 
-    logs = list(
-        db.scalars(
-            select(AuditLog)
-            .where(AuditLog.resource_id.in_(resource_ids))
-            .order_by(AuditLog.created_at.desc())
-            .limit(100)
-        ).all()
-    )
-    logs_by_id = {log.id: log for log in logs}
-    return sorted(logs_by_id.values(), key=lambda log: log.created_at, reverse=True)
+    return load_audit_logs_for_resources(db, resource_ids)
 
 
 @router.get("", response_model=list[ReviewTaskRead])

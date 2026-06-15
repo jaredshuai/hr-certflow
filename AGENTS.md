@@ -21,6 +21,14 @@ product, not an MVP/demo, AI showcase, or one-off script workflow.
 - Keep Paperless-ngx, RAGFlow, n8n, and Temporal outside the core product path
   unless explicitly requested.
 
+## Runtime Rules
+
+- Also follow `C:\Users\jared\.codex\RTK.md` when running shell commands in
+  this workspace.
+- Prefix shell commands with `rtk` when available so long outputs are filtered
+  before they enter the agent context. If a tool wrapper cannot execute through
+  `rtk`, use the wrapper normally and keep output scoped.
+
 ## Product North Star
 
 - `docs/delivery-north-star.md` is the final complete-product contract.
@@ -74,21 +82,24 @@ product, not an MVP/demo, AI showcase, or one-off script workflow.
 - For backend changes, prefer running:
 
 ```bash
-uv sync --project backend --extra dev
-uv run --project backend --extra dev ruff check backend/app backend/tests backend/migrations scripts
-uv run --project backend --extra dev ty check backend/app
-uv run --project backend --extra dev pytest backend/tests -q
+rtk uv sync --project backend --extra dev
+rtk uv run --project backend --extra dev ruff check backend/app backend/tests backend/migrations scripts
+rtk uv run --project backend --extra dev ty check backend/app
+rtk uv run --project backend --extra dev pytest backend/tests -q
 ```
 
 - For frontend changes, prefer running:
 
 ```bash
-cd frontend && npm ci && npm run lint && npm run build
+cd frontend
+rtk npm ci
+rtk npm run lint
+rtk npm run build
 ```
 
 - If `DATABASE_URL` is missing, DB-backed pytest cases may skip. Report skipped
   integration coverage honestly and do not treat it as full DB evidence.
-- Use `git diff --check` before finalizing broad edits.
+- Use `rtk git diff --check` before finalizing broad edits.
 
 <!-- CODEGRAPH_START -->
 ## CodeGraph And ace-tool Routing

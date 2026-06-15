@@ -256,20 +256,16 @@ def export_employee_certificates_csv(
 
 
 def _load_certificate_trace_audit_logs(db: Session, certificate: EmployeeCertificate) -> list[AuditLog]:
+    from app.services.audit import load_audit_logs_for_resources
+
     resource_ids = {str(certificate.id)}
     resource_ids.add(str(certificate.employee_id))
     resource_ids.add(str(certificate.certificate_type_id))
     if certificate.source_document_id:
         resource_ids.add(str(certificate.source_document_id))
 
-    direct_logs = list(
-        db.scalars(
-            select(AuditLog)
-            .where(AuditLog.resource_id.in_(resource_ids))
-            .order_by(AuditLog.created_at.desc())
-            .limit(80)
-        ).all()
-    )
+    direct_logs = load_audit_logs_for_resources(db, resource_ids, limit=80)
+
     certificate_id_text = str(certificate.id)
     review_logs = [
         log

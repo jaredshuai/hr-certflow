@@ -286,6 +286,47 @@ Rules:
 - Release data changes should come from real HR operations or controlled smoke
   procedures, not automatic demo seeding.
 
+## 生产认证配置
+
+HR CertFlow 是 system of record，审计日志中的 actor 必须可信。应用层通过
+trusted proxy 校验实现最小信任链：只采信来自可信网关的 `X-HR-Actor` header。
+
+### 应用层配置
+
+在 Helm values 或 ConfigMap 中设置：
+
+```yaml
+AUTH_REQUIRED: "true"
+TRUSTED_PROXY_CIDRS: "10.34.200.0/24"
+```
+
+- `AUTH_REQUIRED=true`：无 actor 的请求返回 401。
+- `TRUSTED_PROXY_CIDRS`：逗号分隔的 CIDR 列表。非可信来源的 `X-HR-Actor`
+  header 会被剥离（不报错，仅剥离）。
+
+默认值（`AUTH_REQUIRED=false`、`TRUSTED_PROXY_CIDRS=""`）是过渡态，不破坏
+dev/smoke 流程。真业务上线前必须切换。
+
+### 网关层配置（infra 职责）
+
+1. Ingress（Nginx/Envoy）对接企业 OIDC/SSO。
+2. 认证通过后，网关**覆写**（不是追加）`X-HR-Actor` 为可信身份。
+3. 网关必须 **strip** 客户端自带的 `X-HR-Actor`，防止直连绕过。
+4. Pod 网络 CIDR 配进 `TRUSTED_PROXY_CIDRS`。
+5. 设 `AUTH_REQUIRED=true`。
+
+### 验证
+
+```bash
+curl -H "X-HR-Actor: fake" https://<host>/hr-certflow/api/v1/health
+# 预期：401（非可信来源 + auth_required=true）
+
+curl -H "X-HR-Actor: real-user" \
+     -H "X-Forwarded-For: <pod-cidr-ip>" \
+     https://<host>/hr-certflow/api/v1/health
+# 预期：200
+```
+
 ## Dependabot During Release Work
 
 Dependency PRs are handled separately from environment promotion. Runtime baseline changes must stay aligned with `docs/engineering-baseline.md`.

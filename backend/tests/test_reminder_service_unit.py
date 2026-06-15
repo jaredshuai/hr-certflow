@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import UTC, date, datetime
 from typing import Any
@@ -131,7 +130,7 @@ def test_dispatch_due_retries_unsent_channel_without_resending_successful_channe
     db = FakeReminderDb(task, [existing_email_event])
     sent_channel_batches: list[list[str]] = []
 
-    async def fake_send_to_hr(
+    def fake_send_to_hr(
         self: NotificationRouter,
         message: NotificationMessage,
         channels: list[str],
@@ -149,12 +148,10 @@ def test_dispatch_due_retries_unsent_channel_without_resending_successful_channe
     monkeypatch.setattr(reminder_service, "record_audit", lambda *args, **kwargs: None)
     monkeypatch.setattr(NotificationRouter, "send_to_hr", fake_send_to_hr)
 
-    dispatched = asyncio.run(
-        reminder_service.dispatch_due_reminder_notifications(
-            db,
-            Settings(notification_hr_recipients="hr@example.test"),
-            today=date(2026, 5, 6),
-        )
+    dispatched = reminder_service.dispatch_due_reminder_notifications(
+        db,
+        Settings(notification_hr_recipients="hr@example.test"),
+        today=date(2026, 5, 6),
     )
 
     new_events = [item for item in db.added if isinstance(item, ReminderEvent)]
@@ -187,7 +184,7 @@ def test_dispatch_due_skips_when_all_channels_already_succeeded(monkeypatch) -> 
     db = FakeReminderDb(task, existing_events)
     sent_channel_batches: list[list[str]] = []
 
-    async def fake_send_to_hr(
+    def fake_send_to_hr(
         self: NotificationRouter,
         message: NotificationMessage,
         channels: list[str],
@@ -198,12 +195,10 @@ def test_dispatch_due_skips_when_all_channels_already_succeeded(monkeypatch) -> 
     monkeypatch.setattr(reminder_service, "record_audit", lambda *args, **kwargs: None)
     monkeypatch.setattr(NotificationRouter, "send_to_hr", fake_send_to_hr)
 
-    dispatched = asyncio.run(
-        reminder_service.dispatch_due_reminder_notifications(
-            db,
-            Settings(notification_hr_recipients="hr@example.test"),
-            today=date(2026, 5, 6),
-        )
+    dispatched = reminder_service.dispatch_due_reminder_notifications(
+        db,
+        Settings(notification_hr_recipients="hr@example.test"),
+        today=date(2026, 5, 6),
     )
 
     assert dispatched == 0

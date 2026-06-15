@@ -32,19 +32,22 @@ class ObjectMetadata:
 class ObjectStorage:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self._cached_client = None
 
     def _client(self):
-        if not self.settings.s3_endpoint_url:
-            raise RuntimeError("S3_ENDPOINT_URL is required for upload intents")
+        if self._cached_client is None:
+            if not self.settings.s3_endpoint_url:
+                raise RuntimeError("S3_ENDPOINT_URL is required for upload intents")
 
-        return boto3.client(
-            "s3",
-            endpoint_url=self.settings.s3_endpoint_url,
-            region_name=self.settings.s3_region,
-            aws_access_key_id=self.settings.s3_access_key_id,
-            aws_secret_access_key=self.settings.s3_secret_access_key,
-            config=Config(s3={"addressing_style": "path" if self.settings.s3_force_path_style else "virtual"}),
-        )
+            self._cached_client = boto3.client(
+                "s3",
+                endpoint_url=self.settings.s3_endpoint_url,
+                region_name=self.settings.s3_region,
+                aws_access_key_id=self.settings.s3_access_key_id,
+                aws_secret_access_key=self.settings.s3_secret_access_key,
+                config=Config(s3={"addressing_style": "path" if self.settings.s3_force_path_style else "virtual"}),
+            )
+        return self._cached_client
 
     def _bucket(self) -> str:
         if not self.settings.s3_bucket:

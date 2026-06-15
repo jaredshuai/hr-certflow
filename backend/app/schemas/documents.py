@@ -143,3 +143,16 @@ class CertificateDocumentTraceRead(BaseModel):
     review_tasks: list[ReviewTaskRead]
     certificates: list[EmployeeCertificateRead]
     audit_logs: list[TraceAuditLogRead]
+
+
+class RecognitionDispatchRead(BaseModel):
+    document_id: UUID
+    status: DocumentStatus
+    task_id: str
+
+
+class RecognitionStatusRead(BaseModel):
+    document_id: UUID
+    status: DocumentStatus
+    ai_result_id: UUID | None = None
+    failure_reason: str | None = None

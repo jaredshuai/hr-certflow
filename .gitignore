@@ -27,6 +27,17 @@ uploads/
 .tmp/
 
 # Local agent/editor artifacts
+.agent/
+.agent-jobs/
+.agents/
 .ace-tool/
+.claude/
+.cline/
+.codebuddy/
 .codegraph/
 .cursor/
+.factory/
+.gemini/
+.qoder/
+.qwen/
+.trae/

@@ -60,7 +60,7 @@ def scan_and_create_reminder_tasks(db: Session, *, today: date | None = None) ->
     return created
 
 
-async def dispatch_due_reminder_notifications(
+def dispatch_due_reminder_notifications(
     db: Session,
     settings: Settings,
     *,
@@ -106,7 +106,7 @@ async def dispatch_due_reminder_notifications(
             event_type,
             recipients=settings.notification_hr_recipient_list,
         )
-        results = await router.send_to_hr(message, pending_channels)
+        results = router.send_to_hr(message, pending_channels)
         now = datetime.now(UTC)
         has_sent = any(result.get("status") == "sent" for result in results)
         if has_sent:
@@ -155,7 +155,7 @@ async def dispatch_due_reminder_notifications(
     return sent_or_recorded
 
 
-async def dispatch_single_reminder_task(
+def dispatch_single_reminder_task(
     db: Session,
     settings: Settings,
     task: ReminderTask,
@@ -204,7 +204,7 @@ async def dispatch_single_reminder_task(
             for channel in pending_channels
         ]
     else:
-        results = await NotificationRouter(settings).send_to_hr(message, pending_channels)
+        results = NotificationRouter(settings).send_to_hr(message, pending_channels)
 
     has_sent = any(result.get("status") == "sent" for result in results)
     if has_sent:

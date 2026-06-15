@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app import models  # noqa: F401
 from app.api.deps import REQUEST_CONTEXT_STATE_KEY, REQUEST_ID_HEADER, build_request_context
@@ -19,6 +19,14 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         context = build_request_context(request)
         setattr(request.state, REQUEST_CONTEXT_STATE_KEY, context)
+
+        settings = get_settings()
+        if settings.auth_required and not context.actor_name:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Authenticated actor required"},
+            )
+
         response = await call_next(request)
         response.headers[REQUEST_ID_HEADER] = context.request_id
         return response
@@ -29,8 +37,14 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if settings.app_env == "local" and settings.auto_create_tables:
-            Base.metadata.create_all(bind=engine)
+        if settings.auto_create_tables:
+            if settings.app_env == "local":
+                Base.metadata.create_all(bind=engine)
+            else:
+                raise RuntimeError(
+                    f"auto_create_tables is set but app_env={settings.app_env!r}; "
+                    "non-local environments must use Alembic migrations"
+                )
         yield
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -170,17 +170,9 @@ def _risk_row(risk_id: str, count: int) -> DashboardRiskRow:
 
 
 def _audit_logs_for_resource_ids(db: Session, resource_ids: Iterable[UUID | str | None]) -> list[AuditLog]:
-    resource_id_texts = {str(resource_id) for resource_id in resource_ids if resource_id}
-    if not resource_id_texts:
-        return []
-    return list(
-        db.scalars(
-            select(AuditLog)
-            .where(AuditLog.resource_id.in_(resource_id_texts))
-            .order_by(AuditLog.created_at.desc())
-            .limit(100)
-        ).all()
-    )
+    from app.services.audit import load_audit_logs_for_resources
+
+    return load_audit_logs_for_resources(db, resource_ids)
 
 
 def _documents_by_ids(db: Session, document_ids: Iterable[UUID | None]) -> list[CertificateDocument]:
@@ -381,151 +373,168 @@ def build_dashboard_summary(
     )
 
 
+def _trace_expired_certificates(db: Session, limit: int) -> DashboardRiskTraceRead:
+    count = _count_certificates(db, CertificateStatus.EXPIRED)
+    certificates = list(
+        db.scalars(
+            select(EmployeeCertificate)
+            .where(EmployeeCertificate.status == CertificateStatus.EXPIRED)
+            .order_by(EmployeeCertificate.updated_at.desc())
+            .limit(limit)
+        ).all()
+    )
+    documents = _documents_by_ids(db, [certificate.source_document_id for certificate in certificates])
+    reminder_tasks = (
+        list(
+            db.scalars(
+                select(ReminderTask)
+                .where(ReminderTask.employee_certificate_id.in_([certificate.id for certificate in certificates]))
+                .order_by(ReminderTask.created_at.desc())
+                .limit(limit)
+            ).all()
+        )
+        if certificates
+        else []
+    )
+    audit_logs = _audit_logs_for_resource_ids(
+        db,
+        [
+            *[certificate.id for certificate in certificates],
+            *[certificate.employee_id for certificate in certificates],
+            *[certificate.certificate_type_id for certificate in certificates],
+            *[certificate.source_document_id for certificate in certificates],
+            *[task.id for task in reminder_tasks],
+        ],
+    )
+    return _dashboard_risk_trace_payload(
+        risk=_risk_row("expired-certificates", count),
+        certificates=certificates,
+        documents=documents,
+        reminder_tasks=reminder_tasks,
+        audit_logs=audit_logs,
+    )
+
+
+def _trace_failed_documents(db: Session, limit: int) -> DashboardRiskTraceRead:
+    count = _count_documents(db, DocumentStatus.FAILED)
+    documents = list(
+        db.scalars(
+            select(CertificateDocument)
+            .where(CertificateDocument.status == DocumentStatus.FAILED)
+            .order_by(CertificateDocument.updated_at.desc())
+            .limit(limit)
+        ).all()
+    )
+    review_tasks = (
+        list(
+            db.scalars(
+                select(ReviewTask)
+                .options(selectinload(ReviewTask.document), selectinload(ReviewTask.ai_result))
+                .where(ReviewTask.document_id.in_([document.id for document in documents]))
+                .order_by(ReviewTask.created_at.desc())
+                .limit(limit)
+            ).all()
+        )
+        if documents
+        else []
+    )
+    audit_logs = _audit_logs_for_resource_ids(
+        db,
+        [
+            *[document.id for document in documents],
+            *[task.id for task in review_tasks],
+            *[task.ai_result_id for task in review_tasks],
+        ],
+    )
+    return _dashboard_risk_trace_payload(
+        risk=_risk_row("failed-documents", count),
+        documents=documents,
+        review_tasks=review_tasks,
+        audit_logs=audit_logs,
+    )
+
+
+def _trace_missing_required_certificates(db: Session, limit: int) -> DashboardRiskTraceRead:
+    missing_items = _missing_required_certificate_items(db, limit=limit)
+    return _dashboard_risk_trace_payload(
+        risk=_risk_row("missing-required-certificates", _count_missing_required_certificates(db)),
+        missing_required_items=missing_items,
+    )
+
+
+def _trace_pending_reviews(db: Session, limit: int) -> DashboardRiskTraceRead:
+    count = _count_reviews(db, *PENDING_REVIEW_STATUSES)
+    review_tasks = list(
+        db.scalars(
+            select(ReviewTask)
+            .options(selectinload(ReviewTask.document), selectinload(ReviewTask.ai_result))
+            .where(ReviewTask.status.in_(PENDING_REVIEW_STATUSES))
+            .order_by(ReviewTask.updated_at.desc())
+            .limit(limit)
+        ).all()
+    )
+    documents = _documents_by_ids(db, [task.document_id for task in review_tasks])
+    audit_logs = _audit_logs_for_resource_ids(
+        db,
+        [
+            *[task.id for task in review_tasks],
+            *[task.document_id for task in review_tasks],
+            *[task.ai_result_id for task in review_tasks],
+        ],
+    )
+    return _dashboard_risk_trace_payload(
+        risk=_risk_row("pending-reviews", count),
+        documents=documents,
+        review_tasks=review_tasks,
+        audit_logs=audit_logs,
+    )
+
+
+def _trace_second_reminders(db: Session, limit: int) -> DashboardRiskTraceRead:
+    count = _count_reminders(db, *SECOND_REMINDER_STATUSES)
+    reminder_tasks = list(
+        db.scalars(
+            select(ReminderTask)
+            .where(ReminderTask.status.in_(SECOND_REMINDER_STATUSES))
+            .order_by(ReminderTask.updated_at.desc())
+            .limit(limit)
+        ).all()
+    )
+    certificates = _certificates_by_ids(db, [task.employee_certificate_id for task in reminder_tasks])
+    documents = _documents_by_ids(db, [certificate.source_document_id for certificate in certificates])
+    audit_logs = _audit_logs_for_resource_ids(
+        db,
+        [
+            *[task.id for task in reminder_tasks],
+            *[task.employee_certificate_id for task in reminder_tasks],
+            *[certificate.source_document_id for certificate in certificates],
+        ],
+    )
+    return _dashboard_risk_trace_payload(
+        risk=_risk_row("second-reminders", count),
+        certificates=certificates,
+        documents=documents,
+        reminder_tasks=reminder_tasks,
+        audit_logs=audit_logs,
+    )
+
+
+_RISK_TRACE_HANDLERS: dict[str, Callable[[Session, int], DashboardRiskTraceRead]] = {
+    "expired-certificates": _trace_expired_certificates,
+    "failed-documents": _trace_failed_documents,
+    "missing-required-certificates": _trace_missing_required_certificates,
+    "pending-reviews": _trace_pending_reviews,
+    "second-reminders": _trace_second_reminders,
+}
+
+
 @router.get("/risk-items/{risk_id}/trace", response_model=DashboardRiskTraceRead)
 def get_dashboard_risk_trace(
     risk_id: str,
     db: Session = Depends(get_db),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> DashboardRiskTraceRead:
-    if risk_id == "expired-certificates":
-        count = _count_certificates(db, CertificateStatus.EXPIRED)
-        certificates = list(
-            db.scalars(
-                select(EmployeeCertificate)
-                .where(EmployeeCertificate.status == CertificateStatus.EXPIRED)
-                .order_by(EmployeeCertificate.updated_at.desc())
-                .limit(limit)
-            ).all()
-        )
-        documents = _documents_by_ids(db, [certificate.source_document_id for certificate in certificates])
-        reminder_tasks = (
-            list(
-                db.scalars(
-                    select(ReminderTask)
-                    .where(ReminderTask.employee_certificate_id.in_([certificate.id for certificate in certificates]))
-                    .order_by(ReminderTask.created_at.desc())
-                    .limit(limit)
-                ).all()
-            )
-            if certificates
-            else []
-        )
-        audit_logs = _audit_logs_for_resource_ids(
-            db,
-            [
-                *[certificate.id for certificate in certificates],
-                *[certificate.employee_id for certificate in certificates],
-                *[certificate.certificate_type_id for certificate in certificates],
-                *[certificate.source_document_id for certificate in certificates],
-                *[task.id for task in reminder_tasks],
-            ],
-        )
-        return _dashboard_risk_trace_payload(
-            risk=_risk_row(risk_id, count),
-            certificates=certificates,
-            documents=documents,
-            reminder_tasks=reminder_tasks,
-            audit_logs=audit_logs,
-        )
-
-    if risk_id == "failed-documents":
-        count = _count_documents(db, DocumentStatus.FAILED)
-        documents = list(
-            db.scalars(
-                select(CertificateDocument)
-                .where(CertificateDocument.status == DocumentStatus.FAILED)
-                .order_by(CertificateDocument.updated_at.desc())
-                .limit(limit)
-            ).all()
-        )
-        review_tasks = (
-            list(
-                db.scalars(
-                    select(ReviewTask)
-                    .options(selectinload(ReviewTask.document), selectinload(ReviewTask.ai_result))
-                    .where(ReviewTask.document_id.in_([document.id for document in documents]))
-                    .order_by(ReviewTask.created_at.desc())
-                    .limit(limit)
-                ).all()
-            )
-            if documents
-            else []
-        )
-        audit_logs = _audit_logs_for_resource_ids(
-            db,
-            [
-                *[document.id for document in documents],
-                *[task.id for task in review_tasks],
-                *[task.ai_result_id for task in review_tasks],
-            ],
-        )
-        return _dashboard_risk_trace_payload(
-            risk=_risk_row(risk_id, count),
-            documents=documents,
-            review_tasks=review_tasks,
-            audit_logs=audit_logs,
-        )
-
-    if risk_id == "missing-required-certificates":
-        missing_items = _missing_required_certificate_items(db, limit=limit)
-        return _dashboard_risk_trace_payload(
-            risk=_risk_row(risk_id, _count_missing_required_certificates(db)),
-            missing_required_items=missing_items,
-        )
-
-    if risk_id == "pending-reviews":
-        count = _count_reviews(db, *PENDING_REVIEW_STATUSES)
-        review_tasks = list(
-            db.scalars(
-                select(ReviewTask)
-                .options(selectinload(ReviewTask.document), selectinload(ReviewTask.ai_result))
-                .where(ReviewTask.status.in_(PENDING_REVIEW_STATUSES))
-                .order_by(ReviewTask.updated_at.desc())
-                .limit(limit)
-            ).all()
-        )
-        documents = _documents_by_ids(db, [task.document_id for task in review_tasks])
-        audit_logs = _audit_logs_for_resource_ids(
-            db,
-            [
-                *[task.id for task in review_tasks],
-                *[task.document_id for task in review_tasks],
-                *[task.ai_result_id for task in review_tasks],
-            ],
-        )
-        return _dashboard_risk_trace_payload(
-            risk=_risk_row(risk_id, count),
-            documents=documents,
-            review_tasks=review_tasks,
-            audit_logs=audit_logs,
-        )
-
-    if risk_id == "second-reminders":
-        count = _count_reminders(db, *SECOND_REMINDER_STATUSES)
-        reminder_tasks = list(
-            db.scalars(
-                select(ReminderTask)
-                .where(ReminderTask.status.in_(SECOND_REMINDER_STATUSES))
-                .order_by(ReminderTask.updated_at.desc())
-                .limit(limit)
-            ).all()
-        )
-        certificates = _certificates_by_ids(db, [task.employee_certificate_id for task in reminder_tasks])
-        documents = _documents_by_ids(db, [certificate.source_document_id for certificate in certificates])
-        audit_logs = _audit_logs_for_resource_ids(
-            db,
-            [
-                *[task.id for task in reminder_tasks],
-                *[task.employee_certificate_id for task in reminder_tasks],
-                *[certificate.source_document_id for certificate in certificates],
-            ],
-        )
-        return _dashboard_risk_trace_payload(
-            risk=_risk_row(risk_id, count),
-            certificates=certificates,
-            documents=documents,
-            reminder_tasks=reminder_tasks,
-            audit_logs=audit_logs,
-        )
-
-    raise HTTPException(status_code=404, detail="Dashboard risk item not found")
+    handler = _RISK_TRACE_HANDLERS.get(risk_id)
+    if not handler:
+        raise HTTPException(status_code=404, detail="Dashboard risk item not found")
+    return handler(db, limit)

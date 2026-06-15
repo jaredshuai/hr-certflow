@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     app_name: str = "HR CertFlow"
     app_env: str = "local"
     app_timezone: str = "Asia/Shanghai"
-    auto_create_tables: bool = True
+    auto_create_tables: bool = False
     api_cors_origins: str = "http://localhost:8001"
 
     database_url: str = "postgresql+psycopg://hr_certflow:hr_certflow@localhost:5432/hr_certflow"
@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     mail_from: str | None = None
 
     upload_prefix: str = Field(default="hr-certflow/local/certificates", min_length=1)
+
+    trusted_proxy_cidrs: str = ""
+    auth_required: bool = False
 
     @property
     def cors_origins(self) -> list[str]:
@@ -89,6 +92,19 @@ class Settings(BaseSettings):
     @property
     def resolved_celery_fanout_prefix(self) -> str:
         return f"{self.resolved_celery_redis_hash_tag}:fanout"
+
+    @property
+    def trusted_proxy_networks(self) -> list:
+        import ipaddress
+
+        if not self.trusted_proxy_cidrs:
+            return []
+        networks = []
+        for cidr in self.trusted_proxy_cidrs.split(","):
+            cidr = cidr.strip()
+            if cidr:
+                networks.append(ipaddress.ip_network(cidr, strict=False))
+        return networks
 
 
 @lru_cache

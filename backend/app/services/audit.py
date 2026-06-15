@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog
@@ -102,3 +105,41 @@ def record_audit(
     )
     db.add(entry)
     return entry
+
+
+def load_audit_logs_for_resources(
+    db: Session,
+    resource_ids: Iterable[UUID | str | None],
+    *,
+    limit: int = 100,
+) -> list[AuditLog]:
+    """Load audit logs for a collection of resource IDs.
+
+    This is a shared helper that consolidates duplicate audit log loading logic
+    across multiple trace endpoints (employees, certificates, documents, reviews,
+    certificate_types, dashboard).
+
+    Args:
+        db: Database session
+        resource_ids: Iterable of resource IDs (UUID, str, or None). None values are filtered out.
+        limit: Maximum number of logs to return (default 100)
+
+    Returns:
+        List of AuditLog objects, ordered by created_at descending
+    """
+    resource_id_texts = {str(rid) for rid in resource_ids if rid}
+    if not resource_id_texts:
+        return []
+
+    logs = list(
+        db.scalars(
+            select(AuditLog)
+            .where(AuditLog.resource_id.in_(resource_id_texts))
+            .order_by(AuditLog.created_at.desc())
+            .limit(limit)
+        ).all()
+    )
+
+    # Deduplicate by ID (some callers may pass overlapping IDs)
+    logs_by_id = {log.id: log for log in logs}
+    return sorted(logs_by_id.values(), key=lambda log: log.created_at, reverse=True)

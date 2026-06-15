@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import os
 import uuid
 from collections.abc import Generator
@@ -134,16 +133,14 @@ def test_dispatch_reminder_advances_state_after_successful_email(
     task = _create_pending_reminder_task(db_session)
     monkeypatch.setattr(NotificationRouter, "_send_email_sync", lambda self, email: None)
 
-    dispatched = asyncio.run(
-        dispatch_due_reminder_notifications(
-            db_session,
-            Settings(
-                smtp_host="smtp.example.test",
-                mail_from="hr@example.test",
-                notification_hr_recipients="hr@example.test",
-            ),
-            today=task.trigger_date,
-        )
+    dispatched = dispatch_due_reminder_notifications(
+        db_session,
+        Settings(
+            smtp_host="smtp.example.test",
+            mail_from="hr@example.test",
+            notification_hr_recipients="hr@example.test",
+        ),
+        today=task.trigger_date,
     )
 
     db_session.flush()
@@ -172,9 +169,9 @@ def test_dispatch_reminder_is_idempotent_for_successful_event_window(
         notification_hr_recipients="hr@example.test",
     )
 
-    first_count = asyncio.run(dispatch_due_reminder_notifications(db_session, settings, today=task.trigger_date))
+    first_count = dispatch_due_reminder_notifications(db_session, settings, today=task.trigger_date)
     db_session.flush()
-    second_count = asyncio.run(dispatch_due_reminder_notifications(db_session, settings, today=task.trigger_date))
+    second_count = dispatch_due_reminder_notifications(db_session, settings, today=task.trigger_date)
     db_session.flush()
 
     events = list(
@@ -213,9 +210,9 @@ def test_dispatch_reminder_retries_unsent_channels_without_resending_successful_
         notification_hr_recipients="hr@example.test",
     )
 
-    first_count = asyncio.run(dispatch_due_reminder_notifications(db_session, settings, today=task.trigger_date))
+    first_count = dispatch_due_reminder_notifications(db_session, settings, today=task.trigger_date)
     db_session.flush()
-    second_count = asyncio.run(dispatch_due_reminder_notifications(db_session, settings, today=task.trigger_date))
+    second_count = dispatch_due_reminder_notifications(db_session, settings, today=task.trigger_date)
     db_session.flush()
 
     events = list(
@@ -244,12 +241,10 @@ def test_dispatch_reminder_retries_unsent_channels_without_resending_successful_
 def test_dispatch_reminder_does_not_advance_when_smtp_settings_are_missing(db_session: Session) -> None:
     task = _create_pending_reminder_task(db_session)
 
-    dispatched = asyncio.run(
-        dispatch_due_reminder_notifications(
-            db_session,
-            Settings(notification_hr_recipients="hr@example.test"),
-            today=task.trigger_date,
-        )
+    dispatched = dispatch_due_reminder_notifications(
+        db_session,
+        Settings(notification_hr_recipients="hr@example.test"),
+        today=task.trigger_date,
     )
 
     db_session.flush()
@@ -384,12 +379,10 @@ def test_hr_feedback_records_real_actor_and_event_source(db_session: Session) ->
 def test_manual_simulated_dispatch_advances_reminder_without_external_provider(db_session: Session) -> None:
     task = _create_pending_reminder_task(db_session)
 
-    result = asyncio.run(
-        dispatch_task(
-            task.id,
-            ReminderDispatchCreate(operator="Alice HR", simulate=True, channels=["email", "wecom"]),
-            db_session,
-        )
+    result = dispatch_task(
+        task.id,
+        ReminderDispatchCreate(operator="Alice HR", simulate=True, channels=["email", "wecom"]),
+        db_session,
     )
 
     db_session.flush()
@@ -411,12 +404,10 @@ def test_manual_dispatch_rejects_closed_task(db_session: Session) -> None:
     db_session.flush()
 
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(
-            dispatch_task(
-                task.id,
-                ReminderDispatchCreate(operator="Alice HR", simulate=True),
-                db_session,
-            )
+        dispatch_task(
+            task.id,
+            ReminderDispatchCreate(operator="Alice HR", simulate=True),
+            db_session,
         )
 
     assert exc_info.value.status_code == 409

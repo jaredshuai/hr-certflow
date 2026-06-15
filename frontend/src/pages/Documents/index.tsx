@@ -5,7 +5,13 @@ import { useMemo, useRef, useState } from 'react';
 import { history, useLocation } from '@umijs/max';
 
 import { getResource, pageResource, postResource } from '@/services/api';
-import type { AiExtractionResult, CertificateDocument, CertificateDocumentTrace, DocumentStatus } from '@/types/domain';
+import type {
+  CertificateDocument,
+  CertificateDocumentTrace,
+  DocumentStatus,
+  RecognitionDispatch,
+  RecognitionStatus,
+} from '@/types/domain';
 import {
   auditActionLabel,
   auditResourceTypeLabel,
@@ -80,12 +86,40 @@ export default function DocumentsPage() {
 
     setRunningAction({ documentId: record.id, action: 'recognize' });
     try {
-      await postResource<AiExtractionResult>(
-        `/documents/${record.id}/recognize?user=${encodeURIComponent(operator)}`,
+      await postResource<RecognitionDispatch>(
+        `/documents/${record.id}/recognize-async?user=${encodeURIComponent(operator)}`,
       );
-      message.success('重新识别已完成，已进入待复核队列');
-      actionRef.current?.reload();
-      history.push('/review-queue');
+
+      const pollIntervalMs = 2000;
+      const timeoutMs = 180000;
+      const startTime = Date.now();
+      let finished = false;
+
+      while (Date.now() - startTime < timeoutMs) {
+        await new Promise((resolve) => {
+          setTimeout(resolve, pollIntervalMs);
+        });
+        const poll = await getResource<RecognitionStatus>(
+          `/documents/${record.id}/recognition-status`,
+        );
+
+        if (poll.status === 'PENDING_REVIEW') {
+          finished = true;
+          message.success('重新识别已完成，已进入待复核队列');
+          actionRef.current?.reload();
+          history.push('/review-queue');
+          break;
+        }
+
+        if (poll.status === 'FAILED') {
+          throw new Error(poll.failure_reason || '重新识别失败');
+        }
+      }
+
+      if (!finished) {
+        message.warning('识别超时（超过 180 秒），请稍后刷新查看状态');
+        actionRef.current?.reload();
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '重新识别失败');
     } finally {

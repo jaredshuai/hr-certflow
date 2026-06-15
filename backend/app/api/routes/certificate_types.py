@@ -516,18 +516,14 @@ def _load_certificate_type_trace_audit_logs(
     certificates: Iterable[EmployeeCertificate],
     reminder_tasks: Iterable[ReminderTask],
 ) -> list[AuditLog]:
+    from app.services.audit import load_audit_logs_for_resources
+
     resource_ids = {str(certificate_type.id)}
     resource_ids.update(str(policy.id) for policy in policies)
     resource_ids.update(str(certificate.id) for certificate in certificates)
     resource_ids.update(str(task.id) for task in reminder_tasks)
-    return list(
-        db.scalars(
-            select(AuditLog)
-            .where(AuditLog.resource_id.in_(resource_ids))
-            .order_by(AuditLog.created_at.desc())
-            .limit(100)
-        ).all()
-    )
+
+    return load_audit_logs_for_resources(db, resource_ids)
 
 
 @router.get("/{certificate_type_id}/trace", response_model=CertificateTypeTraceRead)
