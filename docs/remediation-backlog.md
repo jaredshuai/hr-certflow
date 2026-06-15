@@ -535,7 +535,7 @@ Helm values 的 worker deployment 可按队列拆分副本数。
 
 ## P3.A — BaseHTTPMiddleware 改纯 ASGI
 
-**Status:** 已完成 @<待提交>
+**Status:** 已完成 @614dd8c
 **优先级依据：** Starlette 官方文档标注 BaseHTTPMiddleware 有性能问题
 （每请求建 task）。`RequestContextMiddleware` 做的事极简单（读写 header），
 纯 ASGI 重写只有十几行，零成本顺手改。
@@ -569,7 +569,7 @@ class RequestContextMiddleware:
 
 ## P3.B — 模块级配置重构
 
-**Status:** 已完成 @<待提交>
+**Status:** 已完成 @614dd8c
 **优先级依据：** `session.py:11-12`、`celery_app.py:9-16` 在 import 时
 实例化 engine/celery，测试时需 monkeypatch 模块属性。当前能跑，等多环境
 配置或测试隔离需求出现再重构。
@@ -592,7 +592,7 @@ def get_engine():
 
 ## P3.C — _add_calendar_months 换 dateutil
 
-**Status:** 已完成 @<待提交>
+**Status:** 已完成 @614dd8c
 **优先级依据：** `reviews.py:49-54` 手写月份算术，逻辑正确但日期逻辑
 历来是 bug 重灾区。引入 `python-dateutil` 一行解决，符合 AGENTS.md
 "prefer mature library glue"。
@@ -629,8 +629,8 @@ def _add_calendar_months(value: date, months: int) -> date:
 | P2.A boto3 client 缓存 | 已完成 | e712e68 | |
 | P2.B trace/audit helper 收敛 | 已完成 | e712e68 | |
 | P2.C Celery 队列拆分 | 待观察 | — | 视并发触发 |
-| P3.A BaseHTTPMiddleware → ASGI | 已完成 | <待提交> | |
-| P3.B 模块级配置重构 | 已完成 | <待提交> | 择期 |
-| P3.C dateutil 替换 | 已完成 | <待提交> | |
+| P3.A BaseHTTPMiddleware → ASGI | 已完成 | 614dd8c | |
+| P3.B 模块级配置重构 | 已完成 | 614dd8c | 择期 |
+| P3.C dateutil 替换 | 已完成 | 614dd8c | |
 
 执行方每完成一项，把状态改"已完成"，commit 填实际 hash。
