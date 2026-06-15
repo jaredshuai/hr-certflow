@@ -93,19 +93,6 @@ class Settings(BaseSettings):
     def resolved_celery_fanout_prefix(self) -> str:
         return f"{self.resolved_celery_redis_hash_tag}:fanout"
 
-    @property
-    def trusted_proxy_networks(self) -> list:
-        import ipaddress
-
-        if not self.trusted_proxy_cidrs:
-            return []
-        networks = []
-        for cidr in self.trusted_proxy_cidrs.split(","):
-            cidr = cidr.strip()
-            if cidr:
-                networks.append(ipaddress.ip_network(cidr, strict=False))
-        return networks
-
 
 @lru_cache
 def get_settings() -> Settings:
