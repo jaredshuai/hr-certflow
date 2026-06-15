@@ -46,7 +46,7 @@ rtk npm run build
 
 ## P0.A — 后端全 sync 改造
 
-**Status:** 已完成 @<待提交>
+**Status:** 已完成 @e712e68
 **优先级依据：** 当前 async def 路由里直接跑同步 DB Session，同步操作阻塞
 事件循环；慢识别（Dify 120s）会独占事件循环线程，拖累整个 API 进程吞吐。
 内部 HR 系统并发低，不值得引入 asyncpg + AsyncSession 的复杂度。Celery 已
@@ -137,7 +137,7 @@ rtk npm run build
 
 ## P0.B — auto_create_tables 默认改 False
 
-**Status:** 已完成 @<待提交>
+**Status:** 已完成 @e712e68
 **优先级依据：** `app_env` 默认 "local"、`auto_create_tables` 默认 True，
 任何忘记设 APP_ENV 的生产 pod 启动时会 `Base.metadata.create_all`。虽然
 Alembic migration 会随后补建索引，但顺序错乱时（migration job 失败但 API
@@ -219,7 +219,7 @@ Helm values 不能跟着误设 true。
 
 ## P1.A — 网关层 OIDC 认证 + 可信代理校验
 
-**Status:** 已完成 @<待提交>
+**Status:** 已完成 @e712e68
 **优先级依据：** 当前 `X-HR-Actor` header 零校验，内网任何人 curl 一下就能
 以任意 HR 身份创建/审批证书，且这条记录会真实进审计日志、进证书台账。对
 system of record 这是架构级缺口。北极星文档已承认此风险（"must not rely
@@ -318,7 +318,7 @@ header，拒绝直连伪造。
 
 ## P1.B — recognize 识别任务化（Celery）
 
-**Status:** 已完成 @<待提交>
+**Status:** 已完成 @e712e68
 **优先级依据：** P0.A 完成后，recognize 变成 sync `def`，120s Dify 调用
 阻塞的是 threadpool worker（40 并发才到瓶颈）。所以本项**不再阻塞**，作为
 UX/韧性改进推进：任务化后失败可由 Celery 重试机制兜底，前端不再长时间
@@ -424,7 +424,7 @@ UX/韧性改进推进：任务化后失败可由 Celery 重试机制兜底，前
 
 ## P2.A — boto3 client 缓存
 
-**Status:** 已完成 @<待提交>
+**Status:** 已完成 @e712e68
 **优先级依据：** `reviews.py` 的 `list_review_tasks` 对每个 task 调
 `_build_document_read_url` → 新建 `ObjectStorage` → 新建 boto3 client。
 100 个 task = 100 次 client 构造（解析凭证 + 建连接池），不便宜。
@@ -454,7 +454,7 @@ boto3 client 线程安全，可安全缓存。
 
 ## P2.B — trace/audit helper 收敛
 
-**Status:** 已完成 @<待提交>
+**Status:** 已完成 @e712e68
 **优先级依据：** 6 个路由各有 `_load_*_trace_audit_logs`，结构高度重复。
 gap register 里 trace 覆盖还要扩，越早收敛越省事。
 
@@ -622,12 +622,12 @@ def _add_calendar_months(value: date, months: int) -> date:
 
 | 章节 | 状态 | 完成 commit | 备注 |
 | --- | --- | --- | --- |
-| P0.A 全 sync 改造 | 已完成 | <待提交> | |
-| P0.B auto_create_tables 默认 False | 已完成 | <待提交> | |
-| P1.A 网关 OIDC + trusted proxy | 已完成 | <待提交> | 默认不阻塞 CI |
-| P1.B recognize 任务化 | 已完成 | <待提交> | 依赖 P0.A |
-| P2.A boto3 client 缓存 | 已完成 | <待提交> | |
-| P2.B trace/audit helper 收敛 | 已完成 | <待提交> | |
+| P0.A 全 sync 改造 | 已完成 | e712e68 | |
+| P0.B auto_create_tables 默认 False | 已完成 | e712e68 | |
+| P1.A 网关 OIDC + trusted proxy | 已完成 | e712e68 | 默认不阻塞 CI |
+| P1.B recognize 任务化 | 已完成 | e712e68 | 依赖 P0.A |
+| P2.A boto3 client 缓存 | 已完成 | e712e68 | |
+| P2.B trace/audit helper 收敛 | 已完成 | e712e68 | |
 | P2.C Celery 队列拆分 | 待观察 | — | 视并发触发 |
 | P3.A BaseHTTPMiddleware → ASGI | 待整改 | — | |
 | P3.B 模块级配置重构 | 待整改 | — | 择期 |
