@@ -73,6 +73,9 @@ def run_certificate_recognition(self, document_id: str, user: str) -> dict:
         if not document:
             return {"error": "document_not_found", "document_id": document_id}
 
+        if document.status in {DocumentStatus.PENDING_REVIEW, DocumentStatus.CONFIRMED}:
+            return {"skipped": True, "status": document.status.value, "reason": "already_processed"}
+
         if document.status not in {DocumentStatus.PARSING, DocumentStatus.UPLOADED, DocumentStatus.FAILED}:
             return {"skipped": True, "status": document.status.value}
 
