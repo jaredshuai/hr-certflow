@@ -28,6 +28,9 @@ product, not an MVP/demo, AI showcase, or one-off script workflow.
 - Prefix shell commands with `rtk` when available so long outputs are filtered
   before they enter the agent context. If a tool wrapper cannot execute through
   `rtk`, use the wrapper normally and keep output scoped.
+- Use Conventional Commits for git commit messages, for example
+  `feat: add certificate expiry drill-down`, `fix: persist failed extraction
+  status`, or `docs: update release evidence checklist`.
 
 ## Product North Star
 
