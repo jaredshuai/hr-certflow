@@ -51,7 +51,7 @@ from app.schemas.certificates import (
     CertificateTypeDefaultReminderPolicyUpsert,
     CertificateTypeUpdate,
 )
-from app.schemas.documents import ReviewApproveCreate
+from app.schemas.documents import ReviewApproveCreate, ReviewApproveItem
 from app.schemas.reminders import FeedbackCreate, ReminderDispatchCreate, ReminderPolicyCreate, ReminderPolicyUpdate
 from app.services.certificates import replace_active_certificates
 from app.services.notifications import NotificationMessage, NotificationRouter
@@ -746,26 +746,30 @@ def test_review_approval_creates_active_certificate_and_replaces_old_one(db_sess
     decision = approve_review_task(
         review_task.id,
         ReviewApproveCreate(
-            employee_id=employee.id,
-            certificate_type_id=certificate_type.id,
-            certificate_no="CERT-NEW",
-            holder_name=employee.name,
-            issue_date=date(2026, 6, 1),
-            valid_to=date(2028, 6, 1),
+            certificates=[
+                ReviewApproveItem(
+                    employee_id=employee.id,
+                    certificate_type_id=certificate_type.id,
+                    certificate_no="CERT-NEW",
+                    holder_name=employee.name,
+                    issue_date=date(2026, 6, 1),
+                    valid_to=date(2028, 6, 1),
+                ),
+            ],
             reviewed_by="Alice HR",
             expected_updated_at=review_task.updated_at,
-        ),
+            ),
         db_session,
     )
 
     db_session.flush()
-    assert decision.certificate is not None
-    assert decision.certificate.status == CertificateStatus.ACTIVE
-    assert decision.certificate.source_document_id == document.id
+    assert decision.certificates[0] is not None
+    assert decision.certificates[0].status == CertificateStatus.ACTIVE
+    assert decision.certificates[0].source_document_id == document.id
     assert review_task.status == ReviewStatus.APPROVED
     assert document.status == DocumentStatus.CONFIRMED
     assert old_certificate.status == CertificateStatus.REPLACED
-    assert old_certificate.replaced_by_id == decision.certificate.id
+    assert old_certificate.replaced_by_id == decision.certificates[0].id
     assert reminder_task.status == ReminderTaskStatus.CLOSED
     assert reminder_task.closed_reason == "certificate_replaced"
 
@@ -797,32 +801,36 @@ def test_review_approval_derives_valid_to_from_certificate_type_default(
     decision = approve_review_task(
         review_task.id,
         ReviewApproveCreate(
-            employee_id=employee.id,
-            certificate_type_id=certificate_type.id,
-            certificate_no="CERT-DEFAULT-VALIDITY",
-            holder_name=employee.name,
-            issue_date=date(2026, 5, 20),
+            certificates=[
+                ReviewApproveItem(
+                    employee_id=employee.id,
+                    certificate_type_id=certificate_type.id,
+                    certificate_no="CERT-DEFAULT-VALIDITY",
+                    holder_name=employee.name,
+                    issue_date=date(2026, 5, 20),
+                ),
+            ],
             reviewed_by="Alice HR",
             expected_updated_at=review_task.updated_at,
-        ),
+            ),
         db_session,
     )
 
-    assert decision.certificate is not None
-    assert decision.certificate.valid_to == date(2027, 5, 20)
+    assert decision.certificates[0] is not None
+    assert decision.certificates[0].valid_to == date(2027, 5, 20)
     assert review_task.decision_payload is not None
-    assert review_task.decision_payload["valid_to_derivation"] == {
+    assert review_task.decision_payload["valid_to_derivations"] == [{
         "source": "certificate_type.default_validity_months",
         "base_field": "issue_date",
         "base_date": "2026-05-20",
         "months": 12,
         "valid_to": "2027-05-20",
-    }
+    }]
 
     created = scan_and_create_reminder_tasks(db_session, today=date(2027, 4, 20))
     db_session.flush()
     reminder_task = db_session.scalar(
-        select(ReminderTask).where(ReminderTask.employee_certificate_id == decision.certificate.id)
+        select(ReminderTask).where(ReminderTask.employee_certificate_id == decision.certificates[0].id)
     )
 
     assert created == 1
@@ -853,20 +861,24 @@ def test_review_approval_keeps_explicit_valid_to_over_certificate_type_default(
     decision = approve_review_task(
         review_task.id,
         ReviewApproveCreate(
-            employee_id=employee.id,
-            certificate_type_id=certificate_type.id,
-            certificate_no="CERT-EXPLICIT-VALIDITY",
-            holder_name=employee.name,
-            issue_date=date(2026, 5, 20),
-            valid_to=date(2026, 8, 1),
+            certificates=[
+                ReviewApproveItem(
+                    employee_id=employee.id,
+                    certificate_type_id=certificate_type.id,
+                    certificate_no="CERT-EXPLICIT-VALIDITY",
+                    holder_name=employee.name,
+                    issue_date=date(2026, 5, 20),
+                    valid_to=date(2026, 8, 1),
+                ),
+            ],
             reviewed_by="Alice HR",
             expected_updated_at=review_task.updated_at,
-        ),
+            ),
         db_session,
     )
 
-    assert decision.certificate is not None
-    assert decision.certificate.valid_to == date(2026, 8, 1)
+    assert decision.certificates[0] is not None
+    assert decision.certificates[0].valid_to == date(2026, 8, 1)
     assert review_task.decision_payload is not None
     assert "valid_to_derivation" not in review_task.decision_payload
 
@@ -890,13 +902,17 @@ def test_review_approval_rejects_holder_name_mismatch(db_session: Session) -> No
         approve_review_task(
             review_task.id,
             ReviewApproveCreate(
-                employee_id=employee.id,
-                certificate_type_id=certificate_type.id,
-                certificate_no="CERT-MISMATCH",
-                holder_name="李四",
+                certificates=[
+                    ReviewApproveItem(
+                        employee_id=employee.id,
+                        certificate_type_id=certificate_type.id,
+                        certificate_no="CERT-MISMATCH",
+                        holder_name="李四",
+                    ),
+                ],
                 reviewed_by="Alice HR",
                 expected_updated_at=review_task.updated_at,
-            ),
+                ),
             db_session,
         )
 
@@ -930,13 +946,17 @@ def test_review_approval_rejects_duplicate_certificate_number(db_session: Sessio
         approve_review_task(
             review_task.id,
             ReviewApproveCreate(
-                employee_id=employee.id,
-                certificate_type_id=certificate_type.id,
-                certificate_no="CERT-DUP",
-                holder_name=employee.name,
+                certificates=[
+                    ReviewApproveItem(
+                        employee_id=employee.id,
+                        certificate_type_id=certificate_type.id,
+                        certificate_no="CERT-DUP",
+                        holder_name=employee.name,
+                    ),
+                ],
                 reviewed_by="Alice HR",
                 expected_updated_at=review_task.updated_at,
-            ),
+                ),
             db_session,
         )
 
@@ -964,13 +984,17 @@ def test_review_approval_rejects_left_employee_for_current_certificate(db_sessio
         approve_review_task(
             review_task.id,
             ReviewApproveCreate(
-                employee_id=employee.id,
-                certificate_type_id=certificate_type.id,
-                certificate_no="CERT-LEFT",
-                holder_name=employee.name,
+                certificates=[
+                    ReviewApproveItem(
+                        employee_id=employee.id,
+                        certificate_type_id=certificate_type.id,
+                        certificate_no="CERT-LEFT",
+                        holder_name=employee.name,
+                    ),
+                ],
                 reviewed_by="Alice HR",
                 expected_updated_at=review_task.updated_at,
-            ),
+                ),
             db_session,
         )
 
@@ -997,13 +1021,17 @@ def test_review_approval_requires_pending_review_document(db_session: Session) -
         approve_review_task(
             review_task.id,
             ReviewApproveCreate(
-                employee_id=employee.id,
-                certificate_type_id=certificate_type.id,
-                certificate_no="CERT-CONFIRMED",
-                holder_name=employee.name,
+                certificates=[
+                    ReviewApproveItem(
+                        employee_id=employee.id,
+                        certificate_type_id=certificate_type.id,
+                        certificate_no="CERT-CONFIRMED",
+                        holder_name=employee.name,
+                    ),
+                ],
                 reviewed_by="Alice HR",
                 expected_updated_at=review_task.updated_at,
-            ),
+                ),
             db_session,
         )
 
@@ -1033,13 +1061,17 @@ def test_review_approval_rejects_stale_task_version(db_session: Session) -> None
         approve_review_task(
             review_task.id,
             ReviewApproveCreate(
-                employee_id=employee.id,
-                certificate_type_id=certificate_type.id,
-                certificate_no="CERT-STALE",
-                holder_name=employee.name,
+                certificates=[
+                    ReviewApproveItem(
+                        employee_id=employee.id,
+                        certificate_type_id=certificate_type.id,
+                        certificate_no="CERT-STALE",
+                        holder_name=employee.name,
+                    ),
+                ],
                 reviewed_by="Alice HR",
                 expected_updated_at=stale_updated_at,
-            ),
+                ),
             db_session,
         )
 
