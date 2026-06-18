@@ -436,7 +436,7 @@ export default function CertificatesPage() {
                 style={{ marginTop: 12 }}
                 items={currentTrace.ai_results.map((result, index) => ({
                   key: result.id,
-                  label: `AI 结果 ${index + 1}：${result.model_name || result.workflow_run_id || result.id}`,
+                  label: `AI 结果 ${index + 1}：${result.model_name || result.id}`,
                   children: (
                     <Typography.Paragraph copyable style={{ whiteSpace: 'pre-wrap' }}>
                       {traceValue(result.output_json)}

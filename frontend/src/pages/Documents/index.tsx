@@ -306,11 +306,11 @@ export default function DocumentsPage() {
                 <Collapse
                   items={currentTrace.ai_results.map((result, index) => ({
                     key: result.id,
-                    label: `AI 结果 ${index + 1}：${result.model_name || result.workflow_run_id || result.id}`,
+                    label: `AI 结果 ${index + 1}：${result.model_name || result.id}`,
                     children: (
                       <Space orientation="vertical" size={8} style={{ width: '100%' }}>
                         <Descriptions column={2} size="small">
-                          <Descriptions.Item label="工作流">
+                          <Descriptions.Item label="识别批次号">
                             {result.workflow_run_id || '-'}
                           </Descriptions.Item>
                           <Descriptions.Item label="模型">

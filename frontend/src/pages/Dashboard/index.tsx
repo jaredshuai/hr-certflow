@@ -206,7 +206,7 @@ export default function DashboardPage() {
           )}
         </ProCard>
 
-        <ProCard title="待办压力分布" loading={loading}>
+        <ProCard title="待办任务分布" loading={loading}>
           {metrics.workloadRows.length > 0 ? (
             <Column
               data={metrics.workloadRows}
@@ -223,16 +223,16 @@ export default function DashboardPage() {
               onEvent={(_, event) => handleChartEvent(event)}
             />
           ) : (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待办压力数据" />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待办任务数据" />
           )}
         </ProCard>
       </div>
 
-      <ProCard style={{ marginTop: 16 }} title="北极星交付进度" loading={loading}>
+      <ProCard style={{ marginTop: 16 }} title="证书处理进度" loading={loading}>
         {metrics.pipelineSteps.some((step) => step.count > 0) ? (
           <>
             <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              按真实业务对象统计：上传和识别来自证书文件，复核来自复核任务，入库来自正式持证记录，提醒来自提醒任务。
+              按处理阶段统计：上传和识别来自证书文件，复核来自复核任务，入库来自正式持证记录，提醒来自提醒任务。
             </Typography.Paragraph>
             <Steps
               current={-1}
@@ -250,7 +250,7 @@ export default function DashboardPage() {
             />
           </>
         ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无交付进度数据" />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无处理进度数据" />
         )}
       </ProCard>
 

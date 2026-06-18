@@ -464,7 +464,7 @@ export default function UploadRecognitionPage() {
               { title: '状态', dataIndex: 'status', render: (text) => documentStatusLabel(String(text)) },
               { title: '当前文件', dataIndex: 'file' },
               { title: '识别结果', dataIndex: 'ai' },
-              { title: '模型/工作流', dataIndex: 'result' },
+              { title: '识别模型', dataIndex: 'result' },
             ]}
           />
           <Divider />

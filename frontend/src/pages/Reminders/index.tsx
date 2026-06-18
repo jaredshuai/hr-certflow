@@ -610,7 +610,7 @@ export default function RemindersPage() {
         }}
         locale={{ emptyText: emptyTableText('暂无提醒任务，系统会在证书临期或过期时生成') }}
         toolbar={{
-          title: '到期提醒闭环',
+          title: '到期提醒总览',
           actions: [
             <Space key="feedback-actor">
               <Typography.Text>反馈人</Typography.Text>
@@ -778,7 +778,7 @@ export default function RemindersPage() {
                           {event.error || `已记录：${event.sent_at || '未发送'}`}
                         </Typography.Text>
                         <Typography.Text type="secondary">
-                          接收方：{event.recipient || '-'} / Provider ID：
+                          接收方：{event.recipient || '-'} / 发送回执：
                           {event.provider_message_id || '-'}
                         </Typography.Text>
                         {event.payload ? (

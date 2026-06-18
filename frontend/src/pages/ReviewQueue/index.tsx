@@ -436,7 +436,7 @@ export default function ReviewQueuePage() {
                 <Space orientation="vertical" size={12} style={{ width: '100%' }}>
                   <ExtractionQualitySummary output={currentTrace.ai_result.output_json} />
                   <Descriptions column={2} size="small">
-                    <Descriptions.Item label="工作流运行">
+                    <Descriptions.Item label="识别批次号">
                       {currentTrace.ai_result.workflow_run_id || '-'}
                     </Descriptions.Item>
                     <Descriptions.Item label="模型">
