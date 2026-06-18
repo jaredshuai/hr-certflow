@@ -93,7 +93,7 @@ def test_recognize_async_dispatches_task(monkeypatch) -> None:
     assert result.task_id == "fake-task-id"
     assert document.status == DocumentStatus.PARSING
     assert db.commits == 1
-    mock_delay.assert_called_once_with(str(document.id), "hr")
+    mock_delay.assert_called_once_with(str(document.id), "hr", None)
 
 
 def test_recognize_async_rejects_unconfirmed_upload() -> None:

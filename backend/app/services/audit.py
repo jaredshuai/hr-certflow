@@ -86,6 +86,7 @@ def record_audit(
     resource_id: str | None = None,
     actor_id: str | None = None,
     actor_name: str | None = None,
+    actor_source: str | None = None,
     before: dict[str, Any] | None = None,
     after: dict[str, Any] | None = None,
     request_id: str | None = None,
@@ -94,6 +95,7 @@ def record_audit(
     entry = AuditLog(
         actor_id=actor_id,
         actor_name=actor_name,
+        actor_source=actor_source,
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,

@@ -556,7 +556,8 @@ def recognize_document_async(
 
     from app.tasks.documents import run_certificate_recognition
 
-    task = run_certificate_recognition.delay(str(document.id), user)
+    actor_source = request_context.actor_source if request_context else None
+    task = run_certificate_recognition.delay(str(document.id), user, actor_source)
     return RecognitionDispatchRead(
         document_id=document.id,
         status=DocumentStatus.PARSING,

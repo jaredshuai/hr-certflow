@@ -305,6 +305,7 @@ class AuditLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     actor_id: Mapped[str | None] = mapped_column(String(128))
     actor_name: Mapped[str | None] = mapped_column(String(128))
+    actor_source: Mapped[str | None] = mapped_column(String(32))
     action: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     resource_type: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     resource_id: Mapped[str | None] = mapped_column(String(128), index=True)

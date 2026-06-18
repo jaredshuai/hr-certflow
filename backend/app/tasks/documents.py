@@ -34,7 +34,7 @@ def _close_open_review_tasks(db, *, document_id, replaced_by_ai_result_id, user,
     return list(open_tasks)
 
 
-def _mark_failed(db, document_id: str, reason: str, user: str) -> None:
+def _mark_failed(db, document_id: str, reason: str, user: str, actor_source: str | None = None) -> None:
     try:
         document = db.get(CertificateDocument, document_id)
         if document and document.status == DocumentStatus.PARSING:
@@ -51,6 +51,7 @@ def _mark_failed(db, document_id: str, reason: str, user: str) -> None:
                     "user": user,
                 },
                 actor_name=user,
+                actor_source=actor_source,
             )
             db.commit()
     except Exception:
@@ -66,7 +67,7 @@ def _mark_failed(db, document_id: str, reason: str, user: str) -> None:
     retry_jitter=True,
     max_retries=3,
 )
-def run_certificate_recognition(self, document_id: str, user: str) -> dict:
+def run_certificate_recognition(self, document_id: str, user: str, actor_source: str | None = None) -> dict:
     db = SessionLocal()
     try:
         document = db.get(CertificateDocument, document_id)
@@ -136,6 +137,7 @@ def run_certificate_recognition(self, document_id: str, user: str) -> dict:
                 "user": user,
             },
             actor_name=user,
+            actor_source=actor_source,
         )
         db.commit()
         return {"document_id": document_id, "ai_result_id": str(result.id)}
@@ -146,7 +148,7 @@ def run_certificate_recognition(self, document_id: str, user: str) -> dict:
     except Exception as exc:
         db.rollback()
         reason = f"{exc.__class__.__name__}: {str(exc).splitlines()[0]}"[:500]
-        _mark_failed(db, document_id, reason, user)
+        _mark_failed(db, document_id, reason, user, actor_source=actor_source)
         return {"error": reason, "document_id": document_id}
     finally:
         db.close()
