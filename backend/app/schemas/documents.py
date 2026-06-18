@@ -102,7 +102,8 @@ class ReviewTaskRead(ORMModel):
     ai_confidence: float | None = None
 
 
-class ReviewApproveCreate(BaseModel):
+class ReviewApproveItem(BaseModel):
+    """单条证书审核确认数据"""
     employee_id: UUID
     certificate_type_id: UUID
     certificate_no: str | None = Field(default=None, max_length=128)
@@ -112,6 +113,10 @@ class ReviewApproveCreate(BaseModel):
     valid_from: date | None = None
     valid_to: date | None = None
     review_date: date | None = None
+
+
+class ReviewApproveCreate(BaseModel):
+    certificates: list[ReviewApproveItem] = Field(min_length=1)
     reviewed_by: str = Field(min_length=1, max_length=128)
     notes: str | None = None
     expected_updated_at: datetime
@@ -126,7 +131,7 @@ class ReviewRejectCreate(BaseModel):
 
 class ReviewDecisionRead(BaseModel):
     review_task: ReviewTaskRead
-    certificate: EmployeeCertificateRead | None = None
+    certificates: list[EmployeeCertificateRead] = Field(default_factory=list)
 
 
 class ReviewTaskTraceRead(BaseModel):

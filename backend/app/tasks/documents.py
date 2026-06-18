@@ -145,6 +145,12 @@ def run_certificate_recognition(self, document_id: str, user: str, actor_source:
     except httpx.HTTPError:
         db.rollback()
         raise
+    except ValueError as exc:
+        # 门禁失败 (normalize_dify_outputs 抛出): 提取结果无效
+        db.rollback()
+        reason = f"ExtractionGate: {str(exc).splitlines()[0]}"[:500]
+        _mark_failed(db, document_id, reason, user, actor_source=actor_source)
+        return {"error": reason, "document_id": document_id}
     except Exception as exc:
         db.rollback()
         reason = f"{exc.__class__.__name__}: {str(exc).splitlines()[0]}"[:500]

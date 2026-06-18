@@ -351,12 +351,31 @@ export interface UploadIntent {
   read_url?: string;
 }
 
+export interface ExtractedCertificate {
+  holder_name?: string;
+  certificate_name?: string;
+  certificate_no?: string;
+  issuing_authority?: string;
+  issue_date?: string;
+  valid_from?: string;
+  valid_to?: string;
+  review_date?: string;
+}
+
+export interface ExtractionOutput {
+  certificates: ExtractedCertificate[];
+  raw_text?: string;
+  suspicious_points?: string[];
+  model_name?: string;
+  confidence?: number;
+}
+
 export interface AiExtractionResult {
   id: string;
   document_id: string;
   workflow_run_id?: string;
   model_name?: string;
-  output_json: Record<string, unknown>;
+  output_json: ExtractionOutput;
   raw_text?: string;
   suspicious_points: string[];
   confidence?: number;
@@ -377,7 +396,7 @@ export interface RecognitionStatus {
   failure_reason?: string;
 }
 
-export interface ReviewApprovePayload {
+export interface ReviewApproveItem {
   employee_id: string;
   certificate_type_id: string;
   certificate_no?: string;
@@ -387,6 +406,10 @@ export interface ReviewApprovePayload {
   valid_from?: string;
   valid_to?: string;
   review_date?: string;
+}
+
+export interface ReviewApprovePayload {
+  certificates: ReviewApproveItem[];
   reviewed_by: string;
   notes?: string;
   expected_updated_at: string;
@@ -394,7 +417,7 @@ export interface ReviewApprovePayload {
 
 export interface ReviewDecision {
   review_task: ReviewTask;
-  certificate?: EmployeeCertificate;
+  certificates: EmployeeCertificate[];
 }
 
 export interface ReviewTaskTrace {

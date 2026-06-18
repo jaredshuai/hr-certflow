@@ -459,6 +459,29 @@ def recognize_document(
         )
         db.add(result)
         db.flush()
+    except ValueError as exc:
+        db.rollback()
+        document = db.get(CertificateDocument, document_id)
+        reason = f"ExtractionGate: {str(exc).splitlines()[0]}"[:500]
+        if document:
+            document.status = DocumentStatus.FAILED
+            document.failure_reason = reason
+            record_audit(
+                db,
+                action="certificate_document.recognize.failed",
+                resource_type="certificate_document",
+                resource_id=str(document.id),
+                after={
+                    "status": DocumentStatus.FAILED.value,
+                    "failure_reason": reason,
+                    "user": user,
+                },
+                actor_name=audit_actor_name(request_context, user),
+                request_id=audit_request_id(request_context),
+                ip_address=audit_ip_address(request_context),
+            )
+            db.commit()
+        raise HTTPException(status_code=502, detail="Certificate recognition gate rejected the extraction") from exc
     except Exception as exc:
         db.rollback()
         document = db.get(CertificateDocument, document_id)

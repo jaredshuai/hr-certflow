@@ -18,6 +18,7 @@ import type {
   CertificateDocument,
   RecognitionDispatch,
   RecognitionStatus,
+  ReviewApproveItem,
   ReviewApprovePayload,
   ReviewDecision,
   ReviewTask,
@@ -289,7 +290,7 @@ export default function UploadRecognitionPage() {
       return;
     }
 
-    const payload: ReviewApprovePayload = {
+    const certItem: ReviewApproveItem = {
       employee_id: values.employee_id!,
       certificate_type_id: values.certificate_type_id!,
       certificate_no: values.certificate_no,
@@ -299,6 +300,9 @@ export default function UploadRecognitionPage() {
       valid_from: formatDateValue(values.valid_from),
       valid_to: formatDateValue(values.valid_to),
       review_date: formatDateValue(values.review_date),
+    };
+    const payload: ReviewApprovePayload = {
+      certificates: [certItem],
       reviewed_by: values.reviewed_by!.trim(),
       notes: values.notes,
       expected_updated_at: reviewTaskUpdatedAt!,

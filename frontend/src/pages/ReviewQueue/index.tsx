@@ -1,5 +1,4 @@
 import {
-  DrawerForm,
   ModalForm,
   PageContainer,
   ProFormDatePicker,
@@ -11,19 +10,19 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Alert, Button, Collapse, Descriptions, Drawer, Empty, Space, Timeline, Typography } from 'antd';
-import { useEffect, useRef, useState } from 'react';
+import { Alert, Button, Collapse, Descriptions, Drawer, Empty, Segmented, Space, Timeline, Typography, message as antdMessage } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ExtractionQualitySummary,
   buildExtractionQuality,
   extractionSuspiciousPoints,
-  outputText,
 } from '@/components/ExtractionQualitySummary';
-import { getResource, listResource, postResource } from '@/services/api';
 import type {
   CertificateType,
   Employee,
+  ExtractedCertificate,
+  ReviewApproveItem,
   ReviewApprovePayload,
   ReviewDecision,
   ReviewStatus,
@@ -43,21 +42,6 @@ import { emptyTableText } from '@/utils/emptyStates';
 import { employeeSelectOption } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
 
-interface ReviewFormValues {
-  employee_id?: string;
-  certificate_type_id?: string;
-  holder_name?: string;
-  certificate_name?: string;
-  certificate_no?: string;
-  issuing_authority?: string;
-  issue_date?: unknown;
-  valid_from?: unknown;
-  valid_to?: unknown;
-  review_date?: unknown;
-  reviewed_by?: string;
-  notes?: string;
-}
-
 interface RejectFormValues {
   reviewed_by?: string;
   notes?: string;
@@ -66,15 +50,6 @@ interface RejectFormValues {
 interface ReviewDecisionTarget {
   review: ReviewTask;
   status: Extract<ReviewStatus, 'REJECTED' | 'NEEDS_INFO'>;
-}
-
-function formatDateValue(value: unknown): string | undefined {
-  if (!value) return undefined;
-  if (typeof value === 'string') return value.slice(0, 10);
-  if (typeof value === 'object' && value && 'format' in value && typeof value.format === 'function') {
-    return value.format('YYYY-MM-DD');
-  }
-  return undefined;
 }
 
 function formatFileSize(value: number | undefined): string {
@@ -115,11 +90,54 @@ function employeeMatchWarning(employees: Employee[], holderName: string | undefi
   return undefined;
 }
 
+function emptyApproveItem(): ReviewApproveItem {
+  return {
+    employee_id: '',
+    certificate_type_id: '',
+    holder_name: '',
+  };
+}
+
+/** 从 review task 的 ai_output_json 构建 N 条证书表单初始值 */
+function buildApproveItems(
+  record: ReviewTask,
+  employees: Employee[],
+  certificateTypes: CertificateType[],
+): ReviewApproveItem[] {
+  const output = record.ai_output_json as { certificates?: ExtractedCertificate[] } | undefined;
+  const certs = output?.certificates;
+  if (!Array.isArray(certs) || certs.length === 0) {
+    return [emptyApproveItem()];
+  }
+  return certs.map((cert) => {
+    const holderName = cert.holder_name?.trim();
+    const certificateName = cert.certificate_name?.trim();
+    const matchedEmployee = autoMatchedEmployee(employees, holderName);
+    const matchedCertificateType = certificateTypes.find((ct) => ct.name === certificateName);
+    return {
+      employee_id: matchedEmployee?.id || '',
+      certificate_type_id: matchedCertificateType?.id || '',
+      holder_name: holderName || '',
+      certificate_no: cert.certificate_no,
+      issuing_authority: cert.issuing_authority,
+      issue_date: cert.issue_date,
+      valid_from: cert.valid_from,
+      valid_to: cert.valid_to,
+      review_date: cert.review_date,
+    };
+  });
+}
+
 export default function ReviewQueuePage() {
   const actionRef = useRef<ActionType>();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [certificateTypes, setCertificateTypes] = useState<CertificateType[]>([]);
   const [currentReview, setCurrentReview] = useState<ReviewTask>();
+  const [certificateForms, setCertificateForms] = useState<ReviewApproveItem[]>([]);
+  const [activeCertIndex, setActiveCertIndex] = useState(0);
+  const [reviewedBy, setReviewedBy] = useState('');
+  const [reviewNotes, setReviewNotes] = useState('');
+  const [approving, setApproving] = useState(false);
   const [decisionTarget, setDecisionTarget] = useState<ReviewDecisionTarget>();
   const [traceOpen, setTraceOpen] = useState(false);
   const [traceLoading, setTraceLoading] = useState(false);
@@ -127,7 +145,6 @@ export default function ReviewQueuePage() {
   const [loadError, setLoadError] = useState<string>();
   const [staleActionError, setStaleActionError] = useState<string>();
 
-  // Need full lists to match AI output to employee/cert type for prefill.
   useEffect(() => {
     async function loadOptions() {
       const [employeeList, typeList] = await Promise.all([
@@ -143,53 +160,67 @@ export default function ReviewQueuePage() {
     });
   }, []);
 
-  function buildApproveInitial(record: ReviewTask): ReviewFormValues {
-    const output = record.ai_output_json;
-    const holderName = outputText(output, 'holder_name');
-    const certificateName = outputText(output, 'certificate_name');
-    const matchedEmployee = autoMatchedEmployee(employees, holderName);
-    const matchedCertificateType = certificateTypes.find((certificateType) => certificateType.name === certificateName);
-
-    return {
-      employee_id: matchedEmployee?.id,
-      certificate_type_id: matchedCertificateType?.id,
-      holder_name: holderName,
-      certificate_name: certificateName,
-      certificate_no: outputText(output, 'certificate_no'),
-      issuing_authority: outputText(output, 'issuing_authority'),
-      issue_date: outputText(output, 'issue_date'),
-      valid_from: outputText(output, 'valid_from'),
-      valid_to: outputText(output, 'valid_to'),
-      review_date: outputText(output, 'review_date'),
-      reviewed_by: undefined,
-      notes: record.notes,
-    };
+  function openApproveDrawer(record: ReviewTask) {
+    setCurrentReview(record);
+    setCertificateForms(buildApproveItems(record, employees, certificateTypes));
+    setActiveCertIndex(0);
+    setReviewedBy('');
+    setReviewNotes(record.notes || '');
   }
 
-  async function handleApprove(values: ReviewFormValues): Promise<boolean> {
-    if (!currentReview) return false;
+  function updateActiveCert(patch: Partial<ReviewApproveItem>) {
+    setCertificateForms((prev) => {
+      const next = [...prev];
+      next[activeCertIndex] = { ...next[activeCertIndex], ...patch };
+      return next;
+    });
+  }
+
+  function addCertificate() {
+    setCertificateForms((prev) => [...prev, emptyApproveItem()]);
+    setActiveCertIndex(certificateForms.length);
+  }
+
+  function removeCertificate(index: number) {
+    if (certificateForms.length <= 1) return;
+    setCertificateForms((prev) => prev.filter((_, i) => i !== index));
+    setActiveCertIndex((prev) => Math.max(0, prev > index ? prev - 1 : prev));
+  }
+
+  async function handleApprove() {
+    if (!currentReview) return;
+    if (!reviewedBy.trim()) {
+      antdMessage.warning('请输入复核人');
+      return;
+    }
+    for (let i = 0; i < certificateForms.length; i++) {
+      const item = certificateForms[i];
+      if (!item.employee_id || !item.certificate_type_id || !item.holder_name?.trim()) {
+        antdMessage.warning(`第 ${i + 1} 条证书缺少必填字段（员工、证书类型、持证人）`);
+        return;
+      }
+    }
+
     const payload: ReviewApprovePayload = {
-      employee_id: values.employee_id!,
-      certificate_type_id: values.certificate_type_id!,
-      certificate_no: values.certificate_no,
-      holder_name: values.holder_name!,
-      issuing_authority: values.issuing_authority,
-      issue_date: formatDateValue(values.issue_date),
-      valid_from: formatDateValue(values.valid_from),
-      valid_to: formatDateValue(values.valid_to),
-      review_date: formatDateValue(values.review_date),
-      reviewed_by: values.reviewed_by!.trim(),
-      notes: values.notes,
+      certificates: certificateForms.map((item) => ({
+        ...item,
+        holder_name: item.holder_name.trim(),
+      })),
+      reviewed_by: reviewedBy.trim(),
+      notes: reviewNotes.trim() || undefined,
       expected_updated_at: currentReview.updated_at,
     };
 
+    setApproving(true);
     try {
-      await postResource<ReviewDecision, ReviewApprovePayload>(`/reviews/${currentReview.id}/approve`, payload);
-      message.success('复核通过，已生成正式持证记录');
+      await postResource<ReviewDecision, ReviewApprovePayload>(
+        `/reviews/${currentReview.id}/approve`,
+        payload,
+      );
+      message.success(`复核通过，已生成 ${certificateForms.length} 条正式持证记录`);
       setCurrentReview(undefined);
       setStaleActionError(undefined);
       actionRef.current?.reload();
-      return true;
     } catch (error) {
       if (isReviewStaleActionError(error)) {
         const description = reviewStaleActionMessage(error);
@@ -197,10 +228,11 @@ export default function ReviewQueuePage() {
         setCurrentReview(undefined);
         actionRef.current?.reload();
         message.warning(description);
-        return false;
+      } else {
+        message.error(apiErrorMessage(error, '复核提交失败'));
       }
-      message.error(apiErrorMessage(error, '复核提交失败'));
-      return false;
+    } finally {
+      setApproving(false);
     }
   }
 
@@ -257,11 +289,14 @@ export default function ReviewQueuePage() {
     }
   }
 
-  const employeeOptions = employees.map(employeeSelectOption);
-  const certificateTypeOptions = certificateTypes.map((certificateType) => ({
-    label: certificateType.name,
-    value: certificateType.id,
-  }));
+  const employeeOptions = useMemo(() => employees.map(employeeSelectOption), [employees]);
+  const certificateTypeOptions = useMemo(
+    () => certificateTypes.map((ct) => ({ label: ct.name, value: ct.id })),
+    [certificateTypes],
+  );
+
+  const activeCert = certificateForms[activeCertIndex];
+  const holderNameForWarning = activeCert?.holder_name;
 
   const columns: ProColumns<ReviewTask>[] = [
     { title: '文件', dataIndex: 'document_original_filename', ellipsis: true, renderText: (value) => value || '-' },
@@ -300,7 +335,7 @@ export default function ReviewQueuePage() {
             size="small"
             type="link"
             danger={!buildExtractionQuality(record.ai_output_json).complete}
-            onClick={() => setCurrentReview(record)}
+            onClick={() => openApproveDrawer(record)}
           >
             复核
           </Button>
@@ -317,6 +352,11 @@ export default function ReviewQueuePage() {
       ),
     },
   ];
+
+  const certSegmentedOptions = certificateForms.map((_, index) => ({
+    label: `证书 ${index + 1}/${certificateForms.length}`,
+    value: index,
+  }));
 
   return (
     <PageContainer title="待复核队列">
@@ -522,22 +562,24 @@ export default function ReviewQueuePage() {
         )}
       </Drawer>
 
-      <DrawerForm<ReviewFormValues>
-        key={currentReview?.id ?? 'approve-empty'}
+      <Drawer
         title="复核识别结果"
         open={Boolean(currentReview)}
-        onOpenChange={(value) => {
-          if (!value) setCurrentReview(undefined);
-        }}
-        drawerProps={{ destroyOnHidden: true, mask: { closable: false } }}
-        layout="horizontal"
-        labelCol={{ span: 5 }}
-        width={680}
-        initialValues={currentReview ? buildApproveInitial(currentReview) : undefined}
-        onFinish={handleApprove}
+        onClose={() => setCurrentReview(undefined)}
+        destroyOnHidden
+        mask={{ closable: false }}
+        width={720}
+        extra={
+          <Space>
+            <Button onClick={() => setCurrentReview(undefined)}>取消</Button>
+            <Button type="primary" loading={approving} onClick={handleApprove}>
+              确认全部 ({certificateForms.length})
+            </Button>
+          </Space>
+        }
       >
-        {currentReview ? (
-          <Space orientation="vertical" size={16} style={{ width: '100%', marginBottom: 16 }}>
+        {currentReview && activeCert ? (
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
             <ProCard title="源文件">
               <Descriptions column={1} size="small">
                 <Descriptions.Item label="文件名">
@@ -546,19 +588,8 @@ export default function ReviewQueuePage() {
                 <Descriptions.Item label="文件状态">
                   {documentStatusLabel(currentReview.document_status)}
                 </Descriptions.Item>
-                <Descriptions.Item label="文件类型">
-                  {currentReview.document_content_type || '-'}
-                </Descriptions.Item>
                 <Descriptions.Item label="文件大小">
                   {formatFileSize(currentReview.document_file_size)}
-                </Descriptions.Item>
-                <Descriptions.Item label="SHA256">
-                  <Typography.Text copyable={Boolean(currentReview.document_sha256)}>
-                    {currentReview.document_sha256 || '-'}
-                  </Typography.Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="失败原因">
-                  {currentReview.document_failure_reason || '-'}
                 </Descriptions.Item>
               </Descriptions>
               {currentReview.document_read_url ? (
@@ -566,56 +597,121 @@ export default function ReviewQueuePage() {
                   打开源文件
                 </Button>
               ) : (
-                <Alert
-                  type="warning"
-                  showIcon
-                  title="暂时无法生成源文件预览链接"
-                  style={{ marginTop: 12 }}
-                />
+                <Alert type="warning" showIcon title="暂时无法生成源文件预览链接" style={{ marginTop: 12 }} />
               )}
             </ProCard>
+
             <ProCard title="AI 识别质量">
               <ExtractionQualitySummary output={currentReview.ai_output_json} />
             </ProCard>
-            {employeeMatchWarning(employees, outputText(currentReview.ai_output_json, 'holder_name')) ? (
+
+            {certificateForms.length > 1 ? (
+              <ProCard
+                title="证书切换"
+                extra={
+                  <Space>
+                    <Button size="small" onClick={addCertificate}>添加证书</Button>
+                    <Button size="small" danger onClick={() => removeCertificate(activeCertIndex)}>
+                      删除当前
+                    </Button>
+                  </Space>
+                }
+              >
+                <Segmented
+                  options={certSegmentedOptions}
+                  value={activeCertIndex}
+                  onChange={(value) => setActiveCertIndex(value as number)}
+                  block
+                />
+              </ProCard>
+            ) : (
+              <Space>
+                <Button size="small" onClick={addCertificate}>添加证书</Button>
+              </Space>
+            )}
+
+            {employeeMatchWarning(employees, holderNameForWarning) ? (
               <Alert
                 type="warning"
                 showIcon
                 title="员工匹配需要人工确认"
-                description={employeeMatchWarning(employees, outputText(currentReview.ai_output_json, 'holder_name'))}
+                description={employeeMatchWarning(employees, holderNameForWarning)}
               />
             ) : null}
+
+            <ProCard title={`证书 ${activeCertIndex + 1} 详情`}>
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <ProFormSelect
+                  label="员工"
+                  options={employeeOptions}
+                  showSearch
+                  value={activeCert.employee_id}
+                  onChange={(value) => updateActiveCert({ employee_id: value })}
+                />
+                <ProFormSelect
+                  label="证书类型"
+                  options={certificateTypeOptions}
+                  showSearch
+                  value={activeCert.certificate_type_id}
+                  onChange={(value) => updateActiveCert({ certificate_type_id: value })}
+                />
+                <ProFormText
+                  label="持证人"
+                  value={activeCert.holder_name}
+                  onChange={(e) => updateActiveCert({ holder_name: e.target.value })}
+                />
+                <ProFormText
+                  label="证书编号"
+                  value={activeCert.certificate_no}
+                  onChange={(e) => updateActiveCert({ certificate_no: e.target.value })}
+                />
+                <ProFormText
+                  label="发证机构"
+                  value={activeCert.issuing_authority}
+                  onChange={(e) => updateActiveCert({ issuing_authority: e.target.value })}
+                />
+                <ProFormDatePicker
+                  label="发证日期"
+                  value={activeCert.issue_date}
+                  onChange={(_, dateStr) => updateActiveCert({ issue_date: dateStr as string })}
+                />
+                <ProFormDatePicker
+                  label="有效开始"
+                  value={activeCert.valid_from}
+                  onChange={(_, dateStr) => updateActiveCert({ valid_from: dateStr as string })}
+                />
+                <ProFormDatePicker
+                  label="有效截止"
+                  tooltip="留空时，系统会按证书类型默认有效期和有效开始/发证日期自动计算"
+                  value={activeCert.valid_to}
+                  onChange={(_, dateStr) => updateActiveCert({ valid_to: dateStr as string })}
+                />
+                <ProFormDatePicker
+                  label="复审日期"
+                  value={activeCert.review_date}
+                  onChange={(_, dateStr) => updateActiveCert({ review_date: dateStr as string })}
+                />
+              </Space>
+            </ProCard>
+
+            <ProCard title="复核信息（所有证书共享）">
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <ProFormText
+                  label="复核人"
+                  value={reviewedBy}
+                  onChange={(e) => setReviewedBy(e.target.value)}
+                  placeholder="请输入复核人"
+                />
+                <ProFormTextArea
+                  label="复核备注"
+                  value={reviewNotes}
+                  onChange={(e) => setReviewNotes(e.target.value)}
+                />
+              </Space>
+            </ProCard>
           </Space>
         ) : null}
-        <ProFormSelect
-          name="employee_id"
-          label="员工"
-          rules={[{ required: true, message: '请选择员工' }]}
-          options={employeeOptions}
-          showSearch
-        />
-        <ProFormSelect
-          name="certificate_type_id"
-          label="证书类型"
-          rules={[{ required: true, message: '请选择证书类型' }]}
-          options={certificateTypeOptions}
-          showSearch
-        />
-        <ProFormText name="holder_name" label="持证人" rules={[{ required: true, message: '请输入持证人' }]} />
-        <ProFormText name="certificate_name" label="识别证书名" disabled />
-        <ProFormText name="certificate_no" label="证书编号" />
-        <ProFormText name="issuing_authority" label="发证机构" />
-        <ProFormDatePicker name="issue_date" label="发证日期" />
-        <ProFormDatePicker name="valid_from" label="有效开始" />
-        <ProFormDatePicker
-          name="valid_to"
-          label="有效截止"
-          tooltip="留空时，系统会按证书类型默认有效期和有效开始/发证日期自动计算"
-        />
-        <ProFormDatePicker name="review_date" label="复审日期" />
-        <ProFormText name="reviewed_by" label="复核人" rules={[{ required: true, message: '请输入复核人' }]} />
-        <ProFormText name="notes" label="复核备注" />
-      </DrawerForm>
+      </Drawer>
 
       <ModalForm<RejectFormValues>
         key={decisionTarget ? `${decisionTarget.review.id}-${decisionTarget.status}` : 'decision-empty'}

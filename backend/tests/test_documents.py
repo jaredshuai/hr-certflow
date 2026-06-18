@@ -110,7 +110,7 @@ def test_recognize_document_passes_presigned_read_url_to_dify(monkeypatch) -> No
 
         def put_json_snapshot(self, *, key: str, payload: object) -> str:
             assert key.startswith("hr-certflow/dev/certificates/ai-responses/")
-            assert payload == {"data": {"outputs": {"holder_name": "张三"}}}
+            assert payload == {"data": {"outputs": {"holder_name": "张三", "certificate_name": "安全生产资格证"}}}
             return key
 
     class FakeDifyClient:
@@ -122,8 +122,8 @@ def test_recognize_document_passes_presigned_read_url_to_dify(monkeypatch) -> No
             return DifyExtractionResponse(
                 workflow_run_id="wf-1",
                 model_name="test-model",
-                output={"holder_name": "张三", "raw_text": "raw"},
-                raw_response={"data": {"outputs": {"holder_name": "张三"}}},
+                output={"holder_name": "张三", "certificate_name": "安全生产资格证", "raw_text": "raw"},
+                raw_response={"data": {"outputs": {"holder_name": "张三", "certificate_name": "安全生产资格证"}}},
             )
 
     monkeypatch.setattr(documents_route, "get_settings", lambda: Settings())
@@ -178,8 +178,8 @@ def test_recognize_document_closes_existing_open_review_task(monkeypatch) -> Non
             return DifyExtractionResponse(
                 workflow_run_id="wf-2",
                 model_name="test-model",
-                output={"holder_name": "张三"},
-                raw_response={"data": {"outputs": {"holder_name": "张三"}}},
+                output={"holder_name": "张三", "certificate_name": "安全生产资格证"},
+                raw_response={"data": {"outputs": {"holder_name": "张三", "certificate_name": "安全生产资格证"}}},
             )
 
     monkeypatch.setattr(documents_route, "get_settings", lambda: Settings())
@@ -394,7 +394,7 @@ def test_review_task_read_includes_source_document_metadata(monkeypatch) -> None
         document_id=document_id,
         workflow_run_id="workflow-1",
         model_name="test-model",
-        output_json={"holder_name": "张三"},
+        output_json={"certificates": [{"holder_name": "张三", "certificate_name": "安全生产资格证"}]},
         suspicious_points=["证书编号置信度低"],
         confidence=0.86,
     )
@@ -429,7 +429,7 @@ def test_review_task_read_includes_source_document_metadata(monkeypatch) -> None
     assert result.document_file_size == 128
     assert result.document_sha256 == "a" * 64
     assert result.document_read_url is not None
-    assert result.ai_output_json == {"holder_name": "张三"}
+    assert result.ai_output_json == {"certificates": [{"holder_name": "张三", "certificate_name": "安全生产资格证"}]}
     assert result.ai_confidence == 0.86
 
 

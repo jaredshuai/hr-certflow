@@ -18,6 +18,7 @@ from app.schemas.documents import (
     AiExtractionResultRead,
     CertificateDocumentRead,
     ReviewApproveCreate,
+    ReviewApproveItem,
     ReviewDecisionRead,
     ReviewRejectCreate,
     ReviewTaskRead,
@@ -50,15 +51,15 @@ def _add_calendar_months(value: date, months: int) -> date:
     return value + relativedelta(months=months)
 
 
-def _resolve_valid_to(
-    payload: ReviewApproveCreate,
+def _resolve_valid_to_for_item(
+    item: ReviewApproveItem,
     certificate_type: CertificateType,
 ) -> tuple[date | None, dict[str, str | int] | None]:
-    if payload.valid_to or not certificate_type.default_validity_months:
-        return payload.valid_to, None
+    if item.valid_to or not certificate_type.default_validity_months:
+        return item.valid_to, None
 
-    base_field = "valid_from" if payload.valid_from else "issue_date"
-    base_date = payload.valid_from or payload.issue_date
+    base_field = "valid_from" if item.valid_from else "issue_date"
+    base_date = item.valid_from or item.issue_date
     if base_date is None:
         return None, None
 
@@ -227,50 +228,59 @@ def approve_review_task(
         raise HTTPException(status_code=409, detail="Review task is already closed")
     if not review_task.document or review_task.document.status != DocumentStatus.PENDING_REVIEW:
         raise HTTPException(status_code=409, detail="Document is not pending review")
-    if review_task.document.employee_id and review_task.document.employee_id != payload.employee_id:
-        raise HTTPException(status_code=400, detail="employee_id does not match document employee")
-
-    certificate_type = db.get(CertificateType, payload.certificate_type_id)
-    if not certificate_type:
-        raise HTTPException(status_code=404, detail="Certificate type not found")
-    valid_to, valid_to_derivation = _resolve_valid_to(payload, certificate_type)
-    validate_certificate_dates(
-        issue_date=payload.issue_date,
-        valid_from=payload.valid_from,
-        valid_to=valid_to,
-    )
-    validate_certificate_business_rules(
-        db,
-        employee_id=payload.employee_id,
-        certificate_type_id=payload.certificate_type_id,
-        holder_name=payload.holder_name,
-        certificate_no=payload.certificate_no,
-        require_active_employee=True,
-    )
 
     now = datetime.now(UTC)
     target_status = CertificateStatus.ACTIVE
-    certificate = EmployeeCertificate(
-        employee_id=payload.employee_id,
-        certificate_type_id=payload.certificate_type_id,
-        source_document_id=review_task.document_id,
-        certificate_no=payload.certificate_no,
-        holder_name=payload.holder_name,
-        issuing_authority=payload.issuing_authority,
-        issue_date=payload.issue_date,
-        valid_from=payload.valid_from,
-        valid_to=valid_to,
-        review_date=payload.review_date,
-        status=CertificateStatus.DRAFT if is_current_certificate_status(target_status) else target_status,
-        confirmed_by=payload.reviewed_by,
-        confirmed_at=now,
-    )
-    db.add(certificate)
-    db.flush()
+    created_certificates: list[EmployeeCertificate] = []
+    all_active_certificates: list[EmployeeCertificate] = []
+    valid_to_derivations: list[dict] = []
 
-    active_certificates = replace_active_certificates(db, certificate, now=now, target_status=target_status)
-    certificate.status = target_status
-    db.flush()
+    for item in payload.certificates:
+        # 同一批次内,不同证书可以匹配不同员工不同 type
+        certificate_type = db.get(CertificateType, item.certificate_type_id)
+        if not certificate_type:
+            raise HTTPException(status_code=404, detail=f"Certificate type {item.certificate_type_id} not found")
+        valid_to, valid_to_derivation = _resolve_valid_to_for_item(item, certificate_type)
+        validate_certificate_dates(
+            issue_date=item.issue_date,
+            valid_from=item.valid_from,
+            valid_to=valid_to,
+        )
+        validate_certificate_business_rules(
+            db,
+            employee_id=item.employee_id,
+            certificate_type_id=item.certificate_type_id,
+            holder_name=item.holder_name,
+            certificate_no=item.certificate_no,
+            require_active_employee=True,
+        )
+
+        certificate = EmployeeCertificate(
+            employee_id=item.employee_id,
+            certificate_type_id=item.certificate_type_id,
+            source_document_id=review_task.document_id,
+            certificate_no=item.certificate_no,
+            holder_name=item.holder_name,
+            issuing_authority=item.issuing_authority,
+            issue_date=item.issue_date,
+            valid_from=item.valid_from,
+            valid_to=valid_to,
+            review_date=item.review_date,
+            status=CertificateStatus.DRAFT if is_current_certificate_status(target_status) else target_status,
+            confirmed_by=payload.reviewed_by,
+            confirmed_at=now,
+        )
+        db.add(certificate)
+        db.flush()
+
+        active_certificates = replace_active_certificates(db, certificate, now=now, target_status=target_status)
+        certificate.status = target_status
+        db.flush()
+
+        created_certificates.append(certificate)
+        all_active_certificates.extend(active_certificates)
+        if valid_to_derivation:
+            valid_to_derivations.append(valid_to_derivation)
 
     review_before = ReviewTaskRead.model_validate(review_task).model_dump(mode="json")
     review_task.status = ReviewStatus.APPROVED
@@ -278,11 +288,12 @@ def approve_review_task(
     review_task.reviewed_at = now
     review_task.notes = payload.notes
     decision_payload: dict[str, object] = {
-        "certificate_id": str(certificate.id),
-        "replaced_certificate_ids": [str(item.id) for item in active_certificates],
+        "certificate_ids": [str(c.id) for c in created_certificates],
+        "certificate_id": str(created_certificates[0].id),  # 兼容旧 trace 读取
+        "replaced_certificate_ids": [str(item.id) for item in all_active_certificates],
     }
-    if valid_to_derivation:
-        decision_payload["valid_to_derivation"] = valid_to_derivation
+    if valid_to_derivations:
+        decision_payload["valid_to_derivations"] = valid_to_derivations
     review_task.decision_payload = decision_payload
     review_task.document.status = DocumentStatus.CONFIRMED
     record_audit(
@@ -293,10 +304,9 @@ def approve_review_task(
         before=review_before,
         after={
             "status": review_task.status.value,
-            "certificate_id": str(certificate.id),
-            "replaced_certificate_ids": [str(item.id) for item in active_certificates],
-            "valid_to": valid_to.isoformat() if valid_to else None,
-            "valid_to_derivation": valid_to_derivation,
+            "certificate_ids": [str(c.id) for c in created_certificates],
+            "certificate_id": str(created_certificates[0].id),
+            "replaced_certificate_ids": [str(item.id) for item in all_active_certificates],
         },
         actor_name=audit_actor_name(request_context, payload.reviewed_by),
         request_id=audit_request_id(request_context),
@@ -304,10 +314,11 @@ def approve_review_task(
     )
     db.commit()
     db.refresh(review_task)
-    db.refresh(certificate)
+    for cer in created_certificates:
+        db.refresh(cer)
     return ReviewDecisionRead(
         review_task=_review_task_to_read(review_task),
-        certificate=EmployeeCertificateRead.model_validate(certificate),
+        certificates=[EmployeeCertificateRead.model_validate(cer) for cer in created_certificates],
     )
 
 
