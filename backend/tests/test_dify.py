@@ -34,7 +34,10 @@ def test_normalize_dify_outputs_unwraps_nested_json_string() -> None:
     output = normalize_dify_outputs(
         {
             "data": {
-                "outputs": '{"holder_name":"李四","certificate_name":"安全员证","confidence":"0.88","suspicious_points":"[\\"需核对钢印\\"]"}'
+                "outputs": (
+                    '{"holder_name":"李四","certificate_name":"安全员证",'
+                    '"confidence":"0.88","suspicious_points":"[\\"需核对钢印\\"]"}'
+                ),
             }
         }
     )
