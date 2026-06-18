@@ -10,25 +10,20 @@ export interface ActorProvider {
   setCurrent?(name: string): void;
 }
 
+const MOCK_ACTOR: HrActor = {
+  name: 'HR 管理员',
+  source: 'mock',
+};
+
+// Mock 期模拟 Casdoor 已登录自动注入:
+// 固定操作人,不暴露手输框。接 Casdoor 后替换为 CasdoorActorProvider。
 class MockActorProvider implements ActorProvider {
   getCurrent() {
-    if (typeof window === 'undefined') return undefined;
-    const name = window.localStorage.getItem('hr-certflow.operator')?.trim();
-    return name ? { name, source: 'mock' as const } : undefined;
+    return MOCK_ACTOR;
   }
 
   requiresManualInput() {
-    return true;
-  }
-
-  setCurrent(name: string) {
-    if (typeof window === 'undefined') return;
-    const trimmed = name.trim();
-    if (trimmed) {
-      window.localStorage.setItem('hr-certflow.operator', trimmed);
-    } else {
-      window.localStorage.removeItem('hr-certflow.operator');
-    }
+    return false;
   }
 }
 
