@@ -8,10 +8,11 @@ import type { ReactNode } from 'react';
 
 import { CurrentOperator } from '@/components/CurrentOperator';
 import { setMessageInstance } from '@/utils/messageApi';
-import { buildRequestId, encodeOperatorHeader, getCurrentOperator } from '@/utils/operatorContext';
+import { buildRequestId, encodeOperatorHeader } from '@/utils/operatorContext';
+import { actorProvider } from '@/utils/actorProvider';
 
 const appTheme: ThemeConfig = {
-  cssVar: true,
+  cssVar: true as any,
   token: {
     colorPrimary: '#00684a',
     colorSuccess: '#389e0d',
@@ -83,12 +84,12 @@ export const request: RequestConfig = {
   baseURL: resolveApiBasePath(),
   timeout: 30000,
   requestInterceptors: [
-    (config) => {
-      const operator = getCurrentOperator();
+    (config: any) => {
+      const actor = actorProvider.getCurrent();
       const headers = {
         ...(config.headers || {}),
         'X-Request-ID': buildRequestId(),
-        ...(operator ? { 'X-HR-Actor': encodeOperatorHeader(operator) } : {}),
+        ...(actor ? { 'X-HR-Actor': encodeOperatorHeader(actor.name), 'X-HR-Actor-Source': actor.source } : {}),
       };
       return { ...config, headers };
     },

@@ -8,7 +8,7 @@ import {
   ProFormSelect,
   ProFormText,
 } from '@ant-design/pro-components';
-import { Alert, Button, Divider, Form, Input, Result, Space, Steps, Typography, Upload } from 'antd';
+import { Alert, Button, Divider, Form, Result, Space, Steps, Upload } from 'antd';
 import { useMemo, useState } from 'react';
 
 import { ExtractionQualitySummary, outputText } from '@/components/ExtractionQualitySummary';
@@ -27,6 +27,7 @@ import { apiErrorMessage, isReviewStaleActionError, reviewStaleActionMessage } f
 import { documentStatusLabel } from '@/utils/displayLabels';
 import { certificateTypeSelectRequest, employeeSelectRequest } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
+import { actorProvider } from '@/utils/actorProvider';
 
 interface CertificateFormValues {
   employee_id?: string;
@@ -106,7 +107,6 @@ export default function UploadRecognitionPage() {
   const [reviewTaskUpdatedAt, setReviewTaskUpdatedAt] = useState<string>();
   const [documentStatus, setDocumentStatus] = useState('未上传');
   const [recognitionStatus, setRecognitionStatus] = useState('未识别');
-  const [recognitionActor, setRecognitionActor] = useState('');
   const [uploading, setUploading] = useState(false);
   const [recognizing, setRecognizing] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -194,9 +194,9 @@ export default function UploadRecognitionPage() {
     if (!validateUploadFile(selectedFile)) {
       return;
     }
-    const actor = recognitionActor.trim();
+    const actor = actorProvider.getCurrent();
     if (!actor) {
-      message.warning('请先填写识别操作人');
+      message.warning('请先在右上角设置当前操作人');
       return;
     }
     if (submitting) return;
@@ -233,7 +233,7 @@ export default function UploadRecognitionPage() {
       setUploading(false);
       setRecognizing(true);
       try {
-        await recognizeDocument(intent.document_id, actor);
+        await recognizeDocument(intent.document_id, actor.name);
         message.success('上传和识别已完成，请复核后确认');
       } finally {
         setRecognizing(false);
@@ -253,9 +253,9 @@ export default function UploadRecognitionPage() {
       message.warning('请先上传文件');
       return;
     }
-    const actor = recognitionActor.trim();
+    const actor = actorProvider.getCurrent();
     if (!actor) {
-      message.warning('请先填写识别操作人');
+      message.warning('请先在右上角设置当前操作人');
       return;
     }
     if (submitting) return;
@@ -263,7 +263,7 @@ export default function UploadRecognitionPage() {
     setErrorMessage(undefined);
     setRecognizing(true);
     try {
-      await recognizeDocument(documentId, actor);
+      await recognizeDocument(documentId, actor.name);
       message.success('重新识别已完成');
     } catch (error) {
       setRecognitionStatus('识别失败');
@@ -424,14 +424,6 @@ export default function UploadRecognitionPage() {
           <Divider />
 
           <Space style={{ marginBottom: 16 }} wrap>
-            <Typography.Text>识别操作人</Typography.Text>
-            <Input
-              aria-label="识别操作人"
-              value={recognitionActor}
-              onChange={(event) => setRecognitionActor(event.target.value)}
-              style={{ width: 150 }}
-              disabled={submitting}
-            />
             <Button
               type="primary"
               icon={<UploadOutlined />}

@@ -2,14 +2,16 @@ import { UserOutlined } from '@ant-design/icons';
 import { Input, Space, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 
-import { getCurrentOperator, setCurrentOperator } from '@/utils/operatorContext';
+import { actorProvider } from '@/utils/actorProvider';
 
 export function CurrentOperator() {
   const [operator, setOperator] = useState('');
 
   useEffect(() => {
-    setOperator(getCurrentOperator() || '');
+    setOperator(actorProvider.getCurrent()?.name || '');
   }, []);
+
+  if (!actorProvider.requiresManualInput()) return null;
 
   return (
     <Space>
@@ -23,7 +25,7 @@ export function CurrentOperator() {
         onChange={(event) => {
           const nextValue = event.target.value;
           setOperator(nextValue);
-          setCurrentOperator(nextValue);
+          actorProvider.setCurrent?.(nextValue);
         }}
         style={{ width: 180 }}
       />

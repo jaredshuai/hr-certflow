@@ -10,7 +10,7 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Alert, Button, Descriptions, Drawer, Empty, Input, Space, Tag, Timeline, Typography } from 'antd';
+import { Alert, Button, Descriptions, Drawer, Empty, Space, Tag, Timeline, Typography } from 'antd';
 import { useMemo, useRef, useState } from 'react';
 
 import { useLocation } from '@umijs/max';
@@ -43,7 +43,7 @@ import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
 import { certificateTypeSelectRequest } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
-import { getCurrentOperator } from '@/utils/operatorContext';
+import { actorProvider } from '@/utils/actorProvider';
 import { parseDaysBeforeExpiryText } from '@/utils/reminderPolicyForm';
 
 const feedbackActions: Array<{ label: string; status: FeedbackStatus; content: string; danger?: boolean }> = [
@@ -190,8 +190,6 @@ export default function RemindersPage() {
   const location = useLocation();
   const [submittingId, setSubmittingId] = useState<string>();
   const [scanning, setScanning] = useState(false);
-  const [feedbackActor, setFeedbackActor] = useState('');
-  const [dispatchOperator, setDispatchOperator] = useState('');
   const [loadError, setLoadError] = useState<string>();
   const [policyLoadError, setPolicyLoadError] = useState<string>();
   const [policyOpen, setPolicyOpen] = useState(false);
@@ -248,9 +246,9 @@ export default function RemindersPage() {
   }
 
   async function submitFeedback(record: ReminderTask, status: FeedbackStatus, content: string) {
-    const actor = feedbackActor.trim();
+    const actor = actorProvider.getCurrent();
     if (!actor) {
-      message.warning('请先填写反馈人');
+      message.warning('请先在右上角设置当前操作人');
       return;
     }
 
@@ -259,7 +257,7 @@ export default function RemindersPage() {
       await postResource(`/reminders/tasks/${record.id}/feedback`, {
         status,
         content,
-        created_by: actor,
+        created_by: actor.name,
       });
       message.success('人力反馈已记录');
       actionRef.current?.reload();
@@ -284,9 +282,9 @@ export default function RemindersPage() {
   }
 
   async function dispatchReminder(record: ReminderTask, simulate: boolean, channels?: string[]) {
-    const operator = dispatchOperator.trim() || feedbackActor.trim();
+    const operator = actorProvider.getCurrent()?.name;
     if (!operator) {
-      message.warning('请先填写操作人');
+      message.warning('请先在右上角设置当前操作人');
       return;
     }
 
@@ -315,9 +313,9 @@ export default function RemindersPage() {
   }
 
   async function scanReminderTasks() {
-    const operator = dispatchOperator.trim() || feedbackActor.trim() || getCurrentOperator();
+    const operator = actorProvider.getCurrent()?.name;
     if (!operator) {
-      message.warning('请先填写操作人，或在右上角设置当前操作人');
+      message.warning('请先在右上角设置当前操作人');
       return;
     }
 
@@ -612,24 +610,6 @@ export default function RemindersPage() {
         toolbar={{
           title: '到期提醒总览',
           actions: [
-            <Space key="feedback-actor">
-              <Typography.Text>反馈人</Typography.Text>
-              <Input
-                aria-label="反馈人"
-                value={feedbackActor}
-                onChange={(event) => setFeedbackActor(event.target.value)}
-                style={{ width: 120 }}
-              />
-            </Space>,
-            <Space key="dispatch-operator">
-              <Typography.Text>操作人</Typography.Text>
-              <Input
-                aria-label="操作人"
-                value={dispatchOperator}
-                onChange={(event) => setDispatchOperator(event.target.value)}
-                style={{ width: 120 }}
-              />
-            </Space>,
             <Button key="scan" loading={scanning} onClick={scanReminderTasks}>
               扫描生成任务
             </Button>,
