@@ -390,9 +390,9 @@ export default function RemindersPage() {
       fieldProps: { showSearch: true },
     },
     { title: '到期日期', dataIndex: 'valid_to', valueType: 'date', width: 130, search: false },
-    { title: '触发日期', dataIndex: 'trigger_date', valueType: 'date', width: 130 },
+    { title: '发起日期', dataIndex: 'trigger_date', valueType: 'date', width: 130 },
     {
-      title: '触发区间',
+      title: '发起日期区间',
       dataIndex: 'trigger_date_range',
       valueType: 'dateRange',
       hideInTable: true,
@@ -671,7 +671,7 @@ export default function RemindersPage() {
                 <Descriptions.Item label="证书编号">
                   {currentTimeline.task.certificate_no || '-'}
                 </Descriptions.Item>
-                <Descriptions.Item label="触发日期">{currentTimeline.task.trigger_date}</Descriptions.Item>
+                <Descriptions.Item label="发起日期">{currentTimeline.task.trigger_date}</Descriptions.Item>
                 <Descriptions.Item label="反馈截止">
                   {currentTimeline.task.due_date || '-'}
                 </Descriptions.Item>

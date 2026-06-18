@@ -472,9 +472,9 @@ export default function CertificatesPage() {
                       currentTrace.reminder_tasks.length > 0 ? (
                         <Timeline
                           items={currentTrace.reminder_tasks.map((task) => ({
-                            content: `${reminderStatusLabel(task.status)} / 触发 ${task.trigger_date} / 截止 ${
-                              task.due_date || '-'
-                            }`,
+                            content: `${reminderStatusLabel(task.status)} / 发起 ${task.trigger_date} / 截止 ${
+                                          task.due_date || '-'
+                                        }`,
                           }))}
                         />
                       ) : (

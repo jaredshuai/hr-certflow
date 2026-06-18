@@ -566,7 +566,7 @@ export default function CertificateTypesPage() {
                 <Timeline
                   items={currentTrace.reminder_tasks.map((task) => ({
                     color: task.status === 'ESCALATED' ? 'red' : 'blue',
-                    content: `${reminderStatusLabel(task.status)} / 触发 ${task.trigger_date} / 截止 ${
+                    content: `${reminderStatusLabel(task.status)} / 发起 ${task.trigger_date} / 截止 ${
                       task.due_date || '-'
                     }`,
                   }))}

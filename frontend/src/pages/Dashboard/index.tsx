@@ -426,7 +426,7 @@ export default function DashboardPage() {
                       <Space orientation="vertical" size={4}>
                         <Typography.Text strong>{reminderStatusLabel(task.status)}</Typography.Text>
                         <Typography.Text type="secondary">
-                          触发：{task.trigger_date} / 截止：{task.due_date || '-'} / 关闭原因：
+                          发起：{task.trigger_date} / 截止：{task.due_date || '-'} / 关闭原因：
                           {task.closed_reason || '-'}
                         </Typography.Text>
                       </Space>
