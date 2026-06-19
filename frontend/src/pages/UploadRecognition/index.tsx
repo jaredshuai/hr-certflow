@@ -8,8 +8,8 @@ import {
   ProFormSelect,
   ProFormText,
 } from '@ant-design/pro-components';
-import { Alert, Button, Divider, Form, Result, Space, Steps, Upload } from 'antd';
-import { useMemo, useState } from 'react';
+import { Alert, Button, Divider, Form, Image, Result, Space, Steps, Upload } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
 
 import { ExtractionQualitySummary, outputText } from '@/components/ExtractionQualitySummary';
 import { getResource, listResource, postResource } from '@/services/api';
@@ -113,6 +113,23 @@ export default function UploadRecognitionPage() {
   const [approving, setApproving] = useState(false);
   const [extractionResult, setExtractionResult] = useState<AiExtractionResult>();
   const [errorMessage, setErrorMessage] = useState<string>();
+  const [previewUrl, setPreviewUrl] = useState<string>();
+
+  // Create a blob URL for local preview when a file is selected
+  useEffect(() => {
+    if (selectedFile) {
+      const url = URL.createObjectURL(selectedFile);
+      setPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setPreviewUrl(undefined);
+  }, [selectedFile]);
+
+  const isImagePreview =
+    selectedFile &&
+    selectedFile.type.startsWith('image/') &&
+    !['image/tiff', 'image/tif'].includes(selectedFile.type);
+  const isPdfPreview = selectedFile?.type === 'application/pdf';
 
   const flowStep: FlowStep = useMemo(() => {
     if (documentStatus === 'CONFIRMED') return 'done';
@@ -424,6 +441,27 @@ export default function UploadRecognitionPage() {
             <p className="ant-upload-text">拖拽证书图片或 PDF 到这里</p>
             <p className="ant-upload-hint">支持证书原图、扫描件、PDF 文件</p>
           </Upload.Dragger>
+
+          {previewUrl ? (
+            <div style={{ marginTop: 12, textAlign: 'center' }}>
+              {isImagePreview ? (
+                <Image
+                  src={previewUrl}
+                  alt={selectedFile?.name}
+                  style={{ maxWidth: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 8 }}
+                  preview={{ mask: '点击放大查看' }}
+                />
+              ) : isPdfPreview ? (
+                <iframe
+                  src={previewUrl}
+                  title={selectedFile?.name}
+                  style={{ width: '100%', maxHeight: 360, borderRadius: 8, border: '1px solid var(--cf-border, #d9d9d9)' }}
+                />
+              ) : (
+                <Alert type="info" showIcon message="该格式暂不支持预览" description={selectedFile?.name} />
+              )}
+            </div>
+          ) : null}
 
           <Divider />
 
