@@ -23,6 +23,7 @@ import {
   reviewStatusLabel,
 } from '@/utils/displayLabels';
 import { emptyTableText } from '@/utils/emptyStates';
+import { useChartHeight } from '@/utils/useChartHeight';
 import { message } from '@/utils/messageApi';
 
 const emptyDashboardSummary: DashboardSummary = {
@@ -51,6 +52,7 @@ function chartTargetPath(event: unknown): string | undefined {
 }
 
 export default function DashboardPage() {
+  const chartHeight = useChartHeight();
   const [summary, setSummary] = useState<DashboardSummary>(emptyDashboardSummary);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
@@ -191,7 +193,7 @@ export default function DashboardPage() {
               data={metrics.certificateStatusRows}
               angleField="count"
               colorField="category"
-              height={280}
+              height={chartHeight}
               innerRadius={0.62}
               legend={{ color: { position: 'bottom' } }}
               label={{ text: 'count', position: 'outside' }}
@@ -212,7 +214,7 @@ export default function DashboardPage() {
               data={metrics.workloadRows}
               xField="category"
               yField="count"
-              height={280}
+              height={chartHeight}
               colorField="category"
               axis={{ y: { title: '数量' } }}
               label={{ text: 'count', position: 'top' }}

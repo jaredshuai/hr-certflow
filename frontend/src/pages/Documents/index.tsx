@@ -1,5 +1,5 @@
 import { PageContainer, ProCard, ProTable, type ActionType, type ProColumns } from '@ant-design/pro-components';
-import { Alert, Button, Collapse, Descriptions, Drawer, Empty, Popconfirm, Space, Timeline, Typography } from 'antd';
+import { Alert, Button, Collapse, Descriptions, Divider, Drawer, Empty, Popconfirm, Space, Timeline, Typography } from 'antd';
 import { useMemo, useRef, useState } from 'react';
 
 import { history, useLocation } from '@umijs/max';
@@ -174,9 +174,9 @@ export default function DocumentsPage() {
     {
       title: '操作',
       valueType: 'option',
-      width: 220,
+      width: 280,
       render: (_, record) => (
-        <Space>
+        <Space split={<Divider type="vertical" />}>
           <Button
             type="link"
             size="small"
@@ -261,7 +261,7 @@ export default function DocumentsPage() {
           ],
         }}
         pagination={{ defaultPageSize: 20, showSizeChanger: true }}
-        search={{ labelWidth: 88 }}
+        search={{ labelWidth: 96 }}
       />
 
       <Drawer

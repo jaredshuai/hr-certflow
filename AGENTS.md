@@ -105,13 +105,18 @@ rtk npm run build
 - Use `rtk git diff --check` before finalizing broad edits.
 
 <!-- CODEGRAPH_START -->
-## CodeGraph And ace-tool Routing
+## CodeGraph And Fast Context Routing
 
 This project has a CodeGraph MCP server (`codegraph_*` tools) configured.
 CodeGraph is a tree-sitter-parsed knowledge graph of every symbol, edge, and
-file. Use it for deterministic structure. Use `ace-tool` for semantic or
-intent-based discovery. Native file reads are still fine for literal text,
-already-known files, or final confirmation.
+file. Use it for deterministic structure. Use `fast-context` for semantic or
+intent-based discovery (AI-driven semantic code search that returns file paths
+with line ranges and grep keywords). Native file reads are still fine for
+literal text, already-known files, or final confirmation.
+
+> The previous `ace-tool` MCP is retired: its relay endpoint
+> (`acemcp.heroman.wtf`) is offline and the server is disabled in
+> `~/.zcode/cli/config.json`. Default to `fast-context` for semantic discovery.
 
 Use the smallest reliable inspection path. Do not loop through multiple tools
 when one specialized tool answers the question.
@@ -120,11 +125,11 @@ when one specialized tool answers the question.
 
 | Intent | Primary tool | Use it for |
 | --- | --- | --- |
-| Semantic, feature-based, or ambiguous discovery | `ace-tool` | Find the files and areas that likely implement a business rule, workflow, error pattern, or UI behavior. |
+| Semantic, feature-based, or ambiguous discovery | `fast-context` | Find the files and areas that likely implement a business rule, workflow, error pattern, or UI behavior. |
 | Deterministic symbol lookup | `CodeGraph` | Find definitions, signatures, implementations, imports, exports, callers, and callees for known symbols. |
 | Structural tracking | `CodeGraph` | Answer who calls a function, what a function calls, and what implements an interface. |
 | Impact analysis or refactor planning | `CodeGraph` | Trace exact upstream/downstream dependencies and blast radius before changing shared code. |
-| Prompt or task refinement for large changes | `ace-tool` | Enhance broad multi-file tasks with likely relevant context and constraints. |
+| Prompt or task refinement for large changes | `fast-context` | Enhance broad multi-file tasks with likely relevant context and constraints. |
 | Mass refactoring or deep dependency mapping | `CodeGraph` | Traverse structural relationships instead of rebuilding them with grep/read loops. |
 | Literal string or known-file checks | Native search/read | Use `rg` or direct reads for exact text, comments, copy, filenames, and already-identified files. |
 
@@ -145,24 +150,59 @@ when one specialized tool answers the question.
 - If the project has no `.codegraph/` index and the CodeGraph server reports
   "not initialized", ask before running `codegraph init -i`.
 
-### Use `ace-tool` For Semantic Location
+### Use `fast-context` For Semantic Location
 
-- Use `ace-tool` when the query is about intent rather than a known symbol:
+- Use `fast-context` when the query is about intent rather than a known symbol:
   where a workflow is handled, where a business rule is enforced, how similar
   errors are formatted, or which files likely matter for a feature.
-- Do not use `ace-tool` as proof for exact call stacks, dependency edges, or
+- Do not use `fast-context` as proof for exact call stacks, dependency edges, or
   refactor blast radius.
-- Treat semantic/RAG output as a locator. Confirm critical behavior in source
+- Treat semantic/AI output as a locator. Confirm critical behavior in source
   code, tests, or `CodeGraph` before editing.
-- Use `ace-tool` prompt/context helpers before outsourcing or starting a large
-  multi-file implementation when the task would otherwise be underspecified.
+- Use `fast-context` before outsourcing or starting a large multi-file
+  implementation when the task would otherwise be underspecified.
+- `fast-context` is tunable: `tree_depth` (1-6) controls how much directory
+  structure the remote AI sees (reduce on payload errors, increase for small
+  repos), `max_turns` (1-5) controls search rounds, `max_results` (1-30)
+  caps returned files, and `exclude_paths` shrinks payload on large repos
+  (e.g. `['node_modules', 'dist', '.git']`). Read the `[config]` and
+  `[diagnostic]` lines in its response to decide whether to retry with
+  different parameters.
 
 ### Hybrid Workflow
 
-1. Locate ambiguous feature areas with `ace-tool` or direct file inspection.
+1. Locate ambiguous feature areas with `fast-context` or direct file inspection.
 2. Trace exact symbols, flows, and impact with `CodeGraph` once concrete names
    are known.
 3. Edit with source context, then verify with lint, type checks, tests, and
    builds. Do not immediately depend on a graph index that may lag recent file
    writes.
+
+### CodeGraph Maintenance And Known Pitfalls
+
+- Auto-sync is enabled by default. CodeGraph watches the project and updates
+  the graph on every file change — while the agent edits code, or files are
+  added, modified, or deleted. The index is never stale, and there is nothing
+  to re-run.
+- For a full rebuild (e.g. after a schema-level restructuring), run
+  `codegraph index` manually.
+- The index lives in `.codegraph/codegraph.db` (SQLite, WAL mode). The
+  `-wal`/`-shm` sidecars are normal; a multi-MB WAL that stops growing is
+  healthy, not a sign of corruption. Do not delete them while a `codegraph`
+  process is running.
+- If `codegraph` reports a stale lock after a crash, run `codegraph unlock`
+  to clear it; do not manually delete lock files.
+- `codegraph query <term>` relevance scores can display oddly (e.g. `5131%`);
+  this is a display quirk, not data corruption. Trust the symbol/file matches.
+- If `.codegraph/` is missing or the server reports "not initialized", ask
+  before running `codegraph init -i`.
+
+### Fast Context MCP Notes
+
+- The `fast-context` MCP is launched via `npx -y --prefer-online
+  @sammysnake/fast-context-mcp`. The old standalone `npx@10.2.2` has been
+  removed from this machine; `npx` now resolves to the npm 11.12.1 built-in.
+- `fast-context` needs a `WINDSURF_API_KEY` env var; the config lists it under
+  `env.env_vars`. Confirm it is set in the launching shell/MCP environment,
+  otherwise semantic search calls will fail at request time.
 <!-- CODEGRAPH_END -->

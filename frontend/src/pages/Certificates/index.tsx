@@ -306,7 +306,7 @@ export default function CertificatesPage() {
           ],
         }}
         pagination={{ defaultPageSize: 20, showSizeChanger: true }}
-        search={{ labelWidth: 88 }}
+        search={{ labelWidth: 96 }}
       />
 
       <DrawerForm<CertificateFormValues>
@@ -317,7 +317,7 @@ export default function CertificatesPage() {
         drawerProps={{ destroyOnHidden: true, mask: { closable: false } }}
         layout="horizontal"
         labelCol={{ span: 5 }}
-        width={640}
+        width={720}
         initialValues={
           currentCertificate
             ? {

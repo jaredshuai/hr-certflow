@@ -387,7 +387,7 @@ export default function CertificateTypesPage() {
         modalProps={{ destroyOnHidden: true, mask: { closable: false } }}
         layout="horizontal"
         labelCol={{ span: 6 }}
-        width={680}
+        width={720}
         initialValues={buildInitialValues(currentType)}
         onFinish={handleFinish}
       >

@@ -276,7 +276,7 @@ export default function EmployeesPage() {
           ],
         }}
         pagination={{ defaultPageSize: 20, showSizeChanger: true }}
-        search={{ labelWidth: 88 }}
+        search={{ labelWidth: 96 }}
       />
 
       <ModalForm<EmployeeFormValues>

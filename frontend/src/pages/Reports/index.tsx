@@ -14,6 +14,7 @@ import type {
 } from '@/types/domain';
 import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
+import { useChartHeight } from '@/utils/useChartHeight';
 import { certificateTypeRequiredValueEnum } from '@/utils/displayLabels';
 import { message } from '@/utils/messageApi';
 
@@ -47,6 +48,7 @@ type CertificateRiskBreakdownRow = {
 };
 
 export default function ReportsPage() {
+  const chartHeight = useChartHeight();
   const [report, setReport] = useState<CertificateCoverageReport>(emptyReport);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
@@ -232,7 +234,7 @@ export default function ReportsPage() {
               data={report.department_rows}
               xField="department"
               yField="coverage"
-              height={280}
+              height={chartHeight}
               label={{ text: 'coverage', position: 'top' }}
               tooltip={{ title: 'department', items: [{ field: 'coverage', name: '覆盖率' }] }}
               onEvent={(_, event) => handleChartEvent<CertificateCoverageDepartmentRow>(event)}
@@ -248,7 +250,7 @@ export default function ReportsPage() {
               data={certificateRiskBreakdownRows}
               angleField="count"
               colorField="category"
-              height={280}
+              height={chartHeight}
               innerRadius={0.62}
               legend={{ color: { position: 'bottom' } }}
               tooltip={{ title: 'category', items: [{ field: 'count', name: '风险数' }] }}
@@ -265,7 +267,7 @@ export default function ReportsPage() {
               data={report.expiry_month_rows}
               xField="category"
               yField="count"
-              height={280}
+              height={chartHeight}
               label={{ text: 'count', position: 'top' }}
               tooltip={{ title: 'category', items: [{ field: 'count', name: '风险证书数' }] }}
               onEvent={(_, event) => handleChartEvent<ReportChartRow>(event)}

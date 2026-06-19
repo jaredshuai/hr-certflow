@@ -10,7 +10,8 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Alert, Button, Descriptions, Drawer, Empty, Space, Tag, Timeline, Typography } from 'antd';
+import { DownOutlined } from '@ant-design/icons';
+import { Alert, Button, Descriptions, Divider, Drawer, Dropdown, Empty, Space, Tag, Timeline, Typography } from 'antd';
 import { useMemo, useRef, useState } from 'react';
 
 import { useLocation } from '@umijs/max';
@@ -426,9 +427,9 @@ export default function RemindersPage() {
     {
       title: '提醒与反馈',
       valueType: 'option',
-      width: 540,
+      width: 300,
       render: (_, record) => (
-        <Space wrap>
+        <Space wrap split={<Divider type="vertical" />}>
           <Button
             size="small"
             type="link"
@@ -445,18 +446,25 @@ export default function RemindersPage() {
           >
             发送提醒
           </Button>
-          {feedbackActions.map((action) => (
-            <Button
-              key={action.status}
-              size="small"
-              type="link"
-              danger={action.danger}
-              loading={submittingId === `${record.id}:${action.status}`}
-              onClick={() => void submitFeedback(record, action.status, action.content)}
-            >
-              {action.label}
+          <Dropdown
+            menu={{
+              items: feedbackActions.map((action) => ({
+                key: action.status,
+                label: action.label,
+                danger: action.danger,
+              })),
+              onClick: ({ key }) => {
+                const action = feedbackActions.find((item) => item.status === key);
+                if (action) {
+                  void submitFeedback(record, action.status, action.content);
+                }
+              },
+            }}
+          >
+            <Button size="small" type="link" icon={<DownOutlined />}>
+              反馈
             </Button>
-          ))}
+          </Dropdown>
           <Button size="small" type="link" onClick={() => void openTimeline(record)}>
             详情
           </Button>
@@ -619,13 +627,13 @@ export default function RemindersPage() {
           ],
         }}
         pagination={{ defaultPageSize: 20, showSizeChanger: true }}
-        search={{ labelWidth: 104 }}
+        search={{ labelWidth: 96 }}
       />
       <Drawer
         title="提醒任务详情"
         open={timelineOpen}
         onClose={() => setTimelineOpen(false)}
-        size={760}
+        size={840}
         loading={timelineLoading}
       >
         {currentTimeline ? (
@@ -833,7 +841,7 @@ export default function RemindersPage() {
         modalProps={{ destroyOnHidden: true, mask: { closable: false } }}
         layout="horizontal"
         labelCol={{ span: 7 }}
-        width={680}
+        width={720}
         initialValues={
           currentPolicy
             ? {

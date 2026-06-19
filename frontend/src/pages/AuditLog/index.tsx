@@ -100,7 +100,7 @@ export default function AuditLogPage() {
         }}
         locale={{ emptyText: emptyTableText('暂无审计日志，业务操作后会自动记录') }}
         toolbar={{ title: '上传、智能识别、复核、提醒、反馈状态变更' }}
-        search={{ labelWidth: 88 }}
+        search={{ labelWidth: 96 }}
       />
       <Modal
         title="审计详情"

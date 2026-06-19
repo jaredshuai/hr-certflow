@@ -417,7 +417,7 @@ export default function ReviewQueuePage() {
         title="复核任务追溯"
         open={traceOpen}
         onClose={() => setTraceOpen(false)}
-        size={820}
+        size={840}
         loading={traceLoading}
       >
         {currentTrace ? (
@@ -567,7 +567,7 @@ export default function ReviewQueuePage() {
         open={Boolean(currentReview)}
         onClose={() => setCurrentReview(undefined)}
         destroyOnHidden
-        mask={{ closable: false }}
+        maskClosable={false}
         width={720}
         extra={
           <Space>
