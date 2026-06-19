@@ -168,7 +168,7 @@ body {
 
 .certflow-upload-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 480px;
   gap: 20px;
 }
 

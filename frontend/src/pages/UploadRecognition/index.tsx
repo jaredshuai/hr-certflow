@@ -1,14 +1,13 @@
-import { InboxOutlined, RobotOutlined, SaveOutlined, UploadOutlined } from '@ant-design/icons';
+import { InboxOutlined, RobotOutlined, SaveOutlined, SwapOutlined, UploadOutlined } from '@ant-design/icons';
 import {
   PageContainer,
   ProCard,
-  ProDescriptions,
   ProForm,
   ProFormDatePicker,
   ProFormSelect,
   ProFormText,
 } from '@ant-design/pro-components';
-import { Alert, Button, Divider, Form, Image, Result, Space, Steps, Upload } from 'antd';
+import { Alert, Button, Divider, Form, Image, Result, Space, Steps, Tag, Typography, Upload } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 
 import { ExtractionQualitySummary, outputText } from '@/components/ExtractionQualitySummary';
@@ -415,94 +414,114 @@ export default function UploadRecognitionPage() {
       ) : null}
 
       <div className="certflow-upload-grid">
-        <ProCard title="证书原件">
-          <Upload.Dragger
-            multiple={false}
-            maxCount={1}
-            disabled={submitting}
-            beforeUpload={(file) => {
-              if (!validateUploadFile(file)) {
-                return Upload.LIST_IGNORE;
-              }
-              setSelectedFile(file);
-              setDocumentId(undefined);
-              setReviewTaskId(undefined);
-              setExtractionResult(undefined);
-              setDocumentStatus('待上传');
-              setRecognitionStatus('未识别');
-              setErrorMessage(undefined);
-              message.info('已选择文件');
-              return false;
-            }}
-          >
-            <p className="ant-upload-drag-icon">
-              <InboxOutlined />
-            </p>
-            <p className="ant-upload-text">拖拽证书图片或 PDF 到这里</p>
-            <p className="ant-upload-hint">支持证书原图、扫描件、PDF 文件</p>
-          </Upload.Dragger>
-
-          {previewUrl ? (
-            <div style={{ marginTop: 12, textAlign: 'center' }}>
+        <ProCard
+          title={selectedFile ? selectedFile.name : '证书原件'}
+          extra={
+            selectedFile ? (
+              <Space size={4} wrap>
+                <Tag>{documentStatusLabel(documentStatus)}</Tag>
+                <Tag>{recognitionStatus}</Tag>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {extractionResult?.model_name || ''}
+                </Typography.Text>
+                <Button
+                  size="small"
+                  icon={<SwapOutlined />}
+                  disabled={submitting}
+                  onClick={() => {
+                    setSelectedFile(undefined);
+                    setDocumentId(undefined);
+                    setReviewTaskId(undefined);
+                    setExtractionResult(undefined);
+                    setDocumentStatus('未上传');
+                    setRecognitionStatus('未识别');
+                    setErrorMessage(undefined);
+                    form.resetFields();
+                  }}
+                >
+                  换图
+                </Button>
+              </Space>
+            ) : undefined
+          }
+        >
+          {selectedFile ? (
+            <>
               {isImagePreview ? (
-                <Image
-                  src={previewUrl}
-                  alt={selectedFile?.name}
-                  style={{ maxWidth: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 8 }}
-                  preview={{ mask: '点击放大查看' }}
-                />
+                <div style={{ textAlign: 'center' }}>
+                  <Image
+                    src={previewUrl}
+                    alt={selectedFile.name}
+                    style={{ maxWidth: '100%', maxHeight: 560, objectFit: 'contain', borderRadius: 8 }}
+                    preview={{ mask: '点击放大查看' }}
+                  />
+                </div>
               ) : isPdfPreview ? (
                 <iframe
                   src={previewUrl}
-                  title={selectedFile?.name}
-                  style={{ width: '100%', maxHeight: 360, borderRadius: 8, border: '1px solid var(--cf-border, #d9d9d9)' }}
+                  title={selectedFile.name}
+                  style={{ width: '100%', height: 560, borderRadius: 8, border: '1px solid var(--cf-border, #d9d9d9)' }}
                 />
               ) : (
-                <Alert type="info" showIcon message="该格式暂不支持预览" description={selectedFile?.name} />
+                <Alert type="info" showIcon message="该格式暂不支持预览" description={selectedFile.name} />
               )}
-            </div>
-          ) : null}
 
-          <Divider />
+              <Divider />
 
-          <Space style={{ marginBottom: 16 }} wrap>
-            <Button
-              type="primary"
-              icon={<UploadOutlined />}
-              disabled={!selectedFile || submitting || Boolean(documentId)}
-              loading={uploading || (recognizing && !documentId)}
-              onClick={uploadAndRecognize}
+              <Space style={{ marginBottom: 16 }} wrap>
+                <Button
+                  type="primary"
+                  icon={<UploadOutlined />}
+                  disabled={!selectedFile || submitting || Boolean(documentId)}
+                  loading={uploading || (recognizing && !documentId)}
+                  onClick={uploadAndRecognize}
+                >
+                  上传并识别
+                </Button>
+                <Button
+                  icon={<RobotOutlined />}
+                  disabled={!documentId || submitting}
+                  loading={recognizing && Boolean(documentId)}
+                  onClick={rerunRecognition}
+                >
+                  重新识别
+                </Button>
+              </Space>
+
+              {extractionResult ? (
+                <>
+                  <Divider />
+                  <ExtractionQualitySummary output={extractionResult?.output_json} />
+                </>
+              ) : null}
+            </>
+          ) : (
+            <Upload.Dragger
+              multiple={false}
+              maxCount={1}
+              disabled={submitting}
+              beforeUpload={(file) => {
+                if (!validateUploadFile(file)) {
+                  return Upload.LIST_IGNORE;
+                }
+                setSelectedFile(file);
+                setDocumentId(undefined);
+                setReviewTaskId(undefined);
+                setExtractionResult(undefined);
+                setDocumentStatus('待上传');
+                setRecognitionStatus('未识别');
+                setErrorMessage(undefined);
+                message.info('已选择文件');
+                return false;
+              }}
             >
-              上传并识别
-            </Button>
-            <Button
-              icon={<RobotOutlined />}
-              disabled={!documentId || submitting}
-              loading={recognizing && Boolean(documentId)}
-              onClick={rerunRecognition}
-            >
-              重新识别
-            </Button>
-          </Space>
-
-          <ProDescriptions
-            size="small"
-            column={1}
-            dataSource={{
-              status: documentStatus,
-              file: selectedFile?.name || '未选择',
-              ai: recognitionStatus,
-              result: extractionResult?.model_name || extractionResult?.workflow_run_id || '-',
-            }}
-            columns={[
-              { title: '状态', dataIndex: 'status', render: (text) => documentStatusLabel(String(text)) },
-              { title: '当前文件', dataIndex: 'file' },
-              { title: '识别结果', dataIndex: 'ai' },
-              { title: '识别模型', dataIndex: 'result' },
-            ]}
-          />
-          <Divider />
-          <ExtractionQualitySummary output={extractionResult?.output_json} />
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text">拖拽证书图片或 PDF 到这里</p>
+              <p className="ant-upload-hint">支持证书原图、扫描件、PDF 文件</p>
+            </Upload.Dragger>
+          )}
         </ProCard>
 
         <ProCard
