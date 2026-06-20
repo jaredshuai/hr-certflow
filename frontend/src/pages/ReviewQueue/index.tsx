@@ -1,8 +1,6 @@
 import {
   ModalForm,
   PageContainer,
-  ProFormDatePicker,
-  ProFormSelect,
   ProFormText,
   ProFormTextArea,
   ProCard,
@@ -10,7 +8,7 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Alert, Button, Collapse, Descriptions, Drawer, Empty, Segmented, Space, Timeline, Typography, message as antdMessage } from 'antd';
+import { Alert, Button, Collapse, DatePicker, Descriptions, Drawer, Empty, Form, Input, Segmented, Select, Space, Timeline, Typography, message as antdMessage } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -641,74 +639,95 @@ export default function ReviewQueuePage() {
             ) : null}
 
             <ProCard title={`证书 ${activeCertIndex + 1} 详情`}>
-              <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                <ProFormSelect
-                  label="员工"
-                  options={employeeOptions}
-                  showSearch
-                  value={activeCert.employee_id}
-                  onChange={(value) => updateActiveCert({ employee_id: value })}
-                />
-                <ProFormSelect
-                  label="证书类型"
-                  options={certificateTypeOptions}
-                  showSearch
-                  value={activeCert.certificate_type_id}
-                  onChange={(value) => updateActiveCert({ certificate_type_id: value })}
-                />
-                <ProFormText
-                  label="持证人"
-                  value={activeCert.holder_name}
-                  onChange={(e) => updateActiveCert({ holder_name: e.target.value })}
-                />
-                <ProFormText
-                  label="证书编号"
-                  value={activeCert.certificate_no}
-                  onChange={(e) => updateActiveCert({ certificate_no: e.target.value })}
-                />
-                <ProFormText
-                  label="发证机构"
-                  value={activeCert.issuing_authority}
-                  onChange={(e) => updateActiveCert({ issuing_authority: e.target.value })}
-                />
-                <ProFormDatePicker
-                  label="发证日期"
-                  value={activeCert.issue_date}
-                  onChange={(_, dateStr) => updateActiveCert({ issue_date: dateStr as string })}
-                />
-                <ProFormDatePicker
-                  label="有效开始"
-                  value={activeCert.valid_from}
-                  onChange={(_, dateStr) => updateActiveCert({ valid_from: dateStr as string })}
-                />
-                <ProFormDatePicker
-                  label="有效截止"
-                  tooltip="留空时，系统会按证书类型默认有效期和有效开始/发证日期自动计算"
-                  value={activeCert.valid_to}
-                  onChange={(_, dateStr) => updateActiveCert({ valid_to: dateStr as string })}
-                />
-                <ProFormDatePicker
-                  label="复审日期"
-                  value={activeCert.review_date}
-                  onChange={(_, dateStr) => updateActiveCert({ review_date: dateStr as string })}
-                />
-              </Space>
+              <Form layout="vertical">
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <Form.Item label="员工">
+                    <Select
+                      options={employeeOptions}
+                      showSearch
+                      value={activeCert.employee_id}
+                      onChange={(value) => updateActiveCert({ employee_id: value })}
+                    />
+                  </Form.Item>
+                  <Form.Item label="证书类型">
+                    <Select
+                      options={certificateTypeOptions}
+                      showSearch
+                      value={activeCert.certificate_type_id}
+                      onChange={(value) => updateActiveCert({ certificate_type_id: value })}
+                    />
+                  </Form.Item>
+                  <Form.Item label="持证人">
+                    <Input
+                      value={activeCert.holder_name}
+                      onChange={(e) => updateActiveCert({ holder_name: e.target.value })}
+                    />
+                  </Form.Item>
+                  <Form.Item label="证书编号">
+                    <Input
+                      value={activeCert.certificate_no}
+                      onChange={(e) => updateActiveCert({ certificate_no: e.target.value })}
+                    />
+                  </Form.Item>
+                  <Form.Item label="发证机构">
+                    <Input
+                      value={activeCert.issuing_authority}
+                      onChange={(e) => updateActiveCert({ issuing_authority: e.target.value })}
+                    />
+                  </Form.Item>
+                  <Form.Item label="发证日期">
+                    <DatePicker
+                      style={{ width: '100%' }}
+                      value={activeCert.issue_date}
+                      onChange={(_, dateStr) => updateActiveCert({ issue_date: dateStr as string })}
+                    />
+                  </Form.Item>
+                  <Form.Item label="有效开始">
+                    <DatePicker
+                      style={{ width: '100%' }}
+                      value={activeCert.valid_from}
+                      onChange={(_, dateStr) => updateActiveCert({ valid_from: dateStr as string })}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    label="有效截止"
+                    tooltip="留空时，系统会按证书类型默认有效期和有效开始/发证日期自动计算"
+                  >
+                    <DatePicker
+                      style={{ width: '100%' }}
+                      value={activeCert.valid_to}
+                      onChange={(_, dateStr) => updateActiveCert({ valid_to: dateStr as string })}
+                    />
+                  </Form.Item>
+                  <Form.Item label="复审日期">
+                    <DatePicker
+                      style={{ width: '100%' }}
+                      value={activeCert.review_date}
+                      onChange={(_, dateStr) => updateActiveCert({ review_date: dateStr as string })}
+                    />
+                  </Form.Item>
+                </Space>
+              </Form>
             </ProCard>
 
             <ProCard title="复核信息（所有证书共享）">
-              <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                <ProFormText
-                  label="复核人"
-                  value={reviewedBy}
-                  onChange={(e) => setReviewedBy(e.target.value)}
-                  placeholder="请输入复核人"
-                />
-                <ProFormTextArea
-                  label="复核备注"
-                  value={reviewNotes}
-                  onChange={(e) => setReviewNotes(e.target.value)}
-                />
-              </Space>
+              <Form layout="vertical">
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <Form.Item label="复核人">
+                    <Input
+                      value={reviewedBy}
+                      onChange={(e) => setReviewedBy(e.target.value)}
+                      placeholder="请输入复核人"
+                    />
+                  </Form.Item>
+                  <Form.Item label="复核备注">
+                    <Input.TextArea
+                      value={reviewNotes}
+                      onChange={(e) => setReviewNotes(e.target.value)}
+                    />
+                  </Form.Item>
+                </Space>
+              </Form>
             </ProCard>
           </Space>
         ) : null}

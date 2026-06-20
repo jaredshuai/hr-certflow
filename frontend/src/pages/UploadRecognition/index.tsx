@@ -527,7 +527,7 @@ export default function UploadRecognitionPage() {
 
         <ProCard
           title="智能预填与人工确认"
-          bodyStyle={{ maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' }}
+          styles={{ body: { maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' } }}
           extra={
             <Button
               type="primary"
