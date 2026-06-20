@@ -9,6 +9,7 @@ import {
 } from '@ant-design/pro-components';
 import { Alert, Button, Divider, Form, Image, Result, Space, Steps, Tag, Typography, Upload } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
+import { history } from '@umijs/max';
 
 import { ExtractionQualitySummary, outputText } from '@/components/ExtractionQualitySummary';
 import { getResource, listResource, postResource } from '@/services/api';
@@ -385,6 +386,13 @@ export default function UploadRecognitionPage() {
           showIcon
           title="流程出现错误"
           description={errorMessage}
+          action={
+            errorMessage.includes('文件台账') ? (
+              <Button size="small" type="primary" onClick={() => history.push('/documents')}>
+                前往文件台账
+              </Button>
+            ) : undefined
+          }
           closable={{ onClose: () => setErrorMessage(undefined) }}
           style={{ marginBottom: 16 }}
         />
@@ -416,6 +424,7 @@ export default function UploadRecognitionPage() {
 
       <div className="certflow-upload-grid">
         <ProCard
+          className="certflow-upload-preview"
           title={selectedFile ? selectedFile.name : '证书原件'}
           extra={
             selectedFile ? (
