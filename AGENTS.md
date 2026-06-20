@@ -121,17 +121,74 @@ literal text, already-known files, or final confirmation.
 Use the smallest reliable inspection path. Do not loop through multiple tools
 when one specialized tool answers the question.
 
-### Tool Selection Matrix
+### Tool Overview
 
-| Intent | Primary tool | Use it for |
+| Tool | Nature | Good at / Bad at |
 | --- | --- | --- |
-| Semantic, feature-based, or ambiguous discovery | `fast-context` | Find the files and areas that likely implement a business rule, workflow, error pattern, or UI behavior. |
-| Deterministic symbol lookup | `CodeGraph` | Find definitions, signatures, implementations, imports, exports, callers, and callees for known symbols. |
-| Structural tracking | `CodeGraph` | Answer who calls a function, what a function calls, and what implements an interface. |
-| Impact analysis or refactor planning | `CodeGraph` | Trace exact upstream/downstream dependencies and blast radius before changing shared code. |
-| Prompt or task refinement for large changes | `fast-context` | Enhance broad multi-file tasks with likely relevant context and constraints. |
-| Mass refactoring or deep dependency mapping | `CodeGraph` | Traverse structural relationships instead of rebuilding them with grep/read loops. |
-| Literal string or known-file checks | Native search/read | Use `rg` or direct reads for exact text, comments, copy, filenames, and already-identified files. |
+| **CodeGraph** (`codegraph_explore`/`callers`/`node`/`search`; local static symbol graph) | tree-sitter parse → symbol relationship graph, fully local | ✅ symbol relationships, call flows, impact analysis, reading source / ❌ Chinese concept words, pure natural-language intent |
+| **Fast Context** (`fast_context_search`; remote AI semantic retrieval) | remote AI locates relevant code by natural-language intent | ✅ fuzzy intent, Chinese concept words, unknown symbol names / ❌ call graphs, reading source (returns file + line range only, no content) |
+| **rg** (ripgrep; local text search) | regex / string matching | ✅ finding strings, regex, extension filters, file existence / ❌ semantics, symbol relationships |
+
+### Decision Table By Problem Type (Mandatory)
+
+These rules are keyed to **problem type** and are mandatory — violating them is
+an error and must be redone with the correct tool. Do not substitute a default
+grep or full-file scan "because it is handy"; measured against the designated
+tool they are slower and less accurate.
+
+| What you are doing | Must use | Fallback if unavailable |
+| --- | --- | --- |
+| **Exact call relationships**: who calls X, what X calls | `codegraph_callers` / `codegraph_callees` | rg for the symbol + Read to infer manually; tell the user you degraded |
+| **Concrete symbol name** to trace a flow / impact / refactor (you can name the function or class) | `codegraph_explore` | fast_context to fish for files + Read; tell the user you degraded |
+| Reading source of a single **known symbol** | `codegraph_node` (symbol mode) | Read |
+| **Pure field name / data field** to find definition and usage (no same-named function in backend) | `fast_context_search` | rg + Read; results may be inaccurate, say so |
+| **Chinese business concept / workflow word** (e.g. "user auth flow", "order state machine") | `fast_context_search` | rg + Read; results may be inaccurate, say so |
+| **No symbol name at all**, only a fuzzy business description | `fast_context_search` | rg + Read (second best) |
+| Find a string, regex match, filter by extension, check whether a file exists | **`rg`** | rg is required on this machine; if unavailable treat it as an environment fault and report it — do **not** fall back |
+| Sensitive code / offline scenarios | CodeGraph (fully local) | — |
+
+### Core Rule: Whether To Use `codegraph_explore` Depends On A "Symbol Anchor"
+
+This is the easiest point to get wrong. `codegraph_explore` hit quality
+**depends on the query containing a symbol anchor** (a concrete function or
+class name):
+
+| Query word type | explore behavior | Use |
+| --- | --- | --- |
+| Concrete function/class name (e.g. `loginUser`, `OrderService`) | ✅ precise, direct hit | explore |
+| Field name **+ backend has a same-named function** (e.g. `risk_level` → `_resolve_risk_level`) | ✅ usually hits | explore |
+| Pure field name, backend has **no** same-named function (e.g. pure data field `created_at`) | ❌ easily pulled off by generative client code (e.g. OpenAPI-generated model files) | fast_context |
+| Chinese / natural-language concept or workflow word (e.g. "login auth", "export report") | ❌ easily returns "No relevant code found" or gets pulled off by generated artifacts | fast_context |
+
+> **When unsure**: first run `fast_context_search` to fish for files (it hits
+> business code reliably across query types); once you have concrete symbol
+> names, use `explore` to dig into call relationships. This combo is more
+> reliable than betting on a single tool.
+
+### Known Pitfalls (Empirically Verified On This Repo)
+
+- **"Who calls X" is not always a CodeGraph job**: if X is a test function,
+  `main`, or a leaf entry point, `codegraph_callers` returns "No callers found"
+  (correct, but not what you asked). In that case use rg to find all
+  occurrences of X, or fast_context to locate context.
+- **Do not re-Read source returned by `explore`**: if a source block returned
+  by `explore` is tagged "treat as already Read", use it directly — do not Read
+  again, to save tokens. If output is truncated by budget, **re-issue `explore`
+  with the specific symbol name** rather than blindly Reading the file.
+- **`fast_context` does not do call graphs**: when asked "who calls X" it only
+  returns related files — it does not answer the question. Do not use it for
+  call relationships.
+- **Generative client code is a noise source**: if the project has
+  OpenAPI/Orval/tRPC/protobuf-generated client code (e.g. `src/api/model/*`,
+  `*.pb.ts`) and it is indexed, `explore` on queries without a symbol anchor
+  gets pulled off by them. Such projects must especially follow the split
+  above.
+- **Windows reserved device-name trap**: `nul`/`con`/`aux`/`prn`/`com1` etc.
+  are Win32 reserved device names. `Get-ChildItem -Filter "nul"` will
+  **false-positive** match the NUL device in every directory. To check whether
+  a file exists use `rg --files -g "<name>"`, `Test-Path`, or
+  `Get-ChildItem | Where-Object Name -eq "<name>"` (filter after the pipe, not
+  via `-Filter`).
 
 ### Use `CodeGraph` For Structural Proof
 
