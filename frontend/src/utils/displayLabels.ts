@@ -121,6 +121,15 @@ const auditResourceTypeLabels: Record<string, string> = {
   review_task: '复核任务',
 };
 
+export const auditResourceTypeOptions = Object.entries(auditResourceTypeLabels).map(
+  ([value, label]) => ({ label, value }),
+);
+
+export const auditActionOptions = Object.entries(auditActionLabels).map(([value, label]) => ({
+  label,
+  value,
+}));
+
 export const employmentStatusOptions: Array<{ label: string; value: EmploymentStatus }> = [
   { label: '在职', value: 'ACTIVE' },
   { label: '休假', value: 'ON_LEAVE' },

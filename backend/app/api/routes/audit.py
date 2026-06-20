@@ -35,6 +35,25 @@ def list_audit_logs(
     db: Session = Depends(get_db),
     limit: int = 100,
     offset: int = 0,
+    actor_name: str | None = None,
+    action: str | None = None,
+    resource_type: str | None = None,
+    resource_id: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
 ) -> list[AuditLog]:
-    statement = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
+    statement = select(AuditLog)
+    if actor_name:
+        statement = statement.where(AuditLog.actor_name == actor_name)
+    if action:
+        statement = statement.where(AuditLog.action == action)
+    if resource_type:
+        statement = statement.where(AuditLog.resource_type == resource_type)
+    if resource_id:
+        statement = statement.where(AuditLog.resource_id == resource_id)
+    if created_from:
+        statement = statement.where(AuditLog.created_at >= created_from)
+    if created_to:
+        statement = statement.where(AuditLog.created_at <= created_to)
+    statement = statement.order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
     return list(db.scalars(statement).all())

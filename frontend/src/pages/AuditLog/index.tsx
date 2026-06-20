@@ -1,9 +1,14 @@
 import { PageContainer, ProTable, type ProColumns } from '@ant-design/pro-components';
 import { Alert, Button, Collapse, Modal, Typography } from 'antd';
 import { useState } from 'react';
+import { request } from '@umijs/max';
 
-import { listResource } from '@/services/api';
-import { auditActionLabel, auditResourceTypeLabel } from '@/utils/displayLabels';
+import {
+  auditActionLabel,
+  auditActionOptions,
+  auditResourceTypeLabel,
+  auditResourceTypeOptions,
+} from '@/utils/displayLabels';
 import { emptyTableText } from '@/utils/emptyStates';
 import { message } from '@/utils/messageApi';
 
@@ -55,10 +60,36 @@ export default function AuditLogPage() {
     { title: '操作者', dataIndex: 'actor_name', width: 140 },
     { title: '请求 ID', dataIndex: 'request_id', ellipsis: true, search: false },
     { title: '来源 IP', dataIndex: 'ip_address', width: 130, search: false },
-    { title: '动作', dataIndex: 'action', width: 220, renderText: (value) => auditActionLabel(value) },
-    { title: '资源类型', dataIndex: 'resource_type', width: 160, renderText: (value) => auditResourceTypeLabel(value) },
-    { title: '资源 ID', dataIndex: 'resource_id', ellipsis: true },
-    { title: '时间', dataIndex: 'created_at', valueType: 'dateTime', width: 180 },
+    {
+      title: '动作',
+      dataIndex: 'action',
+      width: 220,
+      valueType: 'select',
+      fieldProps: { options: auditActionOptions, showSearch: true },
+      renderText: (value) => auditActionLabel(value),
+    },
+    {
+      title: '资源类型',
+      dataIndex: 'resource_type',
+      width: 160,
+      valueType: 'select',
+      fieldProps: { options: auditResourceTypeOptions, showSearch: true },
+      renderText: (value) => auditResourceTypeLabel(value),
+    },
+    { title: '资源 ID', dataIndex: 'resource_id', ellipsis: true, search: false },
+    { title: '时间', dataIndex: 'created_at', valueType: 'dateTime', width: 180, search: false },
+    {
+      title: '时间区间',
+      dataIndex: 'created_at_range',
+      valueType: 'dateRange',
+      hideInTable: true,
+      search: {
+        transform: (value) => ({
+          created_from: value?.[0],
+          created_to: value?.[1],
+        }),
+      },
+    },
     {
       title: '详情',
       valueType: 'option',
@@ -86,9 +117,16 @@ export default function AuditLogPage() {
       <ProTable<AuditLogRow>
         rowKey="id"
         columns={columns}
-        request={async () => {
+        request={async (params) => {
+          const { created_at_range, ...filters } = params;
+          void created_at_range;
+          const active = Object.fromEntries(
+            Object.entries(filters).filter(
+              ([, value]) => value !== undefined && value !== null && value !== '',
+            ),
+          );
           try {
-            const data = await listResource<AuditLogRow>('/audit-logs');
+            const data = await request<AuditLogRow[]>('/audit-logs', { params: active });
             setLoadError(undefined);
             return { data, success: true };
           } catch (error) {
