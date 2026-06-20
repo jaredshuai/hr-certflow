@@ -365,6 +365,14 @@ export default function UploadRecognitionPage() {
   const showConfirmReady =
     flowStep === 'confirm' && extractionResult && reviewTaskId && documentStatus !== 'CONFIRMED';
 
+  // The upload page only confirms a single certificate. When the AI extracted
+  // more than one, route HR to the review queue, which supports multi-cert
+  // editing and batch approval, instead of silently dropping the rest.
+  const extractedCertCount = Array.isArray(extractionResult?.output_json?.certificates)
+    ? extractionResult.output_json.certificates.length
+    : 0;
+  const isMultiCert = extractedCertCount > 1;
+
   return (
     <PageContainer title="上传识别">
       <ProCard style={{ marginBottom: 16 }}>
@@ -413,7 +421,20 @@ export default function UploadRecognitionPage() {
         </ProCard>
       ) : null}
 
-      {showConfirmReady ? (
+      {showConfirmReady && isMultiCert ? (
+        <Alert
+          type="warning"
+          showIcon
+          title={`本文件识别到 ${extractedCertCount} 条证书，请前往复核队列处理`}
+          description="上传识别页一次只能确认一条证书。复核队列支持切换并批量确认多条证书，避免遗漏。"
+          action={
+            <Button size="small" type="primary" onClick={() => history.push('/review-queue')}>
+              前往复核队列
+            </Button>
+          }
+          style={{ marginBottom: 16 }}
+        />
+      ) : showConfirmReady ? (
         <Alert
           type="info"
           showIcon
@@ -541,7 +562,12 @@ export default function UploadRecognitionPage() {
             <Button
               type="primary"
               icon={<SaveOutlined />}
-              disabled={!reviewTaskId || submitting || documentStatus === 'CONFIRMED'}
+              disabled={
+                !reviewTaskId ||
+                submitting ||
+                documentStatus === 'CONFIRMED' ||
+                isMultiCert
+              }
               loading={approving}
               onClick={approveReview}
             >
