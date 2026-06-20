@@ -15,6 +15,7 @@ import { getResource, listResource, postResource } from '@/services/api';
 import type {
   AiExtractionResult,
   CertificateDocument,
+  CertificateDocumentTrace,
   RecognitionDispatch,
   RecognitionStatus,
   ReviewApproveItem,
@@ -170,7 +171,7 @@ export default function UploadRecognitionPage() {
 
       if (poll.status === 'PENDING_REVIEW') {
         if (poll.ai_result_id) {
-          const result = await getResource<AiExtractionResult>(
+          const result = await getResource<CertificateDocumentTrace>(
             `/documents/${targetDocumentId}/trace`,
           ).then((trace) =>
             trace.ai_results.find((r) => r.id === poll.ai_result_id) ?? trace.ai_results[0],

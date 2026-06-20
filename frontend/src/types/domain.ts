@@ -377,6 +377,7 @@ export interface AiExtractionResult {
   model_name?: string;
   output_json: ExtractionOutput;
   raw_text?: string;
+  raw_response_key?: string;
   suspicious_points: string[];
   confidence?: number;
   created_at: string;
