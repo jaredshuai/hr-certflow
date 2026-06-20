@@ -9,12 +9,14 @@ import {
 } from '@ant-design/pro-components';
 import { Alert, Button, Divider, Form, Image, Result, Space, Steps, Tag, Typography, Upload } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
+import { history } from '@umijs/max';
 
 import { ExtractionQualitySummary, outputText } from '@/components/ExtractionQualitySummary';
 import { getResource, listResource, postResource } from '@/services/api';
 import type {
   AiExtractionResult,
   CertificateDocument,
+  CertificateDocumentTrace,
   RecognitionDispatch,
   RecognitionStatus,
   ReviewApproveItem,
@@ -170,7 +172,7 @@ export default function UploadRecognitionPage() {
 
       if (poll.status === 'PENDING_REVIEW') {
         if (poll.ai_result_id) {
-          const result = await getResource<AiExtractionResult>(
+          const result = await getResource<CertificateDocumentTrace>(
             `/documents/${targetDocumentId}/trace`,
           ).then((trace) =>
             trace.ai_results.find((r) => r.id === poll.ai_result_id) ?? trace.ai_results[0],
@@ -363,6 +365,14 @@ export default function UploadRecognitionPage() {
   const showConfirmReady =
     flowStep === 'confirm' && extractionResult && reviewTaskId && documentStatus !== 'CONFIRMED';
 
+  // The upload page only confirms a single certificate. When the AI extracted
+  // more than one, route HR to the review queue, which supports multi-cert
+  // editing and batch approval, instead of silently dropping the rest.
+  const extractedCertCount = Array.isArray(extractionResult?.output_json?.certificates)
+    ? extractionResult.output_json.certificates.length
+    : 0;
+  const isMultiCert = extractedCertCount > 1;
+
   return (
     <PageContainer title="上传识别">
       <ProCard style={{ marginBottom: 16 }}>
@@ -384,6 +394,13 @@ export default function UploadRecognitionPage() {
           showIcon
           title="流程出现错误"
           description={errorMessage}
+          action={
+            errorMessage.includes('文件台账') ? (
+              <Button size="small" type="primary" onClick={() => history.push('/documents')}>
+                前往文件台账
+              </Button>
+            ) : undefined
+          }
           closable={{ onClose: () => setErrorMessage(undefined) }}
           style={{ marginBottom: 16 }}
         />
@@ -404,7 +421,20 @@ export default function UploadRecognitionPage() {
         </ProCard>
       ) : null}
 
-      {showConfirmReady ? (
+      {showConfirmReady && isMultiCert ? (
+        <Alert
+          type="warning"
+          showIcon
+          title={`本文件识别到 ${extractedCertCount} 条证书，请前往复核队列处理`}
+          description="上传识别页一次只能确认一条证书。复核队列支持切换并批量确认多条证书，避免遗漏。"
+          action={
+            <Button size="small" type="primary" onClick={() => history.push('/review-queue')}>
+              前往复核队列
+            </Button>
+          }
+          style={{ marginBottom: 16 }}
+        />
+      ) : showConfirmReady ? (
         <Alert
           type="info"
           showIcon
@@ -415,6 +445,7 @@ export default function UploadRecognitionPage() {
 
       <div className="certflow-upload-grid">
         <ProCard
+          className="certflow-upload-preview"
           title={selectedFile ? selectedFile.name : '证书原件'}
           extra={
             selectedFile ? (
@@ -526,12 +557,17 @@ export default function UploadRecognitionPage() {
 
         <ProCard
           title="智能预填与人工确认"
-          bodyStyle={{ maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' }}
+          styles={{ body: { maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' } }}
           extra={
             <Button
               type="primary"
               icon={<SaveOutlined />}
-              disabled={!reviewTaskId || submitting || documentStatus === 'CONFIRMED'}
+              disabled={
+                !reviewTaskId ||
+                submitting ||
+                documentStatus === 'CONFIRMED' ||
+                isMultiCert
+              }
               loading={approving}
               onClick={approveReview}
             >

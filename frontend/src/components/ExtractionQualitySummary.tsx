@@ -24,9 +24,12 @@ function hasValue(value: unknown): boolean {
 }
 
 /** 从 ExtractionOutput 中读取第一条证书的字段(单证书场景) */
-export function outputText(output: Record<string, unknown> | undefined, key: string): string | undefined {
+export function outputText(
+  output: ExtractionOutput | Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
   if (!output) return undefined;
-  const certificates = output.certificates;
+  const certificates = (output as Record<string, unknown>).certificates;
   if (!Array.isArray(certificates) || certificates.length === 0) return undefined;
   const first = certificates[0] as Record<string, unknown> | undefined;
   const value = first?.[key];

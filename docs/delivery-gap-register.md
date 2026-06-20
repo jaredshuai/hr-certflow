@@ -55,12 +55,29 @@ complete product requirement is satisfied".
 | Audit and traceability | Partial | Audit records, employee trace views, certificate-type trace views, source-document trace views, certificate trace views, review-task trace views, reminder-task timeline trace views, dashboard risk-item trace views, bounded PII-safe audit payloads, UI-supplied operator context, and backend request ID propagation exist; promoted dev scenario evidence confirms actor/request context and trace linkage on the sample loop. Still needs release evidence and broader audit payload review. |
 | Frontend states | Partial | AntD/ProComponents empty/error/workflow states and stale review-action recovery are improved; dashboard risk trace has local real-data browser smoke coverage with a clean console, but recovery states across every page still need browser evidence. |
 | Import/export coverage | Partial | Employee/type/certificate/document/reminder/report exports, master-data imports, import templates, bad-row validation, certificate-type required policy import/export, and duplicate-key import errors for employee numbers and certificate type codes exist; local browser acceptance covers employee/type duplicate-key import modals and employee/type CSV downloads, and promoted dev scenario evidence confirms the core CSV export set. Still needs promoted import acceptance and release evidence. |
-| Local verification | Done | Keep backend lint, backend type check, backend tests, frontend lint, and frontend build green for every increment. |
+| Local verification | Done | Backend lint/type/tests and frontend lint/build stay green for every increment. Frontend now also runs `npm run type-check` (`tsc --noEmit`) locally and in CI; this closes a prior gate blind spot where `max build` (mako/webpack) does no type checking and eslint's TS rule set leaves `no-undef` off, so a missing `@/services/api` import in `ReviewQueue/index.tsx` shipped green while the human-review gate crashed at runtime. That import has been restored and the type-check gate added in the same change. |
 | Dev/release promotion | Partial | Dev promotion for feature commit `b642cad` completed through GitHub Actions/GitOps in run `27065420964` and promotion commit `938ef54`, with Web/API and Celery/Redis smoke passing. Release promotion/evidence for the same product slice is still missing. |
 | End-to-end HR scenario | Partial | A read-only HTTP evidence collector checks a completed promoted scenario for employee/type setup, upload confirmation, Dify extraction, review approval, certificate replacement, reminder timeline, feedback closure, dashboard/report drill-down, audit trace, and exports. Promoted dev scenario run `27066100965` passed against a seeded sample loop; release scenario evidence is still missing. |
 
 ## Local Evidence Notes
 
+- 2026-06-20: A runtime crash on the human-review page was found and fixed.
+  `ReviewQueue/index.tsx` used `getResource`/`listResource`/`postResource` in
+  six places (employees/types load, ProTable fetch, approve, reject, trace) but
+  did not import them from `@/services/api`, so the entire human-review gate
+  threw at runtime. The gap passed the existing frontend gate because
+  `npm run build` (`max build`, mako/webpack) performs no type checking and
+  eslint's TS rule set leaves `no-undef` off. The fix restores the import,
+  corrects two type mismatches the missing import had masked
+  (`AiExtractionResult` lacked the backend's `raw_response_key`; the document
+  trace call used the wrong generic), refactors the multi-certificate review
+  fields from misused `ProForm*` controlled components to typed antd
+  `Form.Item` + `Select`/`Input`/`DatePicker`, and migrates the upload page
+  `ProCard bodyStyle` to the AntD 6 `styles.body` API. A `type-check` script
+  (`tsc -p tsconfig.json --noEmit`) was added to `frontend/package.json` and a
+  `Type-check frontend` step to `.github/workflows/ci.yml`; reverting the
+  import now fails the gate with six `TS2304` errors. Backend lint/type/tests,
+  frontend lint/type-check/build all pass locally.
 - 2026-05-25: Local browser smoke on `http://127.0.0.1:8001/#/dashboard`
   verified the dashboard expired-certificate risk row, the risk trace drawer,
   associated certificate evidence, audit summary, and a clean warning/error

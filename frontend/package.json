@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "max dev",
     "build": "max build",
-    "lint": "max lint"
+    "lint": "max lint",
+    "type-check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@ant-design/charts": "^2.6.7",

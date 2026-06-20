@@ -170,10 +170,20 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 480px;
   gap: 20px;
+  align-items: start;
 }
 
 @media (max-width: 900px) {
   .certflow-upload-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 901px) {
+  .certflow-upload-grid .certflow-upload-preview {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
   }
 }
