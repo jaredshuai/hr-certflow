@@ -167,6 +167,27 @@ export default function ReviewQueuePage() {
     setReviewNotes(record.notes || '');
   }
 
+  /** Reload the queue, then open the next pending review after the one just handled. */
+  async function openNextReviewAfter(currentId: string) {
+    // Re-fetch directly: state captured in this closure is stale across the await.
+    try {
+      const fresh = await listResource<ReviewTask>('/reviews');
+      const next = fresh.find((item) => item.id !== currentId);
+      if (next) {
+        openApproveDrawer(next);
+        message.info('已切换到下一条待复核任务');
+      } else {
+        setCurrentReview(undefined);
+        message.success('待复核任务已全部处理');
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '刷新复核队列失败');
+      setCurrentReview(undefined);
+    } finally {
+      actionRef.current?.reload();
+    }
+  }
+
   function updateActiveCert(patch: Partial<ReviewApproveItem>) {
     setCertificateForms((prev) => {
       const next = [...prev];
@@ -186,7 +207,7 @@ export default function ReviewQueuePage() {
     setActiveCertIndex((prev) => Math.max(0, prev > index ? prev - 1 : prev));
   }
 
-  async function handleApprove() {
+  async function handleApprove(continueToNext = false) {
     if (!currentReview) return;
     if (!reviewedBy.trim()) {
       antdMessage.warning('请输入复核人');
@@ -217,9 +238,13 @@ export default function ReviewQueuePage() {
         payload,
       );
       message.success(`复核通过，已生成 ${certificateForms.length} 条正式持证记录`);
-      setCurrentReview(undefined);
       setStaleActionError(undefined);
-      actionRef.current?.reload();
+      if (continueToNext) {
+        await openNextReviewAfter(currentReview.id);
+      } else {
+        setCurrentReview(undefined);
+        actionRef.current?.reload();
+      }
     } catch (error) {
       if (isReviewStaleActionError(error)) {
         const description = reviewStaleActionMessage(error);
@@ -571,7 +596,10 @@ export default function ReviewQueuePage() {
         extra={
           <Space>
             <Button onClick={() => setCurrentReview(undefined)}>取消</Button>
-            <Button type="primary" loading={approving} onClick={handleApprove}>
+            <Button loading={approving} onClick={() => handleApprove(true)}>
+              确认并下一条
+            </Button>
+            <Button type="primary" loading={approving} onClick={() => handleApprove(false)}>
               确认全部 ({certificateForms.length})
             </Button>
           </Space>
