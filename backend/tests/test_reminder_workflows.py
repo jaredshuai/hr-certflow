@@ -840,6 +840,63 @@ def test_review_approval_derives_valid_to_from_certificate_type_default(
     assert reminder_task.status == ReminderTaskStatus.PENDING
 
 
+def test_scan_skips_certificates_belonging_to_left_employees(db_session: Session) -> None:
+    """已离职员工的证书即使仍 ACTIVE，到期扫描也不应为其生成提醒任务。
+
+    回归覆盖：scan_and_create_reminder_tasks 必须 join Employee 并过滤
+    employment_status != LEFT，否则 HR 会持续收到离职人员的到期警报噪音。
+    """
+    active_employee, certificate_type = _create_master_data(db_session)
+    left_employee = Employee(
+        employee_no="E002",
+        name="李四",
+        email="left@example.test",
+        employment_status=EmploymentStatus.LEFT,
+    )
+    db_session.add(left_employee)
+    db_session.flush()
+
+    valid_to = date(2026, 8, 15)
+    active_certificate = EmployeeCertificate(
+        employee_id=active_employee.id,
+        certificate_type_id=certificate_type.id,
+        holder_name=active_employee.name,
+        status=CertificateStatus.ACTIVE,
+        valid_to=valid_to,
+    )
+    left_certificate = EmployeeCertificate(
+        employee_id=left_employee.id,
+        certificate_type_id=certificate_type.id,
+        holder_name=left_employee.name,
+        status=CertificateStatus.ACTIVE,
+        valid_to=valid_to,
+    )
+    policy = ReminderPolicy(
+        name="default",
+        days_before_expiry=[30],
+        second_reminder_after_days=7,
+        escalation_after_days=5,
+        channels=["email"],
+    )
+    db_session.add_all([active_certificate, left_certificate, policy])
+    db_session.flush()
+
+    created = scan_and_create_reminder_tasks(db_session, today=date(2026, 7, 16))
+    db_session.flush()
+
+    active_task = db_session.scalar(
+        select(ReminderTask).where(ReminderTask.employee_certificate_id == active_certificate.id)
+    )
+    left_task = db_session.scalar(
+        select(ReminderTask).where(ReminderTask.employee_certificate_id == left_certificate.id)
+    )
+
+    assert created == 1
+    assert active_task is not None
+    assert active_task.policy_id == policy.id
+    assert left_task is None
+
+
 def test_review_approval_keeps_explicit_valid_to_over_certificate_type_default(
     db_session: Session,
 ) -> None:

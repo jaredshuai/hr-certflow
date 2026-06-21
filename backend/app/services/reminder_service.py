@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings
-from app.domain.enums import CertificateStatus, ReminderEventType, ReminderTaskStatus
-from app.models import EmployeeCertificate, ReminderEvent, ReminderPolicy, ReminderTask
+from app.domain.enums import CertificateStatus, EmploymentStatus, ReminderEventType, ReminderTaskStatus
+from app.models import Employee, EmployeeCertificate, ReminderEvent, ReminderPolicy, ReminderTask
 from app.services.audit import record_audit
 from app.services.notifications import NotificationMessage, NotificationRouter
 
@@ -20,9 +20,12 @@ def scan_and_create_reminder_tasks(db: Session, *, today: date | None = None) ->
         return 0
 
     certificates = db.scalars(
-        select(EmployeeCertificate).where(
+        select(EmployeeCertificate)
+        .join(Employee, EmployeeCertificate.employee_id == Employee.id)
+        .where(
             EmployeeCertificate.status.in_([CertificateStatus.ACTIVE, CertificateStatus.EXPIRING]),
             EmployeeCertificate.valid_to.is_not(None),
+            Employee.employment_status != EmploymentStatus.LEFT,
         )
     ).all()
 
