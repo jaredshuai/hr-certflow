@@ -56,6 +56,10 @@ from app.schemas.reminders import FeedbackCreate, ReminderDispatchCreate, Remind
 from app.services.certificates import replace_active_certificates
 from app.services.notifications import NotificationMessage, NotificationRouter
 from app.services.reminder_service import dispatch_due_reminder_notifications, scan_and_create_reminder_tasks
+from app.services.review_service import (
+    CertificateValidationError,
+    DocumentNotPendingReviewError,
+)
 
 
 @pytest.fixture()
@@ -955,7 +959,7 @@ def test_review_approval_rejects_holder_name_mismatch(db_session: Session) -> No
     db_session.add(review_task)
     db_session.flush()
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(CertificateValidationError) as exc_info:
         approve_review_task(
             review_task.id,
             ReviewApproveCreate(
@@ -973,8 +977,7 @@ def test_review_approval_rejects_holder_name_mismatch(db_session: Session) -> No
             db_session,
         )
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "holder_name must match selected employee"
+    assert "holder_name must match selected employee" in str(exc_info.value)
 
 
 def test_review_approval_rejects_duplicate_certificate_number(db_session: Session) -> None:
@@ -999,7 +1002,7 @@ def test_review_approval_rejects_duplicate_certificate_number(db_session: Sessio
     db_session.add(review_task)
     db_session.flush()
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(CertificateValidationError) as exc_info:
         approve_review_task(
             review_task.id,
             ReviewApproveCreate(
@@ -1017,8 +1020,7 @@ def test_review_approval_rejects_duplicate_certificate_number(db_session: Sessio
             db_session,
         )
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "certificate_no already exists for this employee and type"
+    assert "already exists" in str(exc_info.value)
 
 
 def test_review_approval_rejects_left_employee_for_current_certificate(db_session: Session) -> None:
@@ -1037,7 +1039,7 @@ def test_review_approval_rejects_left_employee_for_current_certificate(db_sessio
     db_session.add(review_task)
     db_session.flush()
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(CertificateValidationError) as exc_info:
         approve_review_task(
             review_task.id,
             ReviewApproveCreate(
@@ -1055,8 +1057,7 @@ def test_review_approval_rejects_left_employee_for_current_certificate(db_sessio
             db_session,
         )
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Cannot create current certificate for employee who has left"
+    assert "employee who has left" in str(exc_info.value)
 
 
 def test_review_approval_requires_pending_review_document(db_session: Session) -> None:
@@ -1074,7 +1075,7 @@ def test_review_approval_requires_pending_review_document(db_session: Session) -
     db_session.add(review_task)
     db_session.flush()
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(DocumentNotPendingReviewError) as exc_info:
         approve_review_task(
             review_task.id,
             ReviewApproveCreate(
@@ -1092,8 +1093,7 @@ def test_review_approval_requires_pending_review_document(db_session: Session) -
             db_session,
         )
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Document is not pending review"
+    assert "not pending review" in str(exc_info.value)
 
 
 def test_review_approval_rejects_stale_task_version(db_session: Session) -> None:

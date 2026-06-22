@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
-from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -11,25 +10,26 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import RequestContext, audit_actor_name, audit_ip_address, audit_request_id, get_request_context
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.domain.enums import CertificateStatus, DocumentStatus, ReviewStatus
-from app.models import AuditLog, CertificateType, EmployeeCertificate, ReviewTask
+from app.domain.enums import ReviewStatus
+from app.models import AuditLog, EmployeeCertificate, ReviewTask
 from app.schemas.certificates import EmployeeCertificateRead, TraceAuditLogRead
 from app.schemas.documents import (
     AiExtractionResultRead,
     CertificateDocumentRead,
     ReviewApproveCreate,
-    ReviewApproveItem,
     ReviewDecisionRead,
     ReviewRejectCreate,
     ReviewTaskRead,
     ReviewTaskTraceRead,
 )
-from app.services.audit import record_audit
-from app.services.certificates import (
-    is_current_certificate_status,
-    replace_active_certificates,
-    validate_certificate_business_rules,
-    validate_certificate_dates,
+from app.services.review_service import (
+    AuditContext,
+)
+from app.services.review_service import (
+    approve_review_task as approve_review_service,
+)
+from app.services.review_service import (
+    reject_review_task as reject_review_service,
 )
 from app.services.storage import ObjectStorage
 
@@ -47,30 +47,15 @@ def _assert_review_task_is_current(review_task: ReviewTask, expected_updated_at:
         raise HTTPException(status_code=409, detail="Review task has changed, please refresh")
 
 
-def _add_calendar_months(value: date, months: int) -> date:
-    return value + relativedelta(months=months)
-
-
-def _resolve_valid_to_for_item(
-    item: ReviewApproveItem,
-    certificate_type: CertificateType,
-) -> tuple[date | None, dict[str, str | int] | None]:
-    if item.valid_to or not certificate_type.default_validity_months:
-        return item.valid_to, None
-
-    base_field = "valid_from" if item.valid_from else "issue_date"
-    base_date = item.valid_from or item.issue_date
-    if base_date is None:
-        return None, None
-
-    valid_to = _add_calendar_months(base_date, certificate_type.default_validity_months)
-    return valid_to, {
-        "source": "certificate_type.default_validity_months",
-        "base_field": base_field,
-        "base_date": base_date.isoformat(),
-        "months": certificate_type.default_validity_months,
-        "valid_to": valid_to.isoformat(),
-    }
+def _request_context_to_audit_context(
+    request_context: RequestContext | None,
+    fallback_actor: str,
+) -> AuditContext:
+    return AuditContext(
+        actor_name=audit_actor_name(request_context, fallback_actor),
+        request_id=audit_request_id(request_context),
+        ip_address=audit_ip_address(request_context),
+    )
 
 
 def _build_document_read_url(review_task: ReviewTask) -> str | None:
@@ -114,14 +99,25 @@ def _review_task_to_read(review_task: ReviewTask, *, include_read_url: bool = Fa
 
 
 def _load_review_trace_certificate(db: Session, review_task: ReviewTask) -> EmployeeCertificate | None:
-    certificate_id = None
+    """从 decision_payload 还原证书。读取顺序: certificate_ids[0] → certificate_id → source_document 兜底。
+
+    ``certificate_id`` 是已废弃的兼容字段,旧审批记录只有它;新记录两者都有,优先读数组。
+    """
+    certificate_id: UUID | None = None
     if isinstance(review_task.decision_payload, dict):
-        raw_certificate_id = review_task.decision_payload.get("certificate_id")
-        if raw_certificate_id:
+        raw_certificate_ids = review_task.decision_payload.get("certificate_ids")
+        if isinstance(raw_certificate_ids, list) and raw_certificate_ids:
             try:
-                certificate_id = UUID(str(raw_certificate_id))
+                certificate_id = UUID(str(raw_certificate_ids[0]))
             except ValueError:
                 certificate_id = None
+        if certificate_id is None:
+            raw_certificate_id = review_task.decision_payload.get("certificate_id")
+            if raw_certificate_id:
+                try:
+                    certificate_id = UUID(str(raw_certificate_id))
+                except ValueError:
+                    certificate_id = None
     if certificate_id:
         certificate = db.get(EmployeeCertificate, certificate_id)
         if certificate:
@@ -224,101 +220,18 @@ def approve_review_task(
     if not review_task:
         raise HTTPException(status_code=404, detail="Review task not found")
     _assert_review_task_is_current(review_task, payload.expected_updated_at)
-    if review_task.status not in {ReviewStatus.PENDING, ReviewStatus.NEEDS_INFO}:
-        raise HTTPException(status_code=409, detail="Review task is already closed")
-    if not review_task.document or review_task.document.status != DocumentStatus.PENDING_REVIEW:
-        raise HTTPException(status_code=409, detail="Document is not pending review")
 
-    now = datetime.now(UTC)
-    target_status = CertificateStatus.ACTIVE
-    created_certificates: list[EmployeeCertificate] = []
-    all_active_certificates: list[EmployeeCertificate] = []
-    valid_to_derivations: list[dict] = []
-
-    for item in payload.certificates:
-        # 同一批次内,不同证书可以匹配不同员工不同 type
-        certificate_type = db.get(CertificateType, item.certificate_type_id)
-        if not certificate_type:
-            raise HTTPException(status_code=404, detail=f"Certificate type {item.certificate_type_id} not found")
-        valid_to, valid_to_derivation = _resolve_valid_to_for_item(item, certificate_type)
-        validate_certificate_dates(
-            issue_date=item.issue_date,
-            valid_from=item.valid_from,
-            valid_to=valid_to,
-        )
-        validate_certificate_business_rules(
-            db,
-            employee_id=item.employee_id,
-            certificate_type_id=item.certificate_type_id,
-            holder_name=item.holder_name,
-            certificate_no=item.certificate_no,
-            require_active_employee=True,
-        )
-
-        certificate = EmployeeCertificate(
-            employee_id=item.employee_id,
-            certificate_type_id=item.certificate_type_id,
-            source_document_id=review_task.document_id,
-            certificate_no=item.certificate_no,
-            holder_name=item.holder_name,
-            issuing_authority=item.issuing_authority,
-            issue_date=item.issue_date,
-            valid_from=item.valid_from,
-            valid_to=valid_to,
-            review_date=item.review_date,
-            status=CertificateStatus.DRAFT if is_current_certificate_status(target_status) else target_status,
-            confirmed_by=payload.reviewed_by,
-            confirmed_at=now,
-        )
-        db.add(certificate)
-        db.flush()
-
-        active_certificates = replace_active_certificates(db, certificate, now=now, target_status=target_status)
-        certificate.status = target_status
-        db.flush()
-
-        created_certificates.append(certificate)
-        all_active_certificates.extend(active_certificates)
-        if valid_to_derivation:
-            valid_to_derivations.append(valid_to_derivation)
-
-    review_before = ReviewTaskRead.model_validate(review_task).model_dump(mode="json")
-    review_task.status = ReviewStatus.APPROVED
-    review_task.reviewed_by = payload.reviewed_by
-    review_task.reviewed_at = now
-    review_task.notes = payload.notes
-    decision_payload: dict[str, object] = {
-        "certificate_ids": [str(c.id) for c in created_certificates],
-        "certificate_id": str(created_certificates[0].id),  # 兼容旧 trace 读取
-        "replaced_certificate_ids": [str(item.id) for item in all_active_certificates],
-    }
-    if valid_to_derivations:
-        decision_payload["valid_to_derivations"] = valid_to_derivations
-    review_task.decision_payload = decision_payload
-    review_task.document.status = DocumentStatus.CONFIRMED
-    record_audit(
+    result = approve_review_service(
         db,
-        action="review_task.approve",
-        resource_type="review_task",
-        resource_id=str(review_task.id),
-        before=review_before,
-        after={
-            "status": review_task.status.value,
-            "certificate_ids": [str(c.id) for c in created_certificates],
-            "certificate_id": str(created_certificates[0].id),
-            "replaced_certificate_ids": [str(item.id) for item in all_active_certificates],
-        },
-        actor_name=audit_actor_name(request_context, payload.reviewed_by),
-        request_id=audit_request_id(request_context),
-        ip_address=audit_ip_address(request_context),
+        review_task=review_task,
+        items=payload.certificates,
+        reviewed_by=payload.reviewed_by,
+        notes=payload.notes,
+        audit_context=_request_context_to_audit_context(request_context, payload.reviewed_by),
     )
-    db.commit()
-    db.refresh(review_task)
-    for cer in created_certificates:
-        db.refresh(cer)
     return ReviewDecisionRead(
-        review_task=_review_task_to_read(review_task),
-        certificates=[EmployeeCertificateRead.model_validate(cer) for cer in created_certificates],
+        review_task=_review_task_to_read(result.review_task),
+        certificates=[EmployeeCertificateRead.model_validate(cer) for cer in result.created_certificates],
     )
 
 
@@ -345,32 +258,13 @@ def reject_review_task(
     if not review_task:
         raise HTTPException(status_code=404, detail="Review task not found")
     _assert_review_task_is_current(review_task, payload.expected_updated_at)
-    if review_task.status not in {ReviewStatus.PENDING, ReviewStatus.NEEDS_INFO}:
-        raise HTTPException(status_code=409, detail="Review task is already closed")
 
-    review_before = ReviewTaskRead.model_validate(review_task).model_dump(mode="json")
-    review_task.status = payload.status
-    review_task.reviewed_by = payload.reviewed_by
-    review_task.reviewed_at = datetime.now(UTC)
-    review_task.notes = payload.notes
-    review_task.decision_payload = {"status": payload.status.value, "notes": payload.notes}
-    if payload.status == ReviewStatus.REJECTED:
-        review_task.document.status = DocumentStatus.FAILED
-        review_task.document.failure_reason = payload.notes
-    else:
-        review_task.document.status = DocumentStatus.PENDING_REVIEW
-
-    record_audit(
+    task = reject_review_service(
         db,
-        action="review_task.reject",
-        resource_type="review_task",
-        resource_id=str(review_task.id),
-        before=review_before,
-        after=payload.model_dump(mode="json"),
-        actor_name=audit_actor_name(request_context, payload.reviewed_by),
-        request_id=audit_request_id(request_context),
-        ip_address=audit_ip_address(request_context),
+        review_task=review_task,
+        status=payload.status,
+        reviewed_by=payload.reviewed_by,
+        notes=payload.notes,
+        audit_context=_request_context_to_audit_context(request_context, payload.reviewed_by),
     )
-    db.commit()
-    db.refresh(review_task)
-    return _review_task_to_read(review_task)
+    return _review_task_to_read(task)

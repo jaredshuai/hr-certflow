@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -84,6 +85,15 @@ def create_app() -> FastAPI:
         expose_headers=[REQUEST_ID_HEADER],
     )
     app.include_router(api_router, prefix="/api/v1")
+
+    from app.services.review_service import ReviewServiceError, review_error_http_status_code
+
+    @app.exception_handler(ReviewServiceError)
+    async def _handle_review_service_error(_: Request, exc: ReviewServiceError) -> JSONResponse:
+        return JSONResponse(
+            status_code=review_error_http_status_code(exc),
+            content={"detail": str(exc)},
+        )
 
     @app.get("/")
     def root() -> dict[str, str]:
