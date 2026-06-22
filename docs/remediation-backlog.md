@@ -529,6 +529,41 @@ task_routes = {
 ```
 Helm values 的 worker deployment 可按队列拆分副本数。
 
+### 决策日志（2026-06，4 家交叉审计 + 对抗验证）
+
+在 2026-06 的架构走查交叉审计里，codex/claude/kimi 三家点名 P2.C 为遗漏项。
+随后对 4 个 AI 架构师（codex/claude/atomcode/agy）做了两轮咨询：
+
+**第一轮**（3:1 倾向"现在做"）：codex/claude/atomcode 建议"现在就拆队列"，
+agy 建议"缓做 + 协程池过渡"。
+
+**第二轮对抗验证**（把 agy 的"缓做"论点发给另外三家重新表态）：
+**三家全部倒戈为缓做，最终 4/4 一致——P2.C 缓做。**
+
+说服它们的关键认知（atomcode 原话总结）：
+> "之前的立场错误在于把'架构正确'等同于'现在就做'，没有充分评估
+> 这个架构决策在当前阶段的 ROI。架构上拆队列是更正确的方向，但在
+> 当前规模和 SLA 要求下，ROI 为负。"
+
+具体说服点：
+1. **业务影响被高估**：提醒每天 8:00 跑一次，延迟几分钟对证书到期
+   通知业务无感（不是支付/告警 P0）
+2. **并发场景极罕见**：单人内部项目，concurrency=2 在 >99% 时间
+   绰绰有余
+3. **运维心智负担**：多一个 Deployment 对单人运维者实打实增加负担
+
+**关于 gevent 协程池（agy 的过渡建议）：4 家一致否决。**
+- psycopg 3 + gevent 有已知痛点：psycopg[binary] 用 libpq 的 C 代码做
+  网络 I/O，gevent 只 patch Python 层 socket，看不到 libpq 阻塞调用 →
+  DB 操作卡死时整个 worker 阻塞，极难调试
+- SQLAlchemy Session + greenlet 没经过充分并发测试
+- 若将来要提升 I/O 并发，`--pool=threads` 比 gevent 稳妥（psycopg 3
+  连接是线程安全的，不需要 monkey-patch）
+
+**结论**：维持上面的触发条件（提醒平均延迟 > 30s 或识别日并发 > 50），
+触发后再按方案拆队列。届时默认队列留给 reminders + probe，识别任务
+（documents）独立出去——这是 4 家一致的路由策略。
+
 ---
 
 # P3 章节（低优先级，可并入任何重构窗口）
