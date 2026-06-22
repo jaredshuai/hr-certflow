@@ -86,12 +86,31 @@ def create_app() -> FastAPI:
     )
     app.include_router(api_router, prefix="/api/v1")
 
+    from app.services.recognition_service import (
+        RecognitionDocumentNotFoundError,
+        RecognitionInvalidStateError,
+        RecognitionServiceError,
+    )
     from app.services.review_service import ReviewServiceError, review_error_http_status_code
 
     @app.exception_handler(ReviewServiceError)
     async def _handle_review_service_error(_: Request, exc: ReviewServiceError) -> JSONResponse:
         return JSONResponse(
             status_code=review_error_http_status_code(exc),
+            content={"detail": str(exc)},
+        )
+
+    _RECOGNITION_ERROR_STATUS_CODE: dict[type[RecognitionServiceError], int] = {
+        RecognitionDocumentNotFoundError: 404,
+        RecognitionInvalidStateError: 409,
+    }
+
+    @app.exception_handler(RecognitionServiceError)
+    async def _handle_recognition_service_error(
+        _: Request, exc: RecognitionServiceError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=_RECOGNITION_ERROR_STATUS_CODE.get(type(exc), 500),
             content={"detail": str(exc)},
         )
 

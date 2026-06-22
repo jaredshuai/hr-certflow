@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import UTC, datetime
+from datetime import datetime
 from io import StringIO
 from typing import Annotated
 from uuid import UUID
@@ -21,7 +21,7 @@ from app.api.deps import (
 )
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.domain.enums import DocumentStatus, ReviewStatus
+from app.domain.enums import DocumentStatus
 from app.models import AiExtractionResult, AuditLog, CertificateDocument, EmployeeCertificate, ReviewTask
 from app.schemas.certificates import EmployeeCertificateRead, TraceAuditLogRead
 from app.schemas.documents import (
@@ -37,7 +37,6 @@ from app.schemas.documents import (
     UploadIntentRead,
 )
 from app.services.audit import record_audit
-from app.services.dify import DifyClient, DifyExtractionRequest, normalize_dify_outputs
 from app.services.storage import ObjectStorage
 
 router = APIRouter()
@@ -65,32 +64,6 @@ def _validate_uploaded_object(
     if normalized_content_type not in ALLOWED_UPLOAD_CONTENT_TYPES:
         allowed = ", ".join(sorted(ALLOWED_UPLOAD_CONTENT_TYPES))
         raise ValueError(f"上传对象类型必须是: {allowed}")
-
-
-def _close_open_review_tasks_for_document(
-    db: Session,
-    *,
-    document_id: UUID,
-    replaced_by_ai_result_id: UUID,
-    user: str,
-    now: datetime,
-) -> list[ReviewTask]:
-    open_tasks = db.scalars(
-        select(ReviewTask).where(
-            ReviewTask.document_id == document_id,
-            ReviewTask.status.in_([ReviewStatus.PENDING, ReviewStatus.NEEDS_INFO]),
-        )
-    ).all()
-    for task in open_tasks:
-        task.status = ReviewStatus.REJECTED
-        task.reviewed_by = user
-        task.reviewed_at = now
-        task.notes = "重新识别已替换此复核任务"
-        task.decision_payload = {
-            "status": "REPLACED_BY_RECOGNITION",
-            "replaced_by_ai_result_id": str(replaced_by_ai_result_id),
-        }
-    return list(open_tasks)
 
 
 def _document_statement(
@@ -410,137 +383,6 @@ def confirm_document_upload(
     db.commit()
     db.refresh(document)
     return document
-
-
-@router.post("/{document_id}/recognize", response_model=AiExtractionResultRead, deprecated=True)
-def recognize_document(
-    document_id: UUID,
-    user: Annotated[str, Query(min_length=1, max_length=128)],
-    db: Session = Depends(get_db),
-    request_context: RequestContext | None = Depends(get_request_context),
-) -> AiExtractionResult:
-    document = db.get(CertificateDocument, document_id)
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if document.status == DocumentStatus.PENDING_UPLOAD or (
-        document.status == DocumentStatus.FAILED and not document.sha256
-    ):
-        raise HTTPException(status_code=409, detail="Document upload is not confirmed")
-    if document.status in {DocumentStatus.CONFIRMED, DocumentStatus.ARCHIVED}:
-        raise HTTPException(status_code=409, detail="Document is already closed")
-
-    settings = get_settings()
-    storage = ObjectStorage(settings)
-
-    document.status = DocumentStatus.PARSING
-    db.commit()
-
-    try:
-        file_url = storage.create_read_url(bucket=document.storage_bucket, key=document.storage_key)
-        client = DifyClient(settings)
-        extraction = client.run_certificate_extraction(
-            DifyExtractionRequest(file_url=file_url, document_id=str(document.id), user=user)
-        )
-        normalized_output = normalize_dify_outputs(extraction.output)
-        raw_response_key = storage.put_json_snapshot(
-            key=storage.build_ai_raw_response_key(str(document.id), extraction.workflow_run_id),
-            payload=extraction.raw_response,
-        )
-
-        result = AiExtractionResult(
-            document_id=document.id,
-            workflow_run_id=extraction.workflow_run_id,
-            model_name=extraction.model_name,
-            output_json=normalized_output,
-            raw_text=normalized_output.get("raw_text"),
-            suspicious_points=normalized_output.get("suspicious_points") or [],
-            confidence=normalized_output.get("confidence"),
-            raw_response_key=raw_response_key,
-        )
-        db.add(result)
-        db.flush()
-    except ValueError as exc:
-        db.rollback()
-        document = db.get(CertificateDocument, document_id)
-        reason = f"ExtractionGate: {str(exc).splitlines()[0]}"[:500]
-        if document:
-            document.status = DocumentStatus.FAILED
-            document.failure_reason = reason
-            record_audit(
-                db,
-                action="certificate_document.recognize.failed",
-                resource_type="certificate_document",
-                resource_id=str(document.id),
-                after={
-                    "status": DocumentStatus.FAILED.value,
-                    "failure_reason": reason,
-                    "user": user,
-                },
-                actor_name=audit_actor_name(request_context, user),
-                request_id=audit_request_id(request_context),
-                ip_address=audit_ip_address(request_context),
-            )
-            db.commit()
-        raise HTTPException(status_code=502, detail="Certificate recognition gate rejected the extraction") from exc
-    except Exception as exc:
-        db.rollback()
-        document = db.get(CertificateDocument, document_id)
-        reason = _failure_reason(exc)
-        if document:
-            document.status = DocumentStatus.FAILED
-            document.failure_reason = reason
-            record_audit(
-                db,
-                action="certificate_document.recognize.failed",
-                resource_type="certificate_document",
-                resource_id=str(document.id),
-                after={
-                    "status": DocumentStatus.FAILED.value,
-                    "failure_reason": reason,
-                    "user": user,
-                },
-                actor_name=audit_actor_name(request_context, user),
-                request_id=audit_request_id(request_context),
-                ip_address=audit_ip_address(request_context),
-            )
-            db.commit()
-        raise HTTPException(status_code=502, detail="Certificate recognition failed") from exc
-
-    now = datetime.now(UTC)
-    closed_tasks = _close_open_review_tasks_for_document(
-        db,
-        document_id=document.id,
-        replaced_by_ai_result_id=result.id,
-        user=user,
-        now=now,
-    )
-    db.add(
-        ReviewTask(
-            document_id=document.id,
-            ai_result_id=result.id,
-            status=ReviewStatus.PENDING,
-        )
-    )
-    document.status = DocumentStatus.PENDING_REVIEW
-    record_audit(
-        db,
-        action="certificate_document.recognize",
-        resource_type="certificate_document",
-        resource_id=str(document.id),
-        after={
-            "ai_result_id": str(result.id),
-            "workflow_run_id": extraction.workflow_run_id,
-            "raw_response_key": raw_response_key,
-            "closed_review_task_ids": [str(task.id) for task in closed_tasks],
-            "user": user,
-        },
-        actor_name=audit_actor_name(request_context, user),
-        request_id=audit_request_id(request_context),
-        ip_address=audit_ip_address(request_context),
-    )
-    db.commit()
-    db.refresh(result)
-    return result
 
 
 @router.post(

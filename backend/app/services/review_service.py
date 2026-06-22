@@ -316,7 +316,7 @@ def reject_review_task(
 # HTTP 映射（供 main.py 注册全局 handler）
 # --------------------------------------------------------------------------- #
 
-_REVIEW_ERROR_STATUS_CODE = {
+_REVIEW_ERROR_STATUS_CODE: dict[type[ReviewServiceError], int] = {
     ReviewAlreadyClosedError: 409,
     DocumentNotPendingReviewError: 409,
     CertificateTypeNotFoundError: 404,

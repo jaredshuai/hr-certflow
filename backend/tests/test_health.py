@@ -30,10 +30,3 @@ def test_request_id_header_is_reused_when_provided() -> None:
 
     assert response.status_code == 200
     assert response.headers["x-request-id"] == "req-from-client"
-
-
-def test_document_recognition_requires_explicit_user() -> None:
-    client = TestClient(app)
-    response = client.post("/api/v1/documents/00000000-0000-0000-0000-000000000000/recognize")
-
-    assert response.status_code == 422

@@ -1,61 +1,56 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from uuid import UUID
 
 import httpx
 from celery.utils.log import get_task_logger
+from sqlalchemy.orm import Session
 
 from app.celery_app import celery_app
-from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.domain.enums import DocumentStatus, ReviewStatus
-from app.models import AiExtractionResult, CertificateDocument, ReviewTask
-from app.services.audit import record_audit
-from app.services.dify import DifyClient, DifyExtractionRequest, normalize_dify_outputs
-from app.services.storage import ObjectStorage
+from app.domain.enums import DocumentStatus
+from app.models import CertificateDocument
+from app.services.recognition_service import (
+    RecognitionContext,
+    RecognitionDocumentNotFoundError,
+    RecognitionInvalidStateError,
+    RecognitionServiceError,
+    run_recognition,
+)
 
 logger = get_task_logger(__name__)
 
 
-def _close_open_review_tasks(db, *, document_id, replaced_by_ai_result_id, user, now):
-    open_tasks = db.query(ReviewTask).filter(
-        ReviewTask.document_id == document_id,
-        ReviewTask.status.in_([ReviewStatus.PENDING, ReviewStatus.NEEDS_INFO]),
-    ).all()
-    for task in open_tasks:
-        task.status = ReviewStatus.REJECTED
-        task.reviewed_by = user
-        task.reviewed_at = now
-        task.notes = "重新识别已替换此复核任务"
-        task.decision_payload = {
-            "status": "REPLACED_BY_RECOGNITION",
-            "replaced_by_ai_result_id": str(replaced_by_ai_result_id),
-        }
-    return list(open_tasks)
+def _mark_failed_or_skip(
+    db: Session,
+    *,
+    document_id: str,
+    user: str,
+    actor_source: str | None,
+    reason: str,
+) -> dict:
+    """领域异常后的统一失败处理:标 FAILED + 审计 + 返回 error dict。"""
+    document = db.get(CertificateDocument, document_id)
+    if document and document.status == DocumentStatus.PARSING:
+        document.status = DocumentStatus.FAILED
+        document.failure_reason = reason
+        from app.services.audit import record_audit
 
-
-def _mark_failed(db, document_id: str, reason: str, user: str, actor_source: str | None = None) -> None:
-    try:
-        document = db.get(CertificateDocument, document_id)
-        if document and document.status == DocumentStatus.PARSING:
-            document.status = DocumentStatus.FAILED
-            document.failure_reason = reason
-            record_audit(
-                db,
-                action="certificate_document.recognize.failed",
-                resource_type="certificate_document",
-                resource_id=str(document.id),
-                after={
-                    "status": DocumentStatus.FAILED.value,
-                    "failure_reason": reason,
-                    "user": user,
-                },
-                actor_name=user,
-                actor_source=actor_source,
-            )
-            db.commit()
-    except Exception:
-        logger.exception("Failed to mark document %s as FAILED", document_id)
+        record_audit(
+            db,
+            action="certificate_document.recognize.failed",
+            resource_type="certificate_document",
+            resource_id=str(document.id),
+            after={
+                "status": DocumentStatus.FAILED.value,
+                "failure_reason": reason,
+                "user": user,
+            },
+            actor_name=user,
+            actor_source=actor_source,
+        )
+        db.commit()
+    return {"error": reason, "document_id": document_id}
 
 
 @celery_app.task(
@@ -67,94 +62,56 @@ def _mark_failed(db, document_id: str, reason: str, user: str, actor_source: str
     retry_jitter=True,
     max_retries=3,
 )
-def run_certificate_recognition(self, document_id: str, user: str, actor_source: str | None = None) -> dict:
+def run_certificate_recognition(
+    self,
+    document_id: str,
+    user: str,
+    actor_source: str | None = None,
+) -> dict:
+    """异步识别任务（薄 wrapper）。
+
+    - 幂等:已被处理(PENDING_REVIEW/CONFIRMED)则 skip,避免重复调用 Dify。
+    - 核心逻辑代理到 recognition_service.run_recognition。
+    - httpx.HTTPError 原样抛,触发 Celery autoretry。
+    - 领域异常 → 标 FAILED。
+    """
     db = SessionLocal()
     try:
+        # 幂等检查:已被处理则跳过（防止重复派发浪费 Dify 额度）
         document = db.get(CertificateDocument, document_id)
         if not document:
             return {"error": "document_not_found", "document_id": document_id}
-
         if document.status in {DocumentStatus.PENDING_REVIEW, DocumentStatus.CONFIRMED}:
             return {"skipped": True, "status": document.status.value, "reason": "already_processed"}
 
-        if document.status not in {DocumentStatus.PARSING, DocumentStatus.UPLOADED, DocumentStatus.FAILED}:
-            return {"skipped": True, "status": document.status.value}
-
-        document.status = DocumentStatus.PARSING
-        db.commit()
-
-        settings = get_settings()
-        storage = ObjectStorage(settings)
-        file_url = storage.create_read_url(bucket=document.storage_bucket, key=document.storage_key)
-        client = DifyClient(settings)
-        extraction = client.run_certificate_extraction(
-            DifyExtractionRequest(file_url=file_url, document_id=document_id, user=user)
-        )
-        normalized_output = normalize_dify_outputs(extraction.output)
-        raw_response_key = storage.put_json_snapshot(
-            key=storage.build_ai_raw_response_key(document_id, extraction.workflow_run_id),
-            payload=extraction.raw_response,
-        )
-
-        result = AiExtractionResult(
-            document_id=document.id,
-            workflow_run_id=extraction.workflow_run_id,
-            model_name=extraction.model_name,
-            output_json=normalized_output,
-            raw_text=normalized_output.get("raw_text"),
-            suspicious_points=normalized_output.get("suspicious_points") or [],
-            confidence=normalized_output.get("confidence"),
-            raw_response_key=raw_response_key,
-        )
-        db.add(result)
-        db.flush()
-
-        now = datetime.now(UTC)
-        _close_open_review_tasks(
+        result = run_recognition(
             db,
-            document_id=document.id,
-            replaced_by_ai_result_id=result.id,
+            document_id=UUID(document_id),
             user=user,
-            now=now,
+            context=RecognitionContext(actor_name=user, actor_source=actor_source),
         )
-        db.add(
-            ReviewTask(
-                document_id=document.id,
-                ai_result_id=result.id,
-                status=ReviewStatus.PENDING,
-            )
-        )
-        document.status = DocumentStatus.PENDING_REVIEW
-        record_audit(
-            db,
-            action="certificate_document.recognize",
-            resource_type="certificate_document",
-            resource_id=str(document.id),
-            after={
-                "ai_result_id": str(result.id),
-                "workflow_run_id": extraction.workflow_run_id,
-                "raw_response_key": raw_response_key,
-                "user": user,
-            },
-            actor_name=user,
-            actor_source=actor_source,
-        )
-        db.commit()
-        return {"document_id": document_id, "ai_result_id": str(result.id)}
+        return {"document_id": document_id, "ai_result_id": str(result.ai_result.id)}
 
+    except (RecognitionDocumentNotFoundError, RecognitionInvalidStateError) as exc:
+        # 不可识别状态:不标 FAILED（状态本就非 PARSING）,记录并返回
+        logger.warning("Recognition skipped for %s: %s", document_id, exc)
+        return {"error": str(exc), "document_id": document_id}
+    except RecognitionServiceError as exc:
+        # 门禁失败/提取异常:标 FAILED
+        logger.warning("Recognition failed for %s: %s", document_id, exc)
+        return _mark_failed_or_skip(
+            db, document_id=document_id, user=user, actor_source=actor_source, reason=str(exc)
+        )
     except httpx.HTTPError:
-        db.rollback()
+        # 网络异常:原样抛,触发 Celery autoretry_for=(httpx.HTTPError,)
         raise
-    except ValueError as exc:
-        # 门禁失败 (normalize_dify_outputs 抛出): 提取结果无效
-        db.rollback()
-        reason = f"ExtractionGate: {str(exc).splitlines()[0]}"[:500]
-        _mark_failed(db, document_id, reason, user, actor_source=actor_source)
-        return {"error": reason, "document_id": document_id}
     except Exception as exc:
+        # 兜底:未预期的异常标 FAILED,记录详细日志便于排查
         db.rollback()
+        logger.exception("Unexpected error recognizing document %s", document_id)
         reason = f"{exc.__class__.__name__}: {str(exc).splitlines()[0]}"[:500]
-        _mark_failed(db, document_id, reason, user, actor_source=actor_source)
-        return {"error": reason, "document_id": document_id}
+        return _mark_failed_or_skip(
+            db, document_id=document_id, user=user, actor_source=actor_source, reason=reason
+        )
     finally:
         db.close()
