@@ -18,6 +18,12 @@ product, not an MVP/demo, AI showcase, or one-off script workflow.
 
 单上下文布局：仓库根目录一个 `CONTEXT.md` 和一个 `docs/adr/`，前后端共用。见 `docs/agents/domain.md`。
 
+### MCP exploration cookbook
+
+跨代码库实测收敛的 4 MCP / 18 工具用法与陷阱速查。见
+`docs/agents/mcp-cookbook.md`。日常高频要点直接看下方 `MCP Exploration
+Cookbook Essentials` 段。
+
 ## Hard Boundaries
 
 - Work only inside `D:\codespace\hr-certflow` unless the user explicitly names
@@ -277,3 +283,62 @@ class name):
   `env.env_vars`. Confirm it is set in the launching shell/MCP environment,
   otherwise semantic search calls will fail at request time.
 <!-- CODEGRAPH_END -->
+
+## MCP Exploration Cookbook Essentials
+
+跨代码库实测收敛结论（4 MCP / 18 工具，约 15 轮评测）。完整版见
+`docs/agents/mcp-cookbook.md`。下面是日常高频必须记住的部分。
+
+### 通用工作流
+
+```
+1. get_architecture(aspects=['all'])          → 项目全景（大项目用 aspect 子集省 token）
+2. fast_context_search("功能描述")            → 定位相关文件（中文/英文均可）
+3. codegraph_callers("核心函数")              → 调用关系 + 影响面
+4. query_graph("MATCH (n:Function) WHERE n.complexity > 10 ...")  → 找复杂函数
+5. get_code_snippet(qualified_name, include_neighbors: true)      → 25+ 静态指标 + 名称
+6. search_code("关键词", regex: true) 或 rg 兜底                  → 全文搜索验证
+```
+
+### 高影响陷阱（日常使用必须知道）
+
+| # | 陷阱 | 应对 |
+|---|------|------|
+| 1 | `search_code` 默认 `regex=false` 是字面量搜索 | **需要正则务必传 `regex=true`** |
+| 2 | `get_code_snippet` 默认不返回 caller/callee 名称 | 传 `include_neighbors=true` 获取名称数组 |
+| 3 | `semantic_query` results 字段全库 bug | 用 `query`（BM25）替代 |
+| 4 | `is_test` 字段在 Function 上全 false | 用 `file_path` 或 `name` 前缀过滤测试代码 |
+| 5 | 公共服务函数 callers 可能为空（LSP 间隙） | 用 `codegraph_explore` 交叉验证 |
+| 6 | `codegraph_explore` 测试覆盖标注不可信 | 用 `rg -c "#\[test\]"` 或 `def test_` 实数 |
+| 7 | `search_code` dedup 最高 8.3x | 精确计数用 `rg -c` |
+| 8 | `__init__.py`/`mod.rs` 返回 0 符号 | 用 rg 看导出 |
+
+### Cypher 限制速查
+
+- ❌ `path=` 变量、`WITH` 子句、布尔简写 `WHERE n.x`（必须 `= true`）均失败
+- ⚠️ 反向遍历 `<-[:]-`、`!=`/`<>` 字段 vs 字段、`type(r)` + 聚合：项目相关
+- ✅ `DISTINCT`/`CONTAINS`/`STARTS WITH`/`ENDS WITH`/`IN`/`GROUP BY`/`count`/`sum`/`SKIP LIMIT`/范围可用
+- ⚠️ `!=`/`<>` 字段 vs 字面量正常；字段 vs 字段项目相关
+
+### 每次新代码库必须验证
+
+```
+□ codegraph_search 支持哪些 kind（语言差异）
+□ search_code 需要正则时传 regex=true
+□ search_code context:N 获取源码上下文（最有价值模式）
+□ search_code dedup 上限（已知最高 8.3x），精确计数用 rg -c
+□ semantic_query 用 query（BM25），不用 semantic_query
+□ codegraph_node 对 __init__.py 返回空或近空
+□ get_code_snippet include_neighbors=true 获取名称数组
+□ get_architecture aspect 子集省 token
+□ React/TSX 项目：query_graph 查 Function 而非 Method
+□ 混合语言项目：query_graph Method + Function 双查
+□ Python 项目业务方法多索引为 Function
+□ 公共服务函数 callers 若为空，用 codegraph_explore 交叉验证
+□ is_test 字段不可信，过滤测试用 file_path 或 name 前缀
+□ Cypher 不用 path= 变量 / WITH 子句 / 布尔简写
+□ SIMILAR_TO 找重复/并行结构（重构利器）
+```
+
+> 四类工具各司其职、不可替代：`fast_context` 管"概念在哪"、`codegraph`
+> 管"谁调谁"、`codebase-memory` 管"静态指标 + 全景"、`rg` 兜底文本/计数/特殊符号。
