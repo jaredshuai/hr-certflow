@@ -220,6 +220,24 @@ Helm values 不能跟着误设 true。
 ## P1.A — 网关层 OIDC 认证 + 可信代理校验
 
 **Status:** 已完成 @e712e68
+
+> ⚠️ **上线前必做（真 HR 开始使用前的命门）**
+>
+> 代码层的安全机制（trusted proxy 校验 + `auth_required` 开关）已就位，但
+> **开关默认关**（`auth_required=false`、`trusted_proxy_cidrs=""`）。这是
+> 故意的过渡态，不阻塞当前 dev/release 测试。
+>
+> **真 HR 开始用之前**，必须完成 `docs/release-runbook.md` → "生产认证配置"
+> 小节里的全部步骤，否则**内网任何人都能伪造 `X-HR-Actor` 审批证书，记录
+> 真实进入证书台账和审计日志**（system of record 的法律效力记录被污染）。
+>
+> 核心三步（详见 runbook）：
+> 1. 网关（Nginx/Envoy）对接企业 OIDC/SSO，认证后**覆写** `X-HR-Actor`
+> 2. 设 `AUTH_REQUIRED=true` + `TRUSTED_PROXY_CIDRS=<Pod 网段>`
+> 3. 验证：直连伪造 header 应返回 401
+>
+> **当前状态（2026-06）**：尚无真 HR 使用（开发阶段）。此条为上线 gate。
+
 **优先级依据：** 当前 `X-HR-Actor` header 零校验，内网任何人 curl 一下就能
 以任意 HR 身份创建/审批证书，且这条记录会真实进审计日志、进证书台账。对
 system of record 这是架构级缺口。北极星文档已承认此风险（"must not rely
