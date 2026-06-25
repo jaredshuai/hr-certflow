@@ -40,13 +40,13 @@ spec:
                 name: {{ .Values.runtimeSecretName }}
           readinessProbe:
             httpGet:
-              path: /api/v1/health
+              path: {{ .Values.api.probes.path | default "/_internal/healthz" }}
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /api/v1/health
+              path: {{ .Values.api.probes.path | default "/_internal/healthz" }}
               port: http
             initialDelaySeconds: 20
             periodSeconds: 20

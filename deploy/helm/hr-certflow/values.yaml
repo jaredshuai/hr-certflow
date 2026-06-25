@@ -45,6 +45,12 @@ api:
   strategy:
     maxSurge: 0
     maxUnavailable: 1
+  # Kubernetes 探针路径。默认指向 /_internal/healthz —— 该端点精确绕过
+  # AUTH_REQUIRED 校验,使 kubelet probe 无 X-HR-Actor 也能通过。
+  # 不要改回 /api/v1/health:release 下该端点受 AUTH_REQUIRED 保护,
+  # 无 actor 会 401 导致 Pod 不 Ready。
+  probes:
+    path: /_internal/healthz
   resources:
     requests:
       cpu: 100m

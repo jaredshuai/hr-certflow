@@ -12,9 +12,14 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app import models  # noqa: F401
 from app.api.deps import REQUEST_CONTEXT_STATE_KEY, REQUEST_ID_HEADER, build_request_context
 from app.api.router import api_router
+from app.api.routes import internal
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_engine
+
+# 仅这些路径精确绕过 auth_required:Kubernetes 探针无 X-HR-Actor,
+# 若走认证会 401 导致 Pod 不 Ready。绝不允许通配 /api/v1/* 豁免。
+AUTH_BYPASS_PATHS: frozenset[str] = frozenset({"/_internal/healthz"})
 
 
 class RequestContextMiddleware:
@@ -34,7 +39,10 @@ class RequestContextMiddleware:
         scope["state"][REQUEST_CONTEXT_STATE_KEY] = context
 
         settings = get_settings()
-        if settings.auth_required and not context.actor_name:
+        # 探针端点精确绕过:AUTH_REQUIRED=true 时 kubelet probe 无 actor,
+        # 必须放行否则 Pod 不 Ready。仅 /_internal/healthz 豁免,/api/v1/* 不豁免。
+        auth_bypassed = request.url.path in AUTH_BYPASS_PATHS
+        if settings.auth_required and not context.actor_name and not auth_bypassed:
             response = {
                 "type": "http.response.start",
                 "status": 401,
@@ -85,6 +93,8 @@ def create_app() -> FastAPI:
         expose_headers=[REQUEST_ID_HEADER],
     )
     app.include_router(api_router, prefix="/api/v1")
+    # 探针端点挂根路径,不带 /api/v1 前缀;且需绕过 auth(见 RequestContextMiddleware)。
+    app.include_router(internal.router)
 
     from app.services.recognition_service import (
         RecognitionDocumentNotFoundError,
