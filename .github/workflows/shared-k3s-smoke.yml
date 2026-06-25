@@ -70,12 +70,10 @@ jobs:
           case "${DEPLOY_ENV}" in
             release)
               WEB_URL="${{ vars.RELEASE_WEB_URL || 'http://10.34.200.180/hr-certflow/' }}"
-              API_URL="${WEB_URL%/}/api/v1/health"
               NAMESPACE="hr-certflow-release"
               ;;
             dev)
               WEB_URL="${{ vars.DEV_WEB_URL || 'http://10.34.200.180/hr-certflow-dev/' }}"
-              API_URL="${WEB_URL%/}/api/v1/health"
               NAMESPACE="hr-certflow-dev"
               ;;
             *)
@@ -88,7 +86,6 @@ jobs:
             echo "deploy_env=${DEPLOY_ENV}"
             echo "image_tag=${IMAGE_TAG}"
             echo "web_url=${WEB_URL}"
-            echo "api_url=${API_URL}"
             echo "namespace=${NAMESPACE}"
           } >> "$GITHUB_OUTPUT"
 
@@ -122,11 +119,18 @@ jobs:
             --namespace "${{ steps.meta.outputs.namespace }}" \
             --image-tag "${{ steps.meta.outputs.image_tag }}"
 
-      - name: Smoke web and API
+      - name: Smoke web (gateway)
         run: |
           "${PYTHON_BIN}" scripts/smoke_http.py \
-            --web-url "${{ steps.meta.outputs.web_url }}" \
-            --api-url "${{ steps.meta.outputs.api_url }}"
+            --web-url "${{ steps.meta.outputs.web_url }}"
+
+      - name: Smoke API probe (cluster-internal)
+        # 网关 OIDC 启用后,集群外打 /api/v1/health 会 401。
+        # 改从集群内打 /_internal/healthz,与 kubelet probe 同路径。
+        # api deployment 名按 component 标签自动发现,适配各环境 fullname。
+        run: |
+          "${PYTHON_BIN}" scripts/smoke_api_probe.py \
+            --namespace "${{ steps.meta.outputs.namespace }}"
 
       - name: Smoke Celery and Redis
         run: |
@@ -142,5 +146,5 @@ jobs:
             echo "- Namespace: \`${{ steps.meta.outputs.namespace }}\`"
             echo "- Image tag: \`${{ steps.meta.outputs.image_tag }}\`"
             echo "- Web URL: ${{ steps.meta.outputs.web_url }}"
-            echo "- API URL: ${{ steps.meta.outputs.api_url }}"
+            echo "- API probe: cluster-internal /_internal/healthz"
           } >> "${GITHUB_STEP_SUMMARY}"

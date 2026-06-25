@@ -37,7 +37,6 @@ jobs:
       deploy_env: ${{ steps.meta.outputs.deploy_env }}
       image_tag: ${{ steps.meta.outputs.image_tag }}
       web_url: ${{ steps.meta.outputs.web_url }}
-      api_url: ${{ steps.meta.outputs.api_url }}
       namespace: ${{ steps.meta.outputs.namespace }}
     steps:
       - uses: actions/checkout@v6
@@ -65,11 +64,9 @@ jobs:
 
           if [[ "${DEPLOY_ENV}" == "release" ]]; then
             WEB_URL="${{ vars.RELEASE_WEB_URL || 'http://10.34.200.180/hr-certflow/' }}"
-            API_URL="${WEB_URL%/}/api/v1/health"
             NAMESPACE="hr-certflow-release"
           else
             WEB_URL="${{ vars.DEV_WEB_URL || 'http://10.34.200.180/hr-certflow-dev/' }}"
-            API_URL="${WEB_URL%/}/api/v1/health"
             NAMESPACE="hr-certflow-dev"
           fi
 
@@ -79,7 +76,6 @@ jobs:
             echo "api_repository=${API_REPOSITORY}"
             echo "web_repository=${WEB_REPOSITORY}"
             echo "web_url=${WEB_URL}"
-            echo "api_url=${API_URL}"
             echo "namespace=${NAMESPACE}"
           } >> "$GITHUB_OUTPUT"
 
@@ -188,11 +184,18 @@ jobs:
             --namespace "${NAMESPACE}" \
             --image-tag "${IMAGE_TAG}"
 
-      - name: Smoke web and API
+      - name: Smoke web (gateway)
         run: |
           "${PYTHON_BIN}" scripts/smoke_http.py \
-            --web-url "${{ needs.build-and-promote.outputs.web_url }}" \
-            --api-url "${{ needs.build-and-promote.outputs.api_url }}"
+            --web-url "${{ needs.build-and-promote.outputs.web_url }}"
+
+      - name: Smoke API probe (cluster-internal)
+        # 网关 OIDC 启用后,集群外打 /api/v1/health 会 401。
+        # 改从集群内打 /_internal/healthz,与 kubelet probe 同路径。
+        # api deployment 名按 component 标签自动发现,适配各环境 fullname。
+        run: |
+          "${PYTHON_BIN}" scripts/smoke_api_probe.py \
+            --namespace "${NAMESPACE}"
 
       - name: Smoke Celery and Redis
         run: |
@@ -208,5 +211,5 @@ jobs:
             echo "- Namespace: \`${NAMESPACE}\`"
             echo "- Image tag: \`${IMAGE_TAG}\`"
             echo "- Web URL: ${{ needs.build-and-promote.outputs.web_url }}"
-            echo "- API URL: ${{ needs.build-and-promote.outputs.api_url }}"
+            echo "- API probe: cluster-internal /_internal/healthz"
           } >> "${GITHUB_STEP_SUMMARY}"

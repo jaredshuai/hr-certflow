@@ -37,15 +37,21 @@ def check_url(name: str, url: str, timeout: int, retries: int, expect_json_statu
 def main() -> int:
     parser = argparse.ArgumentParser(description="HTTP smoke test for hr-certflow")
     parser.add_argument("--web-url", required=True)
-    parser.add_argument("--api-url", required=True)
+    # 网关 OIDC 启用后,集群外打 /api/v1/health 会 401;api 健康检查改由
+    # smoke_api_probe.py 从集群内打 /_internal/healthz。这里 api-url 仅用于
+    # 未启用网关认证的环境,故设为可选。
+    parser.add_argument("--api-url", required=False, default=None)
     parser.add_argument("--timeout", type=int, default=10)
     parser.add_argument("--retries", type=int, default=12)
     args = parser.parse_args()
 
     results = [
         check_url("web", args.web_url, args.timeout, args.retries, expect_json_status=False),
-        check_url("api", args.api_url, args.timeout, args.retries, expect_json_status=True),
     ]
+    if args.api_url:
+        results.append(
+            check_url("api", args.api_url, args.timeout, args.retries, expect_json_status=True)
+        )
     print(json.dumps({"ok": True, "results": results}, ensure_ascii=False, indent=2))
     return 0
 
