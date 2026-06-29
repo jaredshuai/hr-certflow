@@ -63,7 +63,7 @@ jobs:
       REVIEW_TASK_ID: ${{ inputs.review_task_id }}
       REMINDER_TASK_ID: ${{ inputs.reminder_task_id }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         timeout-minutes: 5
 
       - name: Resolve runner Python
