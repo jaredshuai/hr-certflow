@@ -41,7 +41,7 @@ jobs:
     environment:
       name: ${{ inputs.environment }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         timeout-minutes: 5
 
       - name: Resolve runner Python
