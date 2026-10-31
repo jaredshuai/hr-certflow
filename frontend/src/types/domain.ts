@@ -255,6 +255,7 @@ export interface CertificateDocument {
   failure_reason?: string;
   created_at: string;
   updated_at: string;
+  duplicate_document_ids?: string[];
 }
 
 export interface CertificateDocumentTrace {

@@ -6,17 +6,23 @@ from fastapi.testclient import TestClient
 from app.core.config import get_settings
 
 
-def _make_client(monkeypatch, *, trusted_cidrs: str = "", auth_required: bool = False) -> TestClient:
+def _make_client(
+    monkeypatch,
+    *,
+    trusted_cidrs: str = "",
+    auth_required: bool = False,
+    peer: str = "testclient",
+) -> TestClient:
     get_settings.cache_clear()
     monkeypatch.setenv("TRUSTED_PROXY_CIDRS", trusted_cidrs)
     monkeypatch.setenv("AUTH_REQUIRED", str(auth_required).lower())
     from app.main import create_app
 
-    return TestClient(create_app())
+    return TestClient(create_app(), client=(peer, 50000))
 
 
 def test_me_returns_actor_from_trusted_proxy(monkeypatch) -> None:
-    client = _make_client(monkeypatch, trusted_cidrs="10.0.0.0/8", auth_required=False)
+    client = _make_client(monkeypatch, trusted_cidrs="10.0.0.0/8", auth_required=False, peer="10.34.200.5")
     # 网关注入时会做 URL-encode（deps._clean_actor_header 会 unquote 还原）
     response = client.get(
         "/api/v1/me",

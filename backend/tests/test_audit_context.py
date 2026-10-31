@@ -112,3 +112,17 @@ def test_record_audit_sanitizes_sensitive_and_large_payloads() -> None:
     assert entry.after["notes"].endswith("[truncated 188 chars]")
     assert entry.after["items"][-1] == {"__truncated_items__": 5}
     assert entry.after["deep"] == {"a": {"b": {"c": {"d": "[max_depth_exceeded]"}}}}
+
+
+def test_record_audit_keeps_full_id_lists_for_traceability() -> None:
+    db = FakeDb()
+    ids = [f"id-{index}" for index in range(30)]
+
+    entry = record_audit(
+        db,
+        action="review_task.approve",
+        resource_type="review_task",
+        after={"replaced_certificate_ids": ids},
+    )
+
+    assert entry.after == {"replaced_certificate_ids": ids}

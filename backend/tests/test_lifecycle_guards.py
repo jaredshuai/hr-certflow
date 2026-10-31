@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.routes.certificates import update_employee_certificate
+from app.api.routes.documents import confirm_document_upload
 from app.api.routes.employees import update_employee
 from app.api.routes.reminders import create_feedback, dispatch_task
 from app.core.config import get_settings
@@ -46,7 +47,7 @@ from app.services.reminder_service import dispatch_due_reminder_notifications, s
 @pytest.fixture()
 def db_session() -> Generator[Session, None, None]:
     if "DATABASE_URL" not in os.environ:
-        pytest.skip("DATABASE_URL is required for reminder closure integration tests")
+        pytest.skip("DATABASE_URL is required for lifecycle guard integration tests")
 
     try:
         with get_engine().connect() as connection:
@@ -328,3 +329,33 @@ def test_stale_parsing_documents_are_marked_failed(db_session: Session) -> None:
     )
     assert audit is not None
     assert audit.actor_source == "scheduler"
+
+
+def test_confirmed_upload_reports_documents_with_same_content(db_session: Session) -> None:
+    existing = CertificateDocument(
+        status=DocumentStatus.CONFIRMED,
+        storage_bucket="bucket",
+        storage_key="a.pdf",
+        original_filename="a.pdf",
+        sha256="f" * 64,
+    )
+    archived = CertificateDocument(
+        status=DocumentStatus.ARCHIVED,
+        storage_bucket="bucket",
+        storage_key="b.pdf",
+        original_filename="b.pdf",
+        sha256="f" * 64,
+    )
+    uploaded = CertificateDocument(
+        status=DocumentStatus.UPLOADED,
+        storage_bucket="bucket",
+        storage_key="c.pdf",
+        original_filename="c.pdf",
+        sha256="f" * 64,
+    )
+    db_session.add_all([existing, archived, uploaded])
+    db_session.commit()
+
+    result = confirm_document_upload(uploaded.id, db_session, None)
+
+    assert result.duplicate_document_ids == [existing.id]

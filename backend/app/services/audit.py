@@ -55,10 +55,13 @@ def sanitize_audit_payload(value: Any, *, _depth: int = 0) -> Any:
         items = list(value.items())
         for key, item in items[:_AUDIT_MAX_DICT_KEYS]:
             key_text = str(key)
-            sanitized[key_text] = _MASKED_VALUE if _is_sensitive_key(key_text) else sanitize_audit_payload(
-                item,
-                _depth=_depth + 1,
-            )
+            if _is_sensitive_key(key_text):
+                sanitized[key_text] = _MASKED_VALUE
+            elif key_text.endswith("_ids") and isinstance(item, list | tuple):
+                # 追溯依赖完整的关联 id 列表（如 replaced_certificate_ids），不截断。
+                sanitized[key_text] = [_truncate_text(str(entry)) for entry in item]
+            else:
+                sanitized[key_text] = sanitize_audit_payload(item, _depth=_depth + 1)
         if len(items) > _AUDIT_MAX_DICT_KEYS:
             sanitized["__truncated_keys__"] = len(items) - _AUDIT_MAX_DICT_KEYS
         return sanitized

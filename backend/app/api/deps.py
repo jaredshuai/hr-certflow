@@ -65,13 +65,13 @@ def _clean_actor_header(value: str | None) -> str | None:
     return _clean_header(unquote(cleaned))
 
 
-def _request_client_ip(request: Request) -> str | None:
+def _forwarded_client_ip(request: Request) -> str | None:
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
         first_hop = forwarded_for.split(",")[0].strip()
         if first_hop:
             return first_hop
-    return request.client.host if request.client else None
+    return None
 
 
 def _is_trusted_proxy(ip: str | None, trusted_cidrs: str) -> bool:
@@ -111,9 +111,16 @@ def build_request_context(
         else request.headers.get(HR_ACTOR_SOURCE_HEADER)
     )
 
-    client_ip = _request_client_ip(request)
-    if actor_name and settings.trusted_proxy_cidrs and not _is_trusted_proxy(client_ip, settings.trusted_proxy_cidrs):
-        actor_name = None
+    # 信任与否只看直连对端（网关）；X-Forwarded-For 可被客户端自填，不能作为信任依据。
+    peer_ip = request.client.host if request.client else None
+    if settings.trusted_proxy_cidrs:
+        peer_trusted = _is_trusted_proxy(peer_ip, settings.trusted_proxy_cidrs)
+        if not peer_trusted:
+            actor_name = None
+            actor_source = None
+        client_ip = (_forwarded_client_ip(request) if peer_trusted else None) or peer_ip
+    else:
+        client_ip = _forwarded_client_ip(request) or peer_ip
 
     return RequestContext(
         actor_name=actor_name,

@@ -58,6 +58,8 @@ class CertificateDocumentRead(ORMModel):
     failure_reason: str | None
     created_at: datetime
     updated_at: datetime
+    # 仅在确认上传时返回：内容（sha256）相同的其它未归档原件，用于提示重复上传。
+    duplicate_document_ids: list[UUID] = Field(default_factory=list)
 
 
 class CertificateDocumentPageRead(BaseModel):

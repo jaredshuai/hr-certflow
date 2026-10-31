@@ -6,13 +6,19 @@ from fastapi.testclient import TestClient
 from app.core.config import get_settings
 
 
-def _make_client(monkeypatch, *, trusted_cidrs: str = "", auth_required: bool = False) -> TestClient:
+def _make_client(
+    monkeypatch,
+    *,
+    trusted_cidrs: str = "",
+    auth_required: bool = False,
+    peer: str = "testclient",
+) -> TestClient:
     get_settings.cache_clear()
     monkeypatch.setenv("TRUSTED_PROXY_CIDRS", trusted_cidrs)
     monkeypatch.setenv("AUTH_REQUIRED", str(auth_required).lower())
     from app.main import create_app
 
-    return TestClient(create_app())
+    return TestClient(create_app(), client=(peer, 50000))
 
 
 # --- /_internal/healthz:探针端点,任何态都放行且不泄露信息 ---
@@ -69,7 +75,7 @@ def test_api_health_401_when_auth_required_and_untrusted_actor(monkeypatch) -> N
 
 def test_api_health_200_when_auth_required_and_trusted_actor(monkeypatch) -> None:
     """需求验收语义:可信代理来源带 X-HR-Actor 访问 /api/v1/health → 200。"""
-    client = _make_client(monkeypatch, trusted_cidrs="10.42.0.0/16", auth_required=True)
+    client = _make_client(monkeypatch, trusted_cidrs="10.42.0.0/16", auth_required=True, peer="10.42.5.13")
     response = client.get(
         "/api/v1/health",
         headers={"X-HR-Actor": "%E5%BC%A0%E4%B8%89", "X-Forwarded-For": "10.42.5.13"},

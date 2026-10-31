@@ -317,12 +317,29 @@ def create_upload_intent(
     )
 
 
+def _document_read_with_duplicates(db: Session, document: CertificateDocument) -> CertificateDocumentRead:
+    duplicate_ids: list[UUID] = []
+    if document.sha256:
+        duplicate_ids = list(
+            db.scalars(
+                select(CertificateDocument.id).where(
+                    CertificateDocument.sha256 == document.sha256,
+                    CertificateDocument.id != document.id,
+                    CertificateDocument.status != DocumentStatus.ARCHIVED,
+                )
+            ).all()
+        )
+    return CertificateDocumentRead.model_validate(document).model_copy(
+        update={"duplicate_document_ids": duplicate_ids}
+    )
+
+
 @router.post("/{document_id}/confirm-upload", response_model=CertificateDocumentRead)
 def confirm_document_upload(
     document_id: UUID,
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
-) -> CertificateDocument:
+) -> CertificateDocumentRead:
     document = db.get(CertificateDocument, document_id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -331,7 +348,7 @@ def confirm_document_upload(
     if document.status == DocumentStatus.ARCHIVED:
         raise HTTPException(status_code=409, detail="Document is archived")
     if document.status == DocumentStatus.UPLOADED and document.sha256:
-        return document
+        return _document_read_with_duplicates(db, document)
 
     settings = get_settings()
     storage = ObjectStorage(settings)
@@ -383,7 +400,7 @@ def confirm_document_upload(
     )
     db.commit()
     db.refresh(document)
-    return document
+    return _document_read_with_duplicates(db, document)
 
 
 @router.post(

@@ -249,6 +249,10 @@ export default function UploadRecognitionPage() {
         `/documents/${intent.document_id}/confirm-upload`,
       );
       setDocumentStatus(confirmedDocument.status);
+      const duplicateCount = confirmedDocument.duplicate_document_ids?.length ?? 0;
+      if (duplicateCount > 0) {
+        message.warning(`该文件与已有的 ${duplicateCount} 份证书原件内容相同，复核时请避免重复入库`);
+      }
       setUploading(false);
       setRecognizing(true);
       try {

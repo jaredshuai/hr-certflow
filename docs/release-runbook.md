@@ -301,8 +301,10 @@ TRUSTED_PROXY_CIDRS: "10.34.200.0/24"
 ```
 
 - `AUTH_REQUIRED=true`：无 actor 的请求返回 401。
-- `TRUSTED_PROXY_CIDRS`：逗号分隔的 CIDR 列表。非可信来源的 `X-HR-Actor`
-  header 会被剥离（不报错，仅剥离）。
+- `TRUSTED_PROXY_CIDRS`：逗号分隔的 CIDR 列表，匹配的是**直连 API 的对端地址**
+  （网关 / ingress Pod 的地址），不是 `X-Forwarded-For` 里的终端用户地址。
+  对端不在列表内时，`X-HR-Actor` 和 `X-HR-Actor-Source` 会被剥离（不报错，仅剥离），
+  审计 IP 也只记录对端地址；对端可信时审计 IP 取 `X-Forwarded-For` 第一跳。
 
 默认值（`AUTH_REQUIRED=false`、`TRUSTED_PROXY_CIDRS=""`）是过渡态，不破坏
 dev/smoke 流程。真业务上线前必须切换。
