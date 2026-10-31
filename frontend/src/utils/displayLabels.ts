@@ -162,16 +162,22 @@ export const certificateStatusOptions: Array<{ label: string; value: Certificate
 ];
 
 // 有效 / 即将到期 / 已过期由后端按有效期至推算，表单只让 HR 选“生效”。
+// 手工维护只能登记生效（由有效期推导）或归档；已替换只能由新持证记录产生。
 export const certificateStatusFormOptions: Array<{ label: string; value: CertificateStatus }> = [
-  { label: '草稿', value: 'DRAFT' },
-  { label: '待复核', value: 'PENDING_REVIEW' },
   { label: '生效（按有效期自动判定）', value: 'ACTIVE' },
-  { label: '已替换', value: 'REPLACED' },
   { label: '已归档', value: 'ARCHIVED' },
 ];
 
-export const toCertificateFormStatus = (status: CertificateStatus): CertificateStatus =>
-  status === 'EXPIRING' || status === 'EXPIRED' ? 'ACTIVE' : status;
+export const replacedCertificateStatusFormOptions: Array<{ label: string; value: CertificateStatus }> = [
+  { label: '已替换', value: 'REPLACED' },
+];
+
+export const toCertificateFormStatus = (status: CertificateStatus): CertificateStatus | undefined => {
+  if (status === 'EXPIRING' || status === 'EXPIRED') return 'ACTIVE';
+  // 历史遗留的草稿 / 待复核记录需要 HR 重新选择。
+  if (status === 'DRAFT' || status === 'PENDING_REVIEW') return undefined;
+  return status;
+};
 
 export const reviewStatusOptions: Array<{ label: string; value: ReviewStatus }> = [
   { label: '待复核', value: 'PENDING' },

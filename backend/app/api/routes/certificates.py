@@ -43,6 +43,7 @@ from app.services.certificates import (
     CLOSED_REASON_CERTIFICATE_ARCHIVED,
     CLOSED_REASON_VALID_TO_CHANGED,
     close_open_reminder_tasks,
+    final_certificate_status,
     is_current_certificate_status,
     needs_expiry_follow_up,
     replace_active_certificates,
@@ -444,6 +445,7 @@ def create_employee_certificate(
         valid_from=payload.valid_from,
         valid_to=payload.valid_to,
     )
+    _assert_manual_status_allowed(payload.status, None)
     target_status = resolve_certificate_status(
         db,
         payload.status,
@@ -475,8 +477,9 @@ def create_employee_certificate(
         target_status=target_status,
         audit=audit_context_kwargs(request_context),
     )
-    if certificate.status != target_status:
-        certificate.status = target_status
+    final_status = final_certificate_status(certificate, target_status)
+    if certificate.status != final_status:
+        certificate.status = final_status
         db.flush()
     record_audit(
         db,
@@ -494,6 +497,23 @@ def create_employee_certificate(
     db.commit()
     db.refresh(certificate)
     return certificate
+
+
+# 手工维护只能登记生效（由有效期推导）或归档；草稿/待复核属于复核流程，已替换只能由新记录产生。
+_MANUAL_FORBIDDEN_STATUSES = {
+    CertificateStatus.DRAFT,
+    CertificateStatus.PENDING_REVIEW,
+    CertificateStatus.REPLACED,
+}
+
+
+def _assert_manual_status_allowed(requested: CertificateStatus | None, current: CertificateStatus | None) -> None:
+    if current == CertificateStatus.REPLACED:
+        if requested not in (None, CertificateStatus.REPLACED):
+            raise HTTPException(status_code=409, detail="已替换的持证记录不能改为其它状态，请以新持证记录接替")
+        return
+    if requested in _MANUAL_FORBIDDEN_STATUSES:
+        raise HTTPException(status_code=400, detail="手工维护只能设置为生效或已归档")
 
 
 def _close_reminder_tasks_after_update(
@@ -538,9 +558,11 @@ def update_employee_certificate(
     valid_from = update_data.get("valid_from", certificate.valid_from)
     valid_to = update_data.get("valid_to", certificate.valid_to)
     validate_certificate_dates(issue_date=issue_date, valid_from=valid_from, valid_to=valid_to)
+    requested_status = update_data.pop("status", None)
+    _assert_manual_status_allowed(requested_status, certificate.status)
     target_status = resolve_certificate_status(
         db,
-        update_data.pop("status", None) or certificate.status,
+        requested_status or certificate.status,
         certificate_type_id=update_data.get("certificate_type_id", certificate.certificate_type_id),
         valid_to=valid_to,
     )
@@ -575,8 +597,9 @@ def update_employee_certificate(
         target_status=target_status,
         audit=audit_context_kwargs(request_context),
     )
-    if certificate.status != target_status:
-        certificate.status = target_status
+    final_status = final_certificate_status(certificate, target_status)
+    if certificate.status != final_status:
+        certificate.status = final_status
     if certificate.status != original_status or update_data or "confirmed_by" in update_data:
         db.flush()
     _close_reminder_tasks_after_update(

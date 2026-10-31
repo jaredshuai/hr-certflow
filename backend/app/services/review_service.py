@@ -23,6 +23,7 @@ from app.models import CertificateType, EmployeeCertificate, ReviewTask
 from app.schemas.documents import ReviewApproveItem, ReviewTaskRead
 from app.services.audit import record_audit
 from app.services.certificates import (
+    final_certificate_status,
     is_current_certificate_status,
     replace_active_certificates,
     resolve_certificate_status,
@@ -234,7 +235,7 @@ def approve_review_task(
                 "ip_address": audit_context.ip_address,
             },
         )
-        certificate.status = target_status
+        certificate.status = final_certificate_status(certificate, target_status)
         db.flush()
 
         created_certificates.append(certificate)

@@ -31,6 +31,7 @@ import {
   documentStatusLabel,
   feedbackStatusLabel,
   reminderStatusLabel,
+  replacedCertificateStatusFormOptions,
   reviewStatusLabel,
   toCertificateFormStatus,
 } from '@/utils/displayLabels';
@@ -363,8 +364,17 @@ export default function CertificatesPage() {
           name="status"
           label="状态"
           rules={[{ required: true, message: '请选择状态' }]}
-          options={certificateStatusFormOptions}
-          extra="生效后系统按有效截止日期自动判定为有效、即将到期或已过期"
+          options={
+            currentCertificate?.status === 'REPLACED'
+              ? replacedCertificateStatusFormOptions
+              : certificateStatusFormOptions
+          }
+          disabled={currentCertificate?.status === 'REPLACED'}
+          extra={
+            currentCertificate?.status === 'REPLACED'
+              ? '已替换的持证记录保持已替换，只能更正其它字段'
+              : '生效后系统按有效截止日期自动判定为有效、即将到期或已过期；补录的旧证会自动标为已替换'
+          }
         />
         <ProFormText name="confirmed_by" label="确认人" />
       </DrawerForm>

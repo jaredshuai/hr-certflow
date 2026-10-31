@@ -226,33 +226,44 @@ def replace_active_certificates(
     target_status: CertificateStatus | None = None,
     audit: dict[str, Any] | None = None,
 ) -> list[EmployeeCertificate]:
+    """按有效期至先后处理同员工同证书类型的替换（见 GLOSSARY.md「替换」）。
+
+    新记录有效期至不早于现有记录时（空值视为长期有效、最新），替换全部现有记录；
+    否则新记录本身即被最新的现有记录替换（补录旧证、历史过期证），现有记录不动。
+    返回被替换的现有记录；新记录被替换时其 status/replaced_by_id 已就地设置。
+    """
     replacement_status = target_status or certificate.status
-    if not is_current_certificate_status(replacement_status):
+    if replacement_status not in _REPLACEABLE_CERTIFICATE_STATUSES:
         return []
 
     with db.no_autoflush:
-        old_certificates = db.scalars(
-            select(EmployeeCertificate).where(
-                EmployeeCertificate.id != certificate.id,
-                EmployeeCertificate.employee_id == certificate.employee_id,
-                EmployeeCertificate.certificate_type_id == certificate.certificate_type_id,
-                EmployeeCertificate.status.in_(_REPLACEABLE_CERTIFICATE_STATUSES),
-            ).with_for_update()
-        ).all()
-    replaced = list(old_certificates)
-    for old_certificate in replaced:
-        before_status = old_certificate.status
-        old_certificate.status = CertificateStatus.REPLACED
-        old_certificate.replaced_by_id = certificate.id
-        record_audit(
-            db,
-            action="employee_certificate.replace",
-            resource_type="employee_certificate",
-            resource_id=str(old_certificate.id),
-            before={"status": before_status.value},
-            after={"status": CertificateStatus.REPLACED.value, "replaced_by_id": str(certificate.id)},
-            **(audit or {}),
+        old_certificates = list(
+            db.scalars(
+                select(EmployeeCertificate).where(
+                    EmployeeCertificate.id != certificate.id,
+                    EmployeeCertificate.employee_id == certificate.employee_id,
+                    EmployeeCertificate.certificate_type_id == certificate.certificate_type_id,
+                    EmployeeCertificate.status.in_(_REPLACEABLE_CERTIFICATE_STATUSES),
+                ).with_for_update()
+            ).all()
         )
+    latest = max(old_certificates, key=lambda item: _valid_to_sort_key(item.valid_to), default=None)
+    if latest is not None and _valid_to_sort_key(latest.valid_to) > _valid_to_sort_key(certificate.valid_to):
+        _mark_replaced(db, certificate, by=latest, before_status=replacement_status, audit=audit)
+        close_open_reminder_tasks(
+            db,
+            [certificate.id],
+            now=now,
+            reason=CLOSED_REASON_RENEWED_BY_REPLACEMENT,
+            status=ReminderTaskStatus.RESOLVED,
+            audit=audit,
+        )
+        db.flush()
+        return []
+
+    replaced = old_certificates
+    for old_certificate in replaced:
+        _mark_replaced(db, old_certificate, by=certificate, before_status=old_certificate.status, audit=audit)
 
     # 替换即续证：旧记录上的跟进案件以「已解决」闭环。
     close_open_reminder_tasks(
@@ -265,6 +276,38 @@ def replace_active_certificates(
     )
     db.flush()
     return replaced
+
+
+def final_certificate_status(certificate: EmployeeCertificate, target_status: CertificateStatus) -> CertificateStatus:
+    """替换处理后记录应落的状态：被更新的现有记录替换时为已替换，否则为目标状态。"""
+    if certificate.status == CertificateStatus.REPLACED and certificate.replaced_by_id is not None:
+        return CertificateStatus.REPLACED
+    return target_status
+
+
+def _valid_to_sort_key(valid_to: date | None) -> date:
+    return valid_to or date.max
+
+
+def _mark_replaced(
+    db: Session,
+    certificate: EmployeeCertificate,
+    *,
+    by: EmployeeCertificate,
+    before_status: CertificateStatus,
+    audit: dict[str, Any] | None,
+) -> None:
+    certificate.status = CertificateStatus.REPLACED
+    certificate.replaced_by_id = by.id
+    record_audit(
+        db,
+        action="employee_certificate.replace",
+        resource_type="employee_certificate",
+        resource_id=str(certificate.id),
+        before={"status": before_status.value},
+        after={"status": CertificateStatus.REPLACED.value, "replaced_by_id": str(by.id)},
+        **(audit or {}),
+    )
 
 
 def close_open_reminder_tasks(

@@ -5,7 +5,8 @@ from collections.abc import Generator
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from sqlalchemy import delete, select, text
+from fastapi import HTTPException
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -235,6 +236,148 @@ def test_new_current_certificate_replaces_expired_one_and_closes_its_reminders(d
     assert expired.replaced_by_id == new_certificate.id
     assert escalated_task.status == ReminderTaskStatus.RESOLVED
     assert escalated_task.closed_reason == "renewed_by_replacement"
+
+
+def test_backfilled_older_certificate_is_replaced_by_existing_newer_one(db_session: Session) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    today = datetime.now(UTC).date()
+    current = _certificate(employee, certificate_type, today + timedelta(days=700))
+    db_session.add(current)
+    db_session.commit()
+
+    older = create_employee_certificate(
+        EmployeeCertificateCreate(
+            employee_id=employee.id,
+            certificate_type_id=certificate_type.id,
+            holder_name=employee.name,
+            valid_to=today + timedelta(days=200),
+            status=CertificateStatus.ACTIVE,
+        ),
+        db_session,
+        None,
+    )
+
+    db_session.refresh(current)
+    assert current.status == CertificateStatus.ACTIVE
+    assert current.replaced_by_id is None
+    assert older.status == CertificateStatus.REPLACED
+    assert older.replaced_by_id == current.id
+
+
+def test_backfilled_expired_certificate_does_not_add_expired_risk(db_session: Session) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    today = datetime.now(UTC).date()
+    current = _certificate(employee, certificate_type, today + timedelta(days=700))
+    db_session.add(current)
+    db_session.commit()
+
+    historical = create_employee_certificate(
+        EmployeeCertificateCreate(
+            employee_id=employee.id,
+            certificate_type_id=certificate_type.id,
+            holder_name=employee.name,
+            valid_to=today - timedelta(days=400),
+            status=CertificateStatus.ACTIVE,
+        ),
+        db_session,
+        None,
+    )
+
+    assert historical.status == CertificateStatus.REPLACED
+    assert historical.replaced_by_id == current.id
+    expired_count = db_session.scalar(
+        select(func.count()).select_from(EmployeeCertificate).where(
+            EmployeeCertificate.status == CertificateStatus.EXPIRED
+        )
+    )
+    assert expired_count == 0
+
+
+def test_newer_expired_certificate_supersedes_older_expired_one(db_session: Session) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    today = datetime.now(UTC).date()
+    old_expired = _certificate(employee, certificate_type, today - timedelta(days=400), CertificateStatus.EXPIRED)
+    db_session.add(old_expired)
+    db_session.commit()
+
+    newer_expired = create_employee_certificate(
+        EmployeeCertificateCreate(
+            employee_id=employee.id,
+            certificate_type_id=certificate_type.id,
+            holder_name=employee.name,
+            valid_to=today - timedelta(days=10),
+            status=CertificateStatus.ACTIVE,
+        ),
+        db_session,
+        None,
+    )
+
+    db_session.refresh(old_expired)
+    assert newer_expired.status == CertificateStatus.EXPIRED
+    assert old_expired.status == CertificateStatus.REPLACED
+    assert old_expired.replaced_by_id == newer_expired.id
+
+
+def test_replaced_certificate_cannot_be_revived(db_session: Session) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    today = datetime.now(UTC).date()
+    old = _certificate(employee, certificate_type, today + timedelta(days=100))
+    db_session.add(old)
+    db_session.commit()
+    new = create_employee_certificate(
+        EmployeeCertificateCreate(
+            employee_id=employee.id,
+            certificate_type_id=certificate_type.id,
+            holder_name=employee.name,
+            valid_to=today + timedelta(days=800),
+            status=CertificateStatus.ACTIVE,
+        ),
+        db_session,
+        None,
+    )
+    db_session.refresh(old)
+    assert old.status == CertificateStatus.REPLACED
+
+    with pytest.raises(HTTPException) as exc_info:
+        update_employee_certificate(
+            old.id,
+            EmployeeCertificateUpdate(status=CertificateStatus.ACTIVE),
+            db_session,
+            None,
+        )
+    assert exc_info.value.status_code == 409
+
+    # 保持已替换、只更正其它字段是允许的。
+    corrected = update_employee_certificate(
+        old.id,
+        EmployeeCertificateUpdate(status=CertificateStatus.REPLACED, issuing_authority="应急管理局"),
+        db_session,
+        None,
+    )
+    assert corrected.status == CertificateStatus.REPLACED
+    assert corrected.replaced_by_id == new.id
+
+
+@pytest.mark.parametrize(
+    "status",
+    [CertificateStatus.DRAFT, CertificateStatus.PENDING_REVIEW, CertificateStatus.REPLACED],
+)
+def test_manual_create_rejects_workflow_statuses(db_session: Session, status: CertificateStatus) -> None:
+    employee, certificate_type = _create_master_data(db_session)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        create_employee_certificate(
+            EmployeeCertificateCreate(
+                employee_id=employee.id,
+                certificate_type_id=certificate_type.id,
+                holder_name=employee.name,
+                status=status,
+            ),
+            db_session,
+            None,
+        )
+    assert exc_info.value.status_code == 400
 
 
 def _certificate(
