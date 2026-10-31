@@ -25,6 +25,7 @@ from app.services.audit import record_audit
 from app.services.certificates import (
     is_current_certificate_status,
     replace_active_certificates,
+    resolve_certificate_status,
     validate_certificate_business_rules,
     validate_certificate_dates,
 )
@@ -185,7 +186,6 @@ def approve_review_task(
     _assert_document_pending_review(review_task)
 
     now = datetime.now(UTC)
-    target_status = CertificateStatus.ACTIVE
     created_certificates: list[EmployeeCertificate] = []
     all_replaced_certificates: list[EmployeeCertificate] = []
     valid_to_derivations: list[dict[str, str | int]] = []
@@ -197,6 +197,13 @@ def approve_review_task(
             raise CertificateTypeNotFoundError(f"Certificate type {item.certificate_type_id} not found")
         valid_to, valid_to_derivation = resolve_valid_to_for_item(item, certificate_type)
         _validate_item_or_raise(db, item=item, valid_to=valid_to)
+        target_status = resolve_certificate_status(
+            db,
+            CertificateStatus.ACTIVE,
+            certificate_type_id=item.certificate_type_id,
+            valid_to=valid_to,
+            today=now.date(),
+        )
 
         certificate = EmployeeCertificate(
             employee_id=item.employee_id,

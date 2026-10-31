@@ -5,7 +5,6 @@ export type CertificateStatus =
   | 'ACTIVE'
   | 'EXPIRING'
   | 'EXPIRED'
-  | 'RENEWED'
   | 'REPLACED'
   | 'ARCHIVED';
 export type ReminderTaskStatus =

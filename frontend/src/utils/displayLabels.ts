@@ -25,7 +25,6 @@ const certificateStatusLabels: Record<string, string> = {
   ACTIVE: '有效',
   EXPIRING: '即将到期',
   EXPIRED: '已过期',
-  RENEWED: '已续证',
   REPLACED: '已替换',
   ARCHIVED: '已归档',
 };
@@ -91,6 +90,7 @@ const auditActionLabels: Record<string, string> = {
   'certificate_document.recognize.failed': '证书智能识别失败',
   'employee_certificate.create': '创建持证记录',
   'employee_certificate.update': '更新持证记录',
+  'employee_certificate.expiry_status.refresh': '按有效期自动更新持证状态',
   'certificate_type.create': '创建证书类型',
   'certificate_type.update': '更新证书类型',
   'certificate_type.import.create': '导入新增证书类型',
@@ -142,10 +142,21 @@ export const certificateStatusOptions: Array<{ label: string; value: Certificate
   { label: '有效', value: 'ACTIVE' },
   { label: '即将到期', value: 'EXPIRING' },
   { label: '已过期', value: 'EXPIRED' },
-  { label: '已续证', value: 'RENEWED' },
   { label: '已替换', value: 'REPLACED' },
   { label: '已归档', value: 'ARCHIVED' },
 ];
+
+// 有效 / 即将到期 / 已过期由后端按有效期至推算，表单只让 HR 选“生效”。
+export const certificateStatusFormOptions: Array<{ label: string; value: CertificateStatus }> = [
+  { label: '草稿', value: 'DRAFT' },
+  { label: '待复核', value: 'PENDING_REVIEW' },
+  { label: '生效（按有效期自动判定）', value: 'ACTIVE' },
+  { label: '已替换', value: 'REPLACED' },
+  { label: '已归档', value: 'ARCHIVED' },
+];
+
+export const toCertificateFormStatus = (status: CertificateStatus): CertificateStatus =>
+  status === 'EXPIRING' || status === 'EXPIRED' ? 'ACTIVE' : status;
 
 export const reviewStatusOptions: Array<{ label: string; value: ReviewStatus }> = [
   { label: '待复核', value: 'PENDING' },
@@ -222,7 +233,6 @@ export const certificateStatusValueEnum: StatusValueEnum<CertificateStatus> = {
   ACTIVE: { text: '有效', status: 'Success' },
   EXPIRING: { text: '即将到期', status: 'Warning' },
   EXPIRED: { text: '已过期', status: 'Error' },
-  RENEWED: { text: '已续证', status: 'Success' },
   REPLACED: { text: '已替换', status: 'Default' },
   ARCHIVED: { text: '已归档', status: 'Default' },
 };

@@ -117,7 +117,7 @@ erDiagram
         date valid_from
         date valid_to
         date review_date
-        enum status "DRAFT/PENDING_REVIEW/ACTIVE/EXPIRING/EXPIRED/RENEWED/REPLACED/ARCHIVED"
+        enum status "DRAFT/PENDING_REVIEW/ACTIVE/EXPIRING/EXPIRED/REPLACED/ARCHIVED"
         string confirmed_by
         datetime confirmed_at
     }

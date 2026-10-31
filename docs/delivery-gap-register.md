@@ -61,6 +61,19 @@ complete product requirement is satisfied".
 
 ## Local Evidence Notes
 
+- 2026-10-31: Certificate expiry states now follow `GLOSSARY.md`: `ACTIVE`,
+  `EXPIRING`, and `EXPIRED` are derived from `valid_to` and the earliest
+  enabled reminder-policy offset for the certificate type, never trusted from
+  manual input. The daily Celery Beat expiry task first refreshes these states
+  (idempotent, one `employee_certificate.expiry_status.refresh` audit entry per
+  transition with system/scheduler actor), then scans and dispatches reminders.
+  Manual create/update and review approval derive the same way, and a new
+  current certificate now also replaces an expired one of the same employee and
+  type. The never-written certificate status `RENEWED` was removed with
+  migration `0007` (verified upgrade/downgrade/upgrade on local PostgreSQL 16).
+  Backend ruff/ty and the full pytest suite with `DATABASE_URL` (179 passed, no
+  skips) plus frontend lint/type-check/build pass locally. Promoted dev/release
+  evidence is still required.
 - 2026-06-20: A runtime crash on the human-review page was found and fixed.
   `ReviewQueue/index.tsx` used `getResource`/`listResource`/`postResource` in
   six places (employees/types load, ProTable fetch, approve, reject, trace) but

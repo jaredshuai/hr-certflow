@@ -39,7 +39,6 @@ CERTIFICATE_STATUS_LABELS = {
     CertificateStatus.ACTIVE: "有效",
     CertificateStatus.EXPIRING: "即将到期",
     CertificateStatus.EXPIRED: "已过期",
-    CertificateStatus.RENEWED: "已续证",
     CertificateStatus.REPLACED: "已替换",
     CertificateStatus.ARCHIVED: "已归档",
 }

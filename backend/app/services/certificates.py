@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -8,12 +8,30 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import CertificateStatus, EmploymentStatus, ReminderTaskStatus
-from app.models import CertificateType, Employee, EmployeeCertificate, ReminderTask
+from app.models import CertificateType, Employee, EmployeeCertificate, ReminderPolicy, ReminderTask
+from app.services.audit import record_audit
 
 _ACTIVE_CERTIFICATE_STATUSES = (
     CertificateStatus.ACTIVE,
     CertificateStatus.EXPIRING,
 )
+
+# 有效 / 即将到期 / 已过期 由有效期至推算，不接受人工指定（见 GLOSSARY.md）。
+_EXPIRY_DERIVED_STATUSES = (
+    CertificateStatus.ACTIVE,
+    CertificateStatus.EXPIRING,
+    CertificateStatus.EXPIRED,
+)
+
+# 新持证记录生效时，同员工同证书类型的这些旧记录会被替换。
+_REPLACEABLE_CERTIFICATE_STATUSES = (
+    CertificateStatus.ACTIVE,
+    CertificateStatus.EXPIRING,
+    CertificateStatus.EXPIRED,
+)
+
+SYSTEM_ACTOR_NAME = "system"
+SCHEDULER_ACTOR_SOURCE = "scheduler"
 
 _DUPLICATE_CERTIFICATE_STATUSES = (
     CertificateStatus.DRAFT,
@@ -84,6 +102,101 @@ def is_current_certificate_status(status: CertificateStatus) -> bool:
     return status in _ACTIVE_CERTIFICATE_STATUSES
 
 
+def is_expiry_derived_status(status: CertificateStatus) -> bool:
+    return status in _EXPIRY_DERIVED_STATUSES
+
+
+def reminder_window_days(db: Session, certificate_type_id: UUID) -> int | None:
+    """提醒窗口天数：适用于该证书类型的启用提醒策略中最早的提醒天数；没有策略时为 None。"""
+    policies = db.scalars(
+        select(ReminderPolicy).where(
+            ReminderPolicy.enabled.is_(True),
+            (ReminderPolicy.certificate_type_id.is_(None))
+            | (ReminderPolicy.certificate_type_id == certificate_type_id),
+        )
+    ).all()
+    days = [day for policy in policies for day in policy.days_before_expiry or []]
+    return max(days) if days else None
+
+
+def derive_expiry_status(
+    valid_to: date | None,
+    *,
+    today: date,
+    window_days: int | None,
+) -> CertificateStatus:
+    if valid_to is None:
+        return CertificateStatus.ACTIVE
+    if valid_to < today:
+        return CertificateStatus.EXPIRED
+    if window_days is not None and (valid_to - today).days <= window_days:
+        return CertificateStatus.EXPIRING
+    return CertificateStatus.ACTIVE
+
+
+def resolve_certificate_status(
+    db: Session,
+    requested: CertificateStatus,
+    *,
+    certificate_type_id: UUID,
+    valid_to: date | None,
+    today: date | None = None,
+) -> CertificateStatus:
+    """把请求中的有效类状态换成由有效期至推算出的状态；其余状态（草稿、已归档等）原样保留。"""
+    if not is_expiry_derived_status(requested):
+        return requested
+    return derive_expiry_status(
+        valid_to,
+        today=today or datetime.now(UTC).date(),
+        window_days=reminder_window_days(db, certificate_type_id),
+    )
+
+
+def refresh_certificate_expiry_statuses(db: Session, *, today: date | None = None) -> int:
+    """按有效期至推进有效 / 即将到期记录的状态，每次流转写审计。重复执行是幂等的。"""
+    scan_date = today or datetime.now(UTC).date()
+    certificates = db.scalars(
+        select(EmployeeCertificate)
+        .where(EmployeeCertificate.status.in_(_ACTIVE_CERTIFICATE_STATUSES))
+        .order_by(EmployeeCertificate.id)
+        .with_for_update(skip_locked=True)
+    ).all()
+
+    window_cache: dict[UUID, int | None] = {}
+    changed = 0
+    for certificate in certificates:
+        type_id = certificate.certificate_type_id
+        if type_id not in window_cache:
+            window_cache[type_id] = reminder_window_days(db, type_id)
+        window_days = window_cache[type_id]
+        new_status = derive_expiry_status(certificate.valid_to, today=scan_date, window_days=window_days)
+        if new_status == certificate.status:
+            continue
+
+        before_status = certificate.status
+        certificate.status = new_status
+        record_audit(
+            db,
+            action="employee_certificate.expiry_status.refresh",
+            resource_type="employee_certificate",
+            resource_id=str(certificate.id),
+            actor_name=SYSTEM_ACTOR_NAME,
+            actor_source=SCHEDULER_ACTOR_SOURCE,
+            before={"status": before_status.value},
+            after={
+                "status": new_status.value,
+                "valid_to": certificate.valid_to.isoformat() if certificate.valid_to else None,
+                "reminder_window_days": window_days,
+                "scan_date": scan_date.isoformat(),
+            },
+        )
+        changed += 1
+
+    if changed:
+        db.flush()
+    return changed
+
+
 def replace_active_certificates(
     db: Session,
     certificate: EmployeeCertificate,
@@ -101,7 +214,7 @@ def replace_active_certificates(
                 EmployeeCertificate.id != certificate.id,
                 EmployeeCertificate.employee_id == certificate.employee_id,
                 EmployeeCertificate.certificate_type_id == certificate.certificate_type_id,
-                EmployeeCertificate.status.in_(_ACTIVE_CERTIFICATE_STATUSES),
+                EmployeeCertificate.status.in_(_REPLACEABLE_CERTIFICATE_STATUSES),
             ).with_for_update()
         ).all()
     replaced = list(old_certificates)

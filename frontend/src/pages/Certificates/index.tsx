@@ -26,12 +26,13 @@ import {
   auditActionLabel,
   auditResourceTypeLabel,
   certificateStatusLabel,
-  certificateStatusOptions,
+  certificateStatusFormOptions,
   certificateStatusValueEnum,
   documentStatusLabel,
   feedbackStatusLabel,
   reminderStatusLabel,
   reviewStatusLabel,
+  toCertificateFormStatus,
 } from '@/utils/displayLabels';
 import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
@@ -330,7 +331,7 @@ export default function CertificatesPage() {
                 valid_from: currentCertificate.valid_from,
                 valid_to: currentCertificate.valid_to,
                 review_date: currentCertificate.review_date,
-                status: currentCertificate.status,
+                status: toCertificateFormStatus(currentCertificate.status),
                 confirmed_by: currentCertificate.confirmed_by,
               }
             : { status: 'ACTIVE' as CertificateStatus }
@@ -362,7 +363,8 @@ export default function CertificatesPage() {
           name="status"
           label="状态"
           rules={[{ required: true, message: '请选择状态' }]}
-          options={certificateStatusOptions}
+          options={certificateStatusFormOptions}
+          extra="生效后系统按有效截止日期自动判定为有效、即将到期或已过期"
         />
         <ProFormText name="confirmed_by" label="确认人" />
       </DrawerForm>

@@ -15,7 +15,6 @@ class CertificateStatus(StrEnum):
     ACTIVE = "ACTIVE"
     EXPIRING = "EXPIRING"
     EXPIRED = "EXPIRED"
-    RENEWED = "RENEWED"
     REPLACED = "REPLACED"
     ARCHIVED = "ARCHIVED"
 

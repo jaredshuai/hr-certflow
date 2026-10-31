@@ -42,6 +42,7 @@ from app.services.audit import record_audit
 from app.services.certificates import (
     is_current_certificate_status,
     replace_active_certificates,
+    resolve_certificate_status,
     validate_certificate_business_rules,
     validate_certificate_dates,
 )
@@ -434,10 +435,15 @@ def create_employee_certificate(
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
 ) -> EmployeeCertificate:
-    target_status = payload.status
     validate_certificate_dates(
         issue_date=payload.issue_date,
         valid_from=payload.valid_from,
+        valid_to=payload.valid_to,
+    )
+    target_status = resolve_certificate_status(
+        db,
+        payload.status,
+        certificate_type_id=payload.certificate_type_id,
         valid_to=payload.valid_to,
     )
     validate_certificate_business_rules(
@@ -469,6 +475,7 @@ def create_employee_certificate(
         resource_id=str(certificate.id),
         after={
             **payload.model_dump(mode="json"),
+            "status": certificate.status.value,
             "replaced_certificate_ids": [str(item.id) for item in replaced_certificates],
         },
         **audit_context_kwargs(request_context),
@@ -494,7 +501,12 @@ def update_employee_certificate(
     valid_from = update_data.get("valid_from", certificate.valid_from)
     valid_to = update_data.get("valid_to", certificate.valid_to)
     validate_certificate_dates(issue_date=issue_date, valid_from=valid_from, valid_to=valid_to)
-    target_status = update_data.get("status", certificate.status)
+    target_status = resolve_certificate_status(
+        db,
+        update_data.pop("status", None) or certificate.status,
+        certificate_type_id=update_data.get("certificate_type_id", certificate.certificate_type_id),
+        valid_to=valid_to,
+    )
     validate_certificate_business_rules(
         db,
         employee_id=update_data.get("employee_id", certificate.employee_id),
@@ -506,7 +518,6 @@ def update_employee_certificate(
     )
 
     before = EmployeeCertificateRead.model_validate(certificate).model_dump(mode="json")
-    target_status = update_data.pop("status", certificate.status)
     needs_current_replacement = is_current_certificate_status(target_status)
     original_status = certificate.status
     if needs_current_replacement and is_current_certificate_status(certificate.status):
@@ -532,6 +543,7 @@ def update_employee_certificate(
         before=before,
         after={
             **payload.model_dump(exclude_unset=True, mode="json"),
+            "status": certificate.status.value,
             "replaced_certificate_ids": [str(item.id) for item in replaced_certificates],
         },
         **audit_context_kwargs(request_context),

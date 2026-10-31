@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 EvidenceStatus = Literal["PASS", "FAIL", "WARN"]
 
 CURRENT_CERTIFICATE_STATUSES = {"ACTIVE", "EXPIRING"}
-FORMAL_CERTIFICATE_STATUSES = {"ACTIVE", "EXPIRING", "EXPIRED", "RENEWED", "REPLACED", "ARCHIVED"}
+FORMAL_CERTIFICATE_STATUSES = {"ACTIVE", "EXPIRING", "EXPIRED", "REPLACED", "ARCHIVED"}
 CLOSED_REMINDER_STATUSES = {"RESOLVED", "CLOSED"}
 CSV_EXPORT_PATHS = {
     "employees": "/employees/export.csv",
@@ -514,7 +514,7 @@ class ScenarioEvidenceCollector:
             row
             for row in related
             if str(row.get("id")) != selected_id
-            and (str(row.get("replaced_by_id")) == selected_id or row.get("status") in {"REPLACED", "RENEWED"})
+            and (str(row.get("replaced_by_id")) == selected_id or row.get("status") == "REPLACED")
         ]
         self._add(
             "certificate_replacement",

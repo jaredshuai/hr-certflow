@@ -143,7 +143,6 @@ Status text must be Chinese:
 - `PENDING_REVIEW`: `待复核`
 - `EXPIRING`: `即将到期`
 - `EXPIRED`: `已过期`
-- `RENEWED`: `已续证`
 - `REPLACED`: `已替换`
 - `ARCHIVED`: `已归档`
 
