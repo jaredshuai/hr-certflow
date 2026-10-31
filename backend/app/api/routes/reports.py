@@ -28,6 +28,11 @@ ACTIVE_COVERAGE_STATUSES = {CertificateStatus.ACTIVE, CertificateStatus.EXPIRING
 RISK_STATUSES = {CertificateStatus.EXPIRING, CertificateStatus.EXPIRED}
 
 
+def _certificates_path(params: dict[str, str]) -> str:
+    # 持证记录下钻统一限定在册员工，与报表数字口径一致。
+    return "/certificates?" + urlencode({"on_roll": "true", **params})
+
+
 def _coverage_ratio(covered_count: int, total_count: int) -> float:
     return round((covered_count / total_count) * 100, 1) if total_count else 0
 
@@ -80,7 +85,8 @@ def build_certificate_coverage_report(
 
     certificate_type_risk_rows: list[CertificateTypeRiskRow] = []
     for certificate_type in sorted(certificate_types, key=lambda item: item.name):
-        type_certificates = certificates_by_type[str(certificate_type.id)]
+        type_id = str(certificate_type.id)
+        type_certificates = certificates_by_type[type_id]
         active_count = sum(1 for item in type_certificates if item.status in ACTIVE_COVERAGE_STATUSES)
         expiring_count = sum(1 for item in type_certificates if item.status == CertificateStatus.EXPIRING)
         expired_count = sum(1 for item in type_certificates if item.status == CertificateStatus.EXPIRED)
@@ -95,25 +101,13 @@ def build_certificate_coverage_report(
                 expiring_count=expiring_count,
                 expired_count=expired_count,
                 risk_count=risk_count,
-                target_path="/certificates?"
-                + urlencode({"on_roll": "true", "certificate_type_id": str(certificate_type.id), "status_group": "risk"}),
-                active_target_path="/certificates?"
-                + urlencode({"on_roll": "true", "certificate_type_id": str(certificate_type.id), "status_group": "current"}),
-                expiring_target_path="/certificates?"
-                + urlencode(
-                    {
-                        "on_roll": "true",
-                        "certificate_type_id": str(certificate_type.id),
-                        "status": CertificateStatus.EXPIRING.value,
-                    }
+                target_path=_certificates_path({"certificate_type_id": type_id, "status_group": "risk"}),
+                active_target_path=_certificates_path({"certificate_type_id": type_id, "status_group": "current"}),
+                expiring_target_path=_certificates_path(
+                    {"certificate_type_id": type_id, "status": CertificateStatus.EXPIRING.value}
                 ),
-                expired_target_path="/certificates?"
-                + urlencode(
-                    {
-                        "on_roll": "true",
-                        "certificate_type_id": str(certificate_type.id),
-                        "status": CertificateStatus.EXPIRED.value,
-                    }
+                expired_target_path=_certificates_path(
+                    {"certificate_type_id": type_id, "status": CertificateStatus.EXPIRED.value}
                 ),
             )
         )
@@ -133,10 +127,8 @@ def build_certificate_coverage_report(
             ReportChartRow(
                 category=month,
                 count=count,
-                target_path="/certificates?"
-                + urlencode(
+                target_path=_certificates_path(
                     {
-                        "on_roll": "true",
                         "status_group": "risk",
                         "valid_to_from": _month_range(month)[0],
                         "valid_to_to": _month_range(month)[1],

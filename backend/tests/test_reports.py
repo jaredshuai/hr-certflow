@@ -7,6 +7,8 @@ from app.api.routes.reports import build_certificate_coverage_report, build_cert
 from app.domain.enums import CertificateStatus, EmploymentStatus
 from app.models import CertificateType, Employee, EmployeeCertificate
 
+ON_ROLL = "/certificates?on_roll=true&"
+
 
 def test_build_certificate_coverage_report_groups_department_type_and_expiry_risk() -> None:
     employee_a = Employee(
@@ -88,26 +90,26 @@ def test_build_certificate_coverage_report_groups_department_type_and_expiry_ris
     forklift_row = next(row for row in report.certificate_type_risk_rows if row.certificate_type_name == "叉车证")
     assert safety_row.active_count == 2
     assert safety_row.expiring_count == 1
-    assert safety_row.target_path == f"/certificates?on_roll=true&certificate_type_id={safety_type.id}&status_group=risk"
-    assert safety_row.active_target_path == f"/certificates?on_roll=true&certificate_type_id={safety_type.id}&status_group=current"
-    assert safety_row.expiring_target_path == f"/certificates?on_roll=true&certificate_type_id={safety_type.id}&status=EXPIRING"
-    assert safety_row.expired_target_path == f"/certificates?on_roll=true&certificate_type_id={safety_type.id}&status=EXPIRED"
+    assert safety_row.target_path == f"{ON_ROLL}certificate_type_id={safety_type.id}&status_group=risk"
+    assert safety_row.active_target_path == f"{ON_ROLL}certificate_type_id={safety_type.id}&status_group=current"
+    assert safety_row.expiring_target_path == f"{ON_ROLL}certificate_type_id={safety_type.id}&status=EXPIRING"
+    assert safety_row.expired_target_path == f"{ON_ROLL}certificate_type_id={safety_type.id}&status=EXPIRED"
     assert electric_row.expired_count == 1
     assert electric_row.risk_count == 1
-    assert electric_row.target_path == f"/certificates?on_roll=true&certificate_type_id={electric_type.id}&status_group=risk"
-    assert electric_row.expired_target_path == f"/certificates?on_roll=true&certificate_type_id={electric_type.id}&status=EXPIRED"
+    assert electric_row.target_path == f"{ON_ROLL}certificate_type_id={electric_type.id}&status_group=risk"
+    assert electric_row.expired_target_path == f"{ON_ROLL}certificate_type_id={electric_type.id}&status=EXPIRED"
     assert forklift_row.active_count == 0
     assert forklift_row.risk_count == 0
     assert [row.model_dump() for row in report.expiry_month_rows] == [
         {
             "category": "2026-05",
             "count": 1,
-            "target_path": "/certificates?on_roll=true&status_group=risk&valid_to_from=2026-05-01&valid_to_to=2026-05-31",
+            "target_path": f"{ON_ROLL}status_group=risk&valid_to_from=2026-05-01&valid_to_to=2026-05-31",
         },
         {
             "category": "2026-06",
             "count": 1,
-            "target_path": "/certificates?on_roll=true&status_group=risk&valid_to_from=2026-06-01&valid_to_to=2026-06-30",
+            "target_path": f"{ON_ROLL}status_group=risk&valid_to_from=2026-06-01&valid_to_to=2026-06-30",
         },
     ]
 

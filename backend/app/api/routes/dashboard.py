@@ -51,8 +51,11 @@ OPEN_REMINDER_STATUSES = (
     ReminderTaskStatus.SECOND_SENT,
     ReminderTaskStatus.ESCALATED,
 )
+# 持证记录下钻统一限定在册员工，与看板数字口径一致。
+ON_ROLL_CERTIFICATES_PATH = "/certificates?on_roll=true"
+
 RISK_ROW_DEFINITIONS = {
-    "expired-certificates": ("已过期证书", "需跟进", "/certificates?on_roll=true&status=EXPIRED"),
+    "expired-certificates": ("已过期证书", "需跟进", f"{ON_ROLL_CERTIFICATES_PATH}&status=EXPIRED"),
     "failed-documents": ("识别失败文件", "需跟进", "/documents?status=FAILED"),
     "pending-reviews": ("待复核识别", "处理中", "/review-queue"),
     "second-reminders": ("二次或升级提醒", "升级前", "/reminders?status=SECOND_SENT&status=ESCALATED"),
@@ -237,14 +240,22 @@ def build_dashboard_summary(
         DashboardChartRow(
             category=CERTIFICATE_STATUS_LABELS[status],
             count=count,
-            target_path=f"/certificates?on_roll=true&status={status.value}",
+            target_path=f"{ON_ROLL_CERTIFICATES_PATH}&status={status.value}",
         )
         for status, count in certificate_status_counts
         if count
     ]
     workload_rows = [
-        DashboardChartRow(category="即将到期", count=expiring_count, target_path="/certificates?on_roll=true&status=EXPIRING"),
-        DashboardChartRow(category="已过期", count=expired_count, target_path="/certificates?on_roll=true&status=EXPIRED"),
+        DashboardChartRow(
+            category="即将到期",
+            count=expiring_count,
+            target_path=f"{ON_ROLL_CERTIFICATES_PATH}&status=EXPIRING",
+        ),
+        DashboardChartRow(
+            category="已过期",
+            count=expired_count,
+            target_path=f"{ON_ROLL_CERTIFICATES_PATH}&status=EXPIRED",
+        ),
         DashboardChartRow(category="识别失败", count=failed_document_count, target_path="/documents?status=FAILED"),
         DashboardChartRow(category="待复核", count=pending_review_count, target_path="/review-queue"),
         DashboardChartRow(
@@ -277,7 +288,7 @@ def build_dashboard_summary(
             title="正式入库",
             description=f"{current_certificate_count} 件已入库",
             count=current_certificate_count,
-            target_path="/certificates?on_roll=true&status_group=current",
+            target_path=f"{ON_ROLL_CERTIFICATES_PATH}&status_group=current",
         ),
         DashboardPipelineStep(
             title="到期提醒",
