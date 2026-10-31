@@ -8,7 +8,7 @@ product, not an MVP/demo, AI showcase, or one-off script workflow.
 
 ### Issue tracker
 
-本仓库的 issue 存放在 GitHub Issues（`jared-shuai/hr-certflow`），用 `gh` CLI 操作。外部 PR 不纳入 triage 队列。见 `docs/agents/issue-tracker.md`。
+本仓库的 issue 存放在 GitHub Issues（`jaredshuai/hr-certflow`），用 `gh` CLI 操作，支持子 issue 与原生阻塞依赖。外部 PR 不纳入 triage 队列。见 `docs/agents/issue-tracker.md`。
 
 ### Triage labels
 
@@ -16,7 +16,7 @@ product, not an MVP/demo, AI showcase, or one-off script workflow.
 
 ### Domain docs
 
-单上下文布局：仓库根目录一个 `CONTEXT.md` 和一个 `docs/adr/`，前后端共用。见 `docs/agents/domain.md`。
+单上下文布局：仓库根目录一个 `GLOSSARY.md` 和一个 `docs/adr/`，前后端共用。见 `docs/agents/domain.md`。
 
 ### MCP exploration cookbook
 
