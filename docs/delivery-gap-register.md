@@ -61,6 +61,14 @@ complete product requirement is satisfied".
 
 ## Local Evidence Notes
 
+- 2026-10-31: Commit `c27c3a7` (issues #21 and #22) was promoted to dev by
+  release run `41204145695`. That run's rollout gate timed out only because the
+  k3s node was still pulling the new image for the migration Job; the
+  standalone `Shared k3s Smoke` rerun `41205403770` for tag `c27c3a78cc38` then
+  passed rollout, Web, API and Celery/Redis smoke. HR scenario evidence run
+  `41206205555` reported `Overall: PASS` (16 checks) on UUID anchors. Read-only
+  checks confirmed the missing-required risk item and `is_required` field are
+  gone on dev. Release promotion is still pending.
 - 2026-10-31: The required-certificate concept was removed (issue #21): the
   `certificate_type.is_required` column (migration `0008`), the dashboard
   "missing required certificate" risk item, workload row and trace, the
