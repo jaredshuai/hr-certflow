@@ -69,7 +69,15 @@ def get_celery_app() -> Celery:
                 "queue": queue,
                 "routing_key": routing_key,
             },
-        }
+        },
+        f"{settings.resolved_celery_namespace}:fail-stale-parsing-documents": {
+            "task": "app.tasks.documents.fail_stale_parsing_documents",
+            "schedule": crontab(minute="*/10"),
+            "options": {
+                "queue": queue,
+                "routing_key": routing_key,
+            },
+        },
     }
 
     return app

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 from fastapi import HTTPException
 
@@ -28,8 +30,8 @@ class FakeDb:
         self.rollbacks = 0
         self._scalars_results: list[Any] = []
 
-    def get(self, model: type, item_id: uuid.UUID) -> CertificateDocument | None:
-        if model is CertificateDocument and item_id == self.document.id:
+    def get(self, model: type, item_id: uuid.UUID | str) -> CertificateDocument | None:
+        if model is CertificateDocument and str(item_id) == str(self.document.id):
             return self.document
         return None
 
@@ -182,3 +184,85 @@ def test_recognition_status_returns_404() -> None:
     with pytest.raises(HTTPException) as exc_info:
         documents_route.get_recognition_status(document_id=uuid.uuid4(), db=db)
     assert exc_info.value.status_code == 404
+
+
+def _settings_with_timeout(minutes: int) -> MagicMock:
+    settings = MagicMock()
+    settings.recognition_parsing_timeout_minutes = minutes
+    return settings
+
+
+def test_recognize_async_rejects_document_still_parsing(monkeypatch) -> None:
+    document = _make_document(DocumentStatus.PARSING)
+    document.updated_at = datetime.now(UTC)
+    db = FakeDb(document)
+    monkeypatch.setattr(documents_route, "get_settings", lambda: _settings_with_timeout(30))
+
+    with pytest.raises(HTTPException) as exc_info:
+        documents_route.recognize_document_async(document_id=document.id, user="hr", db=db, request_context=None)
+
+    assert exc_info.value.status_code == 409
+
+
+def test_recognize_async_allows_redispatch_of_stale_parsing(monkeypatch) -> None:
+    document = _make_document(DocumentStatus.PARSING)
+    document.updated_at = datetime.now(UTC) - timedelta(minutes=31)
+    db = FakeDb(document)
+    monkeypatch.setattr(documents_route, "get_settings", lambda: _settings_with_timeout(30))
+    mock_task = MagicMock()
+    mock_task.id = "fake-task-id"
+    from app.tasks import documents as task_module
+
+    monkeypatch.setattr(task_module.run_certificate_recognition, "delay", MagicMock(return_value=mock_task))
+
+    result = documents_route.recognize_document_async(document_id=document.id, user="hr", db=db, request_context=None)
+
+    assert result.status == DocumentStatus.PARSING
+
+
+def test_recognition_task_marks_failed_when_network_retries_are_exhausted(monkeypatch) -> None:
+    from app.tasks import documents as task_module
+
+    document = _make_document(DocumentStatus.PARSING)
+    db = FakeDb(document)
+    monkeypatch.setattr(task_module, "SessionLocal", lambda: db)
+    db.close = lambda: None  # type: ignore[attr-defined]
+
+    def raise_network_error(*args: Any, **kwargs: Any) -> None:
+        raise httpx.ConnectError("dify unreachable")
+
+    monkeypatch.setattr(task_module, "run_recognition", raise_network_error)
+    task = task_module.run_certificate_recognition
+    task.push_request(retries=task.max_retries)
+    try:
+        result = task.run(str(document.id), "hr")
+    finally:
+        task.pop_request()
+
+    assert document.status == DocumentStatus.FAILED
+    assert document.failure_reason is not None
+    assert "已重试 3 次" in document.failure_reason
+    assert result["document_id"] == str(document.id)
+
+
+def test_recognition_task_reraises_network_error_before_retry_limit(monkeypatch) -> None:
+    from app.tasks import documents as task_module
+
+    document = _make_document(DocumentStatus.PARSING)
+    db = FakeDb(document)
+    monkeypatch.setattr(task_module, "SessionLocal", lambda: db)
+    db.close = lambda: None  # type: ignore[attr-defined]
+
+    def raise_network_error(*args: Any, **kwargs: Any) -> None:
+        raise httpx.ConnectError("dify unreachable")
+
+    monkeypatch.setattr(task_module, "run_recognition", raise_network_error)
+    task = task_module.run_certificate_recognition
+    task.push_request(retries=0)
+    try:
+        with pytest.raises(httpx.HTTPError):
+            task.run(str(document.id), "hr")
+    finally:
+        task.pop_request()
+
+    assert document.status == DocumentStatus.PARSING

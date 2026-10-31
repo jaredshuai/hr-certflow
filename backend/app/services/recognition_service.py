@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import httpx
@@ -29,6 +29,7 @@ from app.core.config import Settings, get_settings
 from app.domain.enums import DocumentStatus, ReviewStatus
 from app.models import AiExtractionResult, CertificateDocument, ReviewTask
 from app.services.audit import record_audit
+from app.services.certificates import SCHEDULER_ACTOR_SOURCE, SYSTEM_ACTOR_NAME
 from app.services.dify import DifyClient, DifyExtractionRequest, normalize_dify_outputs
 from app.services.storage import ObjectStorage
 
@@ -340,3 +341,37 @@ def run_recognition(
         raw_response_key=raw_response_key,
         closed_review_task_ids=[str(task.id) for task in closed_tasks],
     )
+
+
+def is_parsing_stale(document: CertificateDocument, *, now: datetime, timeout_minutes: int) -> bool:
+    return document.status == DocumentStatus.PARSING and document.updated_at <= now - timedelta(
+        minutes=timeout_minutes
+    )
+
+
+def fail_stale_parsing_documents(db: Session, *, now: datetime | None = None, timeout_minutes: int) -> int:
+    """把长时间停在识别中的原件标为失败（worker 丢失、重试耗尽等），HR 可在原件页重新识别。"""
+    current = now or datetime.now(UTC)
+    documents = db.scalars(
+        select(CertificateDocument)
+        .where(
+            CertificateDocument.status == DocumentStatus.PARSING,
+            CertificateDocument.updated_at <= current - timedelta(minutes=timeout_minutes),
+        )
+        .with_for_update(skip_locked=True)
+    ).all()
+    for document in documents:
+        reason = f"识别超时：超过 {timeout_minutes} 分钟未完成，请重新识别"
+        document.status = DocumentStatus.FAILED
+        document.failure_reason = reason
+        record_audit(
+            db,
+            action="certificate_document.recognize.timeout",
+            resource_type="certificate_document",
+            resource_id=str(document.id),
+            before={"status": DocumentStatus.PARSING.value},
+            after={"status": DocumentStatus.FAILED.value, "failure_reason": reason},
+            actor_name=SYSTEM_ACTOR_NAME,
+            actor_source=SCHEDULER_ACTOR_SOURCE,
+        )
+    return len(documents)

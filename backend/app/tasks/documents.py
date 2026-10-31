@@ -7,6 +7,7 @@ from celery.utils.log import get_task_logger
 from sqlalchemy.orm import Session
 
 from app.celery_app import celery_app
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.domain.enums import DocumentStatus
 from app.models import CertificateDocument
@@ -15,6 +16,7 @@ from app.services.recognition_service import (
     RecognitionDocumentNotFoundError,
     RecognitionInvalidStateError,
     RecognitionServiceError,
+    fail_stale_parsing_documents,
     run_recognition,
 )
 
@@ -102,9 +104,16 @@ def run_certificate_recognition(
         return _mark_failed_or_skip(
             db, document_id=document_id, user=user, actor_source=actor_source, reason=str(exc)
         )
-    except httpx.HTTPError:
-        # 网络异常:原样抛,触发 Celery autoretry_for=(httpx.HTTPError,)
-        raise
+    except httpx.HTTPError as exc:
+        # 网络异常:未到重试上限时原样抛,触发 Celery autoretry_for=(httpx.HTTPError,);
+        # 最后一次仍失败则落 FAILED,避免原件永久停在识别中。
+        if self.request.retries < self.max_retries:
+            raise
+        db.rollback()
+        reason = f"识别服务网络异常，已重试 {self.max_retries} 次：{exc.__class__.__name__}"
+        return _mark_failed_or_skip(
+            db, document_id=document_id, user=user, actor_source=actor_source, reason=reason
+        )
     except Exception as exc:
         # 兜底:未预期的异常标 FAILED,记录详细日志便于排查
         db.rollback()
@@ -113,5 +122,22 @@ def run_certificate_recognition(
         return _mark_failed_or_skip(
             db, document_id=document_id, user=user, actor_source=actor_source, reason=reason
         )
+    finally:
+        db.close()
+
+
+@celery_app.task(name="app.tasks.documents.fail_stale_parsing_documents")
+def fail_stale_parsing_documents_task() -> dict[str, int]:
+    db = SessionLocal()
+    try:
+        failed = fail_stale_parsing_documents(
+            db,
+            timeout_minutes=get_settings().recognition_parsing_timeout_minutes,
+        )
+        db.commit()
+        return {"failed": failed}
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

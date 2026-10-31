@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_timezone: str = "Asia/Shanghai"
     auto_create_tables: bool = False
+    # 识别中超过该分钟数未完成的原件视为识别超时，标为失败，HR 可重新识别。
+    recognition_parsing_timeout_minutes: int = 30
     api_cors_origins: str = "http://localhost:8001"
 
     database_url: str = "postgresql+psycopg://hr_certflow:hr_certflow@localhost:5432/hr_certflow"

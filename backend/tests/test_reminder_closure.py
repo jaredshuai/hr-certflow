@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Generator
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -17,6 +17,7 @@ from app.core.config import get_settings
 from app.db.session import SessionLocal, get_engine
 from app.domain.enums import (
     CertificateStatus,
+    DocumentStatus,
     EmploymentStatus,
     FeedbackStatus,
     ReminderEventType,
@@ -38,6 +39,7 @@ from app.models import (
 from app.schemas.certificates import EmployeeCertificateUpdate
 from app.schemas.employees import EmployeeUpdate
 from app.schemas.reminders import FeedbackCreate, ReminderDispatchCreate
+from app.services.recognition_service import fail_stale_parsing_documents
 from app.services.reminder_service import dispatch_due_reminder_notifications, scan_and_create_reminder_tasks
 
 
@@ -290,3 +292,39 @@ def _clean_database(session: Session) -> None:
     ]:
         session.execute(delete(model))
     session.commit()
+
+
+def test_stale_parsing_documents_are_marked_failed(db_session: Session) -> None:
+    now = datetime.now(UTC)
+    stale = CertificateDocument(
+        status=DocumentStatus.PARSING,
+        storage_bucket="bucket",
+        storage_key="stale.pdf",
+        original_filename="stale.pdf",
+    )
+    fresh = CertificateDocument(
+        status=DocumentStatus.PARSING,
+        storage_bucket="bucket",
+        storage_key="fresh.pdf",
+        original_filename="fresh.pdf",
+    )
+    db_session.add_all([stale, fresh])
+    db_session.flush()
+    stale.updated_at = now - timedelta(minutes=45)
+    db_session.commit()
+
+    failed = fail_stale_parsing_documents(db_session, now=now, timeout_minutes=30)
+    db_session.commit()
+
+    assert failed == 1
+    db_session.refresh(stale)
+    db_session.refresh(fresh)
+    assert stale.status == DocumentStatus.FAILED
+    assert stale.failure_reason is not None
+    assert "识别超时" in stale.failure_reason
+    assert fresh.status == DocumentStatus.PARSING
+    audit = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == "certificate_document.recognize.timeout")
+    )
+    assert audit is not None
+    assert audit.actor_source == "scheduler"

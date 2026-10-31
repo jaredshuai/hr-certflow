@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime
+from datetime import UTC, datetime
 from io import StringIO
 from typing import Annotated
 from uuid import UUID
@@ -37,6 +37,7 @@ from app.schemas.documents import (
     UploadIntentRead,
 )
 from app.services.audit import record_audit
+from app.services.recognition_service import is_parsing_stale
 from app.services.storage import ObjectStorage
 
 router = APIRouter()
@@ -405,6 +406,11 @@ def recognize_document_async(
         raise HTTPException(status_code=409, detail="Document upload is not confirmed")
     if document.status in {DocumentStatus.CONFIRMED, DocumentStatus.ARCHIVED}:
         raise HTTPException(status_code=409, detail="Document is already closed")
+    timeout_minutes = get_settings().recognition_parsing_timeout_minutes
+    if document.status == DocumentStatus.PARSING and not is_parsing_stale(
+        document, now=datetime.now(UTC), timeout_minutes=timeout_minutes
+    ):
+        raise HTTPException(status_code=409, detail="原件正在识别中，请稍后查看结果")
 
     document.status = DocumentStatus.PARSING
     record_audit(
