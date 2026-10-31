@@ -100,7 +100,6 @@ erDiagram
         string name UK
         string issuing_authority
         int default_validity_months
-        bool is_required "是否必备证书"
         bool force_manual_review "强制人工复核"
         string description
     }

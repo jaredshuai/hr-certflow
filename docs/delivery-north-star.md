@@ -94,7 +94,7 @@ The operator experience must make the next action obvious:
 
 The lead experience must explain operational risk:
 
-- See coverage, expiry, missing required certificates, backlog, stale reviews,
+- See coverage, expiry, backlog, stale reviews,
   reminder pressure, and closure progress.
 - Drill from every number or chart to the exact employee, certificate type,
   document, review, certificate, reminder, feedback, or audit records behind it.
@@ -298,7 +298,7 @@ Final capability:
 - Show operational backlog: pending uploads, parsing failures, pending reviews,
   stale reviews, and reminder pressure.
 - Show certificate health: active coverage, expiring soon, expired, replaced,
-  missing required certificates, and certificate-type risk distribution.
+  and certificate-type risk distribution.
 - Show trend charts and risk charts using AntV with Ant Design
   ProComponents/AntD for layout and data operations.
 - Let HR drill from every card, chart, or risk row into the filtered source

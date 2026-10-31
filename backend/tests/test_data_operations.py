@@ -167,7 +167,6 @@ def test_build_certificate_types_csv_uses_importable_headers() -> None:
         name="安全员证",
         issuing_authority="住建局",
         default_validity_months=36,
-        is_required=True,
         force_manual_review=True,
         description="施工现场安全管理",
     )
@@ -175,14 +174,14 @@ def test_build_certificate_types_csv_uses_importable_headers() -> None:
     payload = build_certificate_types_csv([certificate_type])
 
     assert payload.startswith("\ufeff")
-    assert "编码,证书类型,发证机构,默认有效期(月),是否必备,强制复核,说明" in payload
-    assert "SAFETY,安全员证,住建局,36,是,是,施工现场安全管理" in payload
+    assert "编码,证书类型,发证机构,默认有效期(月),强制复核,说明" in payload
+    assert "SAFETY,安全员证,住建局,36,是,施工现场安全管理" in payload
 
 
 def test_parse_certificate_type_import_csv_accepts_chinese_headers() -> None:
     rows, errors = parse_certificate_type_import_csv(
-        "编码,证书类型,发证机构,默认有效期(月),是否必备,强制复核,说明\n"
-        "ELEC,电工证,应急管理局,72,可选,否,特种作业证\n"
+        "编码,证书类型,发证机构,默认有效期(月),强制复核,说明\n"
+        "ELEC,电工证,应急管理局,72,否,特种作业证\n"
     )
 
     assert errors == []
@@ -193,7 +192,6 @@ def test_parse_certificate_type_import_csv_accepts_chinese_headers() -> None:
     assert payload.name == "电工证"
     assert payload.issuing_authority == "应急管理局"
     assert payload.default_validity_months == 72
-    assert payload.is_required is False
     assert payload.force_manual_review is False
 
 
@@ -206,23 +204,32 @@ def test_certificate_type_import_template_is_parseable() -> None:
     assert payload.code == "SAFETY"
     assert payload.name == "安全员证"
     assert payload.default_validity_months == 36
-    assert payload.is_required is True
     assert payload.force_manual_review is True
 
 
 def test_parse_certificate_type_import_csv_collects_errors() -> None:
     rows, errors = parse_certificate_type_import_csv(
-        "code,name,default_validity_months,is_required,force_manual_review\n"
-        "WELD,焊工证,36,true,true\n"
+        "code,name,default_validity_months,force_manual_review\n"
+        "WELD,焊工证,36,true\n"
         ",缺编码,36,true\n"
-        "BAD,错误有效期,0,unknown,maybe\n"
+        "BAD,错误有效期,0,maybe\n"
     )
 
     assert len(rows) == 1
     assert rows[0][1].code == "WELD"
-    assert rows[0][1].is_required is True
     assert rows[0][1].force_manual_review is True
     assert [(error.row_number, error.code) for error in errors] == [(3, None), (4, "BAD")]
+
+
+def test_parse_certificate_type_import_csv_ignores_legacy_required_column() -> None:
+    rows, errors = parse_certificate_type_import_csv(
+        "编码,证书类型,发证机构,默认有效期(月),是否必备,强制复核,说明\n"
+        "ELEC,电工证,应急管理局,72,可选,否,特种作业证\n"
+    )
+
+    assert errors == []
+    assert [payload.code for _, payload in rows] == ["ELEC"]
+    assert rows[0][1].force_manual_review is False
 
 
 def test_parse_certificate_type_import_csv_reports_duplicate_codes() -> None:

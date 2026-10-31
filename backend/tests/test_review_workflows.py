@@ -91,7 +91,6 @@ def _create_master_data(db: Session) -> tuple[Employee, CertificateType]:
         name=f"焊工证-{suffix}",
         code=f"WELDER-{suffix}",
         default_validity_months=36,
-        is_required=True,
     )
     db.add_all([employee, cert_type])
     db.flush()
@@ -189,7 +188,7 @@ def test_approve_single_certificate_success(db_session: Session) -> None:
 def test_approve_multiple_certificates(db_session: Session) -> None:
     db = db_session
     employee, cert_type = _create_master_data(db)
-    cert_type2 = CertificateType(name="电工证", code="ELEC", default_validity_months=24, is_required=False)
+    cert_type2 = CertificateType(name="电工证", code="ELEC", default_validity_months=24)
     db.add(cert_type2)
     db.flush()
     review_task, _, _ = _create_pending_review_task(db, employee)
@@ -557,7 +556,6 @@ def test_trace_reads_certificate_ids_first(db_session: Session) -> None:
         name=f"电工证-{suffix}",
         code=f"ELEC-{suffix}",
         default_validity_months=24,
-        is_required=False,
     )
     db.add(cert_type2)
     db.flush()

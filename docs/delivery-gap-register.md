@@ -45,13 +45,13 @@ complete product requirement is satisfied".
 | Area | Status | Remaining product work |
 | --- | --- | --- |
 | Employee master data | Partial | CRUD/search/page/import/export and certificate-owner safeguards for duplicate names and left employees exist; still needs HR-facing acceptance evidence for bad-row imports and ambiguous employee selection. |
-| Certificate type master data | Partial | CRUD/search/page/import/export are usable; default validity flows from review approval into the formal ledger and reminder scan; certificate-type forms can now create/update a bound default reminder policy and maintain required/optional certificate policy that feeds missing-required risk reporting. Still needs promoted acceptance evidence for type-policy changes. |
+| Certificate type master data | Partial | CRUD/search/page/import/export are usable; default validity flows from review approval into the formal ledger and reminder scan; certificate-type forms can now create/update a bound default reminder policy (the former required/optional certificate policy and its missing-required risk reporting were removed on 2026-10-31 because the business has no required-certificate concept). Still needs promoted acceptance evidence for type-policy changes. |
 | Upload integrity | Partial | Upload intent, confirm-upload, type/size/object/hash handling exist; promoted dev scenario evidence confirms confirmed object hash/type/size on the sample loop. Still needs failure recovery verification with real object storage and release evidence. |
 | Dify extraction normalization | Partial | Strict output normalization and regression tests for `<think>`, Markdown fences, nested JSON strings, oversized fields, suspicious-point pollution, and percentage confidence exist; promoted dev scenario evidence confirms structured AI fields were persisted for the sample loop. Still needs release evidence and broader live Dify failure/pollution acceptance. |
 | Human review | Partial | Approval/reject/stale protection, stale-action UI recovery, duplicate task cleanup, holder/employee/type validation, document-state checks, and certificate-number guardrails exist; promoted dev scenario evidence confirms an approved review linked to the AI result. Still needs promoted concurrent-HR acceptance evidence. |
 | Formal certificate ledger | Partial | Replacement-by-status/linkage, trace views, database-level active-certificate uniqueness, duplicate-number guardrails, and approval locking exist; promoted dev scenario evidence confirms formal ledger/source linkage and replacement history. Still needs release evidence and broader replacement edge-case acceptance. |
 | Reminder operations | Partial | Scan, dispatch/simulate, feedback, closure, timeline with audit chain, paging, filtering, export, successful-event daily idempotency guardrails, and channel-level retry UX exist; promoted dev scenario evidence confirms reminder timeline and feedback closure. Still needs real/simulated provider failure acceptance and release evidence. |
-| Dashboard and reports | Partial | Dashboard/reporting/export, AntV charts, precise drill-down paths, and dashboard risk-item trace drawers exist for workload, pipeline, certificate status, expiry month, department coverage, missing required certificates with employee/type trace details, and certificate-type risk sub-metrics; promoted dev scenario evidence confirms dashboard/report drill-down paths and a non-zero risk trace. Still needs broader browser recovery-state evidence and release evidence. |
+| Dashboard and reports | Partial | Dashboard/reporting/export, AntV charts, precise drill-down paths, and dashboard risk-item trace drawers exist for workload, pipeline, certificate status, expiry month, department coverage, and certificate-type expiring/expired risk sub-metrics; promoted dev scenario evidence confirms dashboard/report drill-down paths and a non-zero risk trace. Still needs broader browser recovery-state evidence and release evidence. |
 | Audit and traceability | Partial | Audit records, employee trace views, certificate-type trace views, source-document trace views, certificate trace views, review-task trace views, reminder-task timeline trace views, dashboard risk-item trace views, bounded PII-safe audit payloads, UI-supplied operator context, and backend request ID propagation exist; promoted dev scenario evidence confirms actor/request context and trace linkage on the sample loop. Still needs release evidence and broader audit payload review. |
 | Frontend states | Partial | AntD/ProComponents empty/error/workflow states and stale review-action recovery are improved; dashboard risk trace has local real-data browser smoke coverage with a clean console, but recovery states across every page still need browser evidence. |
 | Import/export coverage | Partial | Employee/type/certificate/document/reminder/report exports, master-data imports, import templates, bad-row validation, certificate-type required policy import/export, and duplicate-key import errors for employee numbers and certificate type codes exist; local browser acceptance covers employee/type duplicate-key import modals and employee/type CSV downloads, and promoted dev scenario evidence confirms the core CSV export set. Still needs promoted import acceptance and release evidence. |
@@ -61,6 +61,15 @@ complete product requirement is satisfied".
 
 ## Local Evidence Notes
 
+- 2026-10-31: The required-certificate concept was removed (issue #21): the
+  `certificate_type.is_required` column (migration `0008`), the dashboard
+  "missing required certificate" risk item, workload row and trace, the
+  coverage report's required/missing-employee columns, and the certificate-type
+  form/table/trace/CSV fields. Certificate-type imports silently ignore a legacy
+  `是否必备` column. The 2026-06-06 notes below about required policy and the
+  missing-required trace are historical. Backend ruff/ty and full pytest with
+  `DATABASE_URL` (180 passed, no skips) plus frontend lint/type-check/build pass
+  locally.
 - 2026-10-31: Certificate expiry states now follow `GLOSSARY.md`: `ACTIVE`,
   `EXPIRING`, and `EXPIRED` are derived from `valid_to` and the earliest
   enabled reminder-policy offset for the certificate type, never trusted from

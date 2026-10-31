@@ -46,12 +46,6 @@ _CERTIFICATE_TYPE_IMPORT_FIELD_ALIASES = {
     "默认有效期": "default_validity_months",
     "default_validity_months": "default_validity_months",
     "default validity months": "default_validity_months",
-    "是否必备": "is_required",
-    "必备": "is_required",
-    "必备证书": "is_required",
-    "is_required": "is_required",
-    "is required": "is_required",
-    "required": "is_required",
     "强制复核": "force_manual_review",
     "force_manual_review": "force_manual_review",
     "force manual review": "force_manual_review",
@@ -67,14 +61,12 @@ _BOOLEAN_IMPORT_ALIASES = {
     "Y": True,
     "是": True,
     "需要": True,
-    "必备": True,
     "FALSE": False,
     "0": False,
     "NO": False,
     "N": False,
     "否": False,
     "不需要": False,
-    "可选": False,
 }
 
 
@@ -169,11 +161,6 @@ def parse_certificate_type_import_csv(
                 issuing_authority=normalized_row.get("issuing_authority"),
                 default_validity_months=_parse_optional_positive_int(
                     normalized_row.get("default_validity_months")
-                ),
-                is_required=_parse_boolean_import(
-                    normalized_row.get("is_required"),
-                    default=True,
-                    message="是否必备必须是 是、否、必备、可选、true、false、1 或 0",
                 ),
                 force_manual_review=_parse_boolean_import(
                     normalized_row.get("force_manual_review"),
@@ -363,7 +350,6 @@ def _certificate_type_statement(
     code: str | None = None,
     name: str | None = None,
     issuing_authority: str | None = None,
-    is_required: bool | None = None,
     force_manual_review: bool | None = None,
 ):
     statement = select(CertificateType)
@@ -383,8 +369,6 @@ def _certificate_type_statement(
         statement = statement.where(CertificateType.name.ilike(f"%{name.strip()}%"))
     if issuing_authority:
         statement = statement.where(CertificateType.issuing_authority.ilike(f"%{issuing_authority.strip()}%"))
-    if is_required is not None:
-        statement = statement.where(CertificateType.is_required == is_required)
     if force_manual_review is not None:
         statement = statement.where(CertificateType.force_manual_review == force_manual_review)
     return statement
@@ -393,14 +377,13 @@ def _certificate_type_statement(
 def build_certificate_types_csv(rows: Iterable[CertificateType]) -> str:
     output = StringIO()
     writer = csv.writer(output)
-    writer.writerow(["编码", "证书类型", "发证机构", "默认有效期(月)", "是否必备", "强制复核", "说明"])
+    writer.writerow(["编码", "证书类型", "发证机构", "默认有效期(月)", "强制复核", "说明"])
     for row in rows:
         writer.writerow([
             row.code,
             row.name,
             row.issuing_authority or "",
             row.default_validity_months or "",
-            "是" if row.is_required else "否",
             "是" if row.force_manual_review else "否",
             row.description or "",
         ])
@@ -410,8 +393,8 @@ def build_certificate_types_csv(rows: Iterable[CertificateType]) -> str:
 def build_certificate_type_import_template_csv() -> str:
     output = StringIO()
     writer = csv.writer(output)
-    writer.writerow(["编码", "证书类型", "发证机构", "默认有效期(月)", "是否必备", "强制复核", "说明"])
-    writer.writerow(["SAFETY", "安全员证", "住建局", "36", "是", "是", "施工现场安全管理"])
+    writer.writerow(["编码", "证书类型", "发证机构", "默认有效期(月)", "强制复核", "说明"])
+    writer.writerow(["SAFETY", "安全员证", "住建局", "36", "是", "施工现场安全管理"])
     return "\ufeff" + output.getvalue()
 
 
@@ -430,7 +413,6 @@ def page_certificate_types(
     code: str | None = None,
     name: str | None = None,
     issuing_authority: str | None = None,
-    is_required: bool | None = None,
     force_manual_review: bool | None = None,
 ) -> CertificateTypePageRead:
     current = max(current, 1)
@@ -440,7 +422,6 @@ def page_certificate_types(
         code=code,
         name=name,
         issuing_authority=issuing_authority,
-        is_required=is_required,
         force_manual_review=force_manual_review,
     )
     total = int(db.scalar(select(func.count()).select_from(filtered.subquery())) or 0)
@@ -457,7 +438,6 @@ def export_certificate_types_csv(
     code: str | None = None,
     name: str | None = None,
     issuing_authority: str | None = None,
-    is_required: bool | None = None,
     force_manual_review: bool | None = None,
 ) -> Response:
     rows = db.scalars(
@@ -466,8 +446,7 @@ def export_certificate_types_csv(
             code=code,
             name=name,
             issuing_authority=issuing_authority,
-            is_required=is_required,
-            force_manual_review=force_manual_review,
+                force_manual_review=force_manual_review,
         ).order_by(CertificateType.name.asc())
     ).all()
     return Response(

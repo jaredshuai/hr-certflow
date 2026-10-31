@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,11 +8,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
-from app.domain.enums import CertificateStatus, DocumentStatus, EmploymentStatus, ReminderTaskStatus, ReviewStatus
+from app.domain.enums import CertificateStatus, DocumentStatus, ReminderTaskStatus, ReviewStatus
 from app.models import (
     AuditLog,
     CertificateDocument,
-    CertificateType,
     Employee,
     EmployeeCertificate,
     ReminderTask,
@@ -22,7 +20,6 @@ from app.models import (
 from app.schemas.certificates import EmployeeCertificateRead, TraceAuditLogRead
 from app.schemas.dashboard import (
     DashboardChartRow,
-    DashboardMissingRequiredItem,
     DashboardPipelineStep,
     DashboardRiskRow,
     DashboardRiskTraceRead,
@@ -58,7 +55,6 @@ RISK_ROW_DEFINITIONS = {
     "failed-documents": ("识别失败文件", "需跟进", "/documents?status=FAILED"),
     "pending-reviews": ("待复核识别", "处理中", "/review-queue"),
     "second-reminders": ("二次或升级提醒", "升级前", "/reminders?status=SECOND_SENT&status=ESCALATED"),
-    "missing-required-certificates": ("缺失必备证书", "需跟进", "/reports"),
 }
 
 
@@ -92,72 +88,6 @@ def _count_reminders(db: Session, *statuses: ReminderTaskStatus) -> int:
         db,
         select(func.count()).select_from(ReminderTask).where(ReminderTask.status.in_(statuses)),
     )
-
-
-def _missing_required_certificate_items(
-    db: Session,
-    *,
-    limit: int | None = None,
-) -> list[DashboardMissingRequiredItem]:
-    active_employees = list(
-        db.scalars(
-            select(Employee)
-            .where(Employee.employment_status == EmploymentStatus.ACTIVE)
-            .order_by(Employee.employee_no.asc())
-        ).all()
-    )
-    required_types = list(
-        db.scalars(
-            select(CertificateType).where(CertificateType.is_required.is_(True)).order_by(CertificateType.name.asc())
-        ).all()
-    )
-    if not active_employees or not required_types:
-        return []
-
-    active_employee_ids = {employee.id for employee in active_employees}
-    required_type_ids = {certificate_type.id for certificate_type in required_types}
-    covered_pairs = {
-        (employee_id, certificate_type_id)
-        for employee_id, certificate_type_id in db.execute(
-            select(EmployeeCertificate.employee_id, EmployeeCertificate.certificate_type_id).where(
-                EmployeeCertificate.employee_id.in_(active_employee_ids),
-                EmployeeCertificate.certificate_type_id.in_(required_type_ids),
-                EmployeeCertificate.status.in_(ACTIVE_COVERAGE_STATUSES),
-            )
-        )
-    }
-
-    items: list[DashboardMissingRequiredItem] = []
-    for employee in active_employees:
-        for certificate_type in required_types:
-            if (employee.id, certificate_type.id) in covered_pairs:
-                continue
-            items.append(
-                DashboardMissingRequiredItem(
-                    employee_id=employee.id,
-                    employee_no=employee.employee_no,
-                    employee_name=employee.name,
-                    department=employee.department,
-                    certificate_type_id=certificate_type.id,
-                    certificate_type_code=certificate_type.code,
-                    certificate_type_name=certificate_type.name,
-                    target_path="/employees?"
-                    + urlencode(
-                        {
-                            "employment_status": EmploymentStatus.ACTIVE.value,
-                            "missing_certificate_type_id": str(certificate_type.id),
-                            "employee_no": employee.employee_no,
-                        }
-                    ),
-                )
-            )
-            if limit is not None and len(items) >= limit:
-                return items
-    return items
-
-
-def _count_missing_required_certificates(db: Session) -> int:
-    return len(_missing_required_certificate_items(db))
 
 
 def _risk_row(risk_id: str, count: int) -> DashboardRiskRow:
@@ -208,7 +138,6 @@ def _dashboard_risk_trace_payload(
     review_tasks: list[ReviewTask] | None = None,
     reminder_tasks: list[ReminderTask] | None = None,
     audit_logs: list[AuditLog] | None = None,
-    missing_required_items: list[DashboardMissingRequiredItem] | None = None,
 ) -> DashboardRiskTraceRead:
     return DashboardRiskTraceRead(
         risk=risk,
@@ -229,7 +158,6 @@ def _dashboard_risk_trace_payload(
             )
             for log in audit_logs or []
         ],
-        missing_required_items=missing_required_items or [],
     )
 
 
@@ -252,7 +180,6 @@ def get_dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummaryRead
     second_reminder_count = _count_reminders(db, *SECOND_REMINDER_STATUSES)
     open_reminder_count = _count_reminders(db, *OPEN_REMINDER_STATUSES)
     archived_count = _count_certificates(db, *ACTIVE_COVERAGE_STATUSES)
-    missing_required_count = _count_missing_required_certificates(db)
 
     certificate_status_counts = [
         (status, int(count))
@@ -275,7 +202,6 @@ def get_dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummaryRead
         second_reminder_count=second_reminder_count,
         open_reminder_count=open_reminder_count,
         archived_count=archived_count,
-        missing_required_count=missing_required_count,
         certificate_status_counts=certificate_status_counts,
     )
 
@@ -294,7 +220,6 @@ def build_dashboard_summary(
     open_reminder_count: int,
     archived_count: int,
     certificate_status_counts: Iterable[tuple[CertificateStatus, int]],
-    missing_required_count: int = 0,
 ) -> DashboardSummaryRead:
     coverage = round((covered_employee_count / employee_count) * 100, 1) if employee_count else 0
     certificate_status_rows = [
@@ -316,7 +241,6 @@ def build_dashboard_summary(
             count=second_reminder_count,
             target_path="/reminders?status=SECOND_SENT&status=ESCALATED",
         ),
-        DashboardChartRow(category="缺失必备", count=missing_required_count, target_path="/reports"),
     ]
 
     pipeline_steps = [
@@ -357,7 +281,6 @@ def build_dashboard_summary(
         _risk_row("failed-documents", failed_document_count),
         _risk_row("pending-reviews", pending_review_count),
         _risk_row("second-reminders", second_reminder_count),
-        _risk_row("missing-required-certificates", missing_required_count),
     ]
 
     return DashboardSummaryRead(
@@ -453,14 +376,6 @@ def _trace_failed_documents(db: Session, limit: int) -> DashboardRiskTraceRead:
     )
 
 
-def _trace_missing_required_certificates(db: Session, limit: int) -> DashboardRiskTraceRead:
-    missing_items = _missing_required_certificate_items(db, limit=limit)
-    return _dashboard_risk_trace_payload(
-        risk=_risk_row("missing-required-certificates", _count_missing_required_certificates(db)),
-        missing_required_items=missing_items,
-    )
-
-
 def _trace_pending_reviews(db: Session, limit: int) -> DashboardRiskTraceRead:
     count = _count_reviews(db, *PENDING_REVIEW_STATUSES)
     review_tasks = list(
@@ -521,7 +436,6 @@ def _trace_second_reminders(db: Session, limit: int) -> DashboardRiskTraceRead:
 _RISK_TRACE_HANDLERS: dict[str, Callable[[Session, int], DashboardRiskTraceRead]] = {
     "expired-certificates": _trace_expired_certificates,
     "failed-documents": _trace_failed_documents,
-    "missing-required-certificates": _trace_missing_required_certificates,
     "pending-reviews": _trace_pending_reviews,
     "second-reminders": _trace_second_reminders,
 }

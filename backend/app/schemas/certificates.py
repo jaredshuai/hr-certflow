@@ -50,7 +50,6 @@ class CertificateTypeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     issuing_authority: str | None = Field(default=None, max_length=255)
     default_validity_months: int | None = Field(default=None, ge=1)
-    is_required: bool = True
     force_manual_review: bool = True
     description: str | None = None
     default_reminder_policy: CertificateTypeDefaultReminderPolicyUpsert | None = None
@@ -60,7 +59,6 @@ class CertificateTypeUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     issuing_authority: str | None = Field(default=None, max_length=255)
     default_validity_months: int | None = Field(default=None, ge=1)
-    is_required: bool | None = None
     force_manual_review: bool | None = None
     description: str | None = None
     default_reminder_policy: CertificateTypeDefaultReminderPolicyUpsert | None = None
@@ -72,7 +70,6 @@ class CertificateTypeRead(ORMModel):
     name: str
     issuing_authority: str | None
     default_validity_months: int | None
-    is_required: bool
     force_manual_review: bool
     description: str | None
     created_at: datetime

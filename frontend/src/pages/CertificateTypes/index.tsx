@@ -23,7 +23,6 @@ import { emptyTableText } from '@/utils/emptyStates';
 import {
   auditActionLabel,
   auditResourceTypeLabel,
-  certificateTypeRequiredValueEnum,
   certificateStatusLabel,
   forceManualReviewValueEnum,
   reminderChannelLabel,
@@ -39,7 +38,6 @@ interface CertificateTypeFormValues {
   name?: string;
   issuing_authority?: string;
   default_validity_months?: number;
-  is_required?: boolean;
   force_manual_review?: boolean;
   description?: string;
   configure_default_reminder_policy?: boolean;
@@ -84,7 +82,6 @@ type CertificateTypePayload = {
   name?: string;
   issuing_authority?: string;
   default_validity_months?: number;
-  is_required: boolean;
   force_manual_review: boolean;
   description?: string;
   default_reminder_policy?: DefaultReminderPolicyPayload;
@@ -121,7 +118,6 @@ function buildInitialValues(currentType: CertificateType | undefined): Certifica
   const policy = currentType?.default_reminder_policy;
   if (!currentType) {
     return {
-      is_required: true,
       force_manual_review: true,
       configure_default_reminder_policy: true,
       reminder_days_before_expiry_text: '60,30,7',
@@ -136,7 +132,6 @@ function buildInitialValues(currentType: CertificateType | undefined): Certifica
     name: currentType.name,
     issuing_authority: currentType.issuing_authority,
     default_validity_months: currentType.default_validity_months,
-    is_required: currentType.is_required,
     force_manual_review: currentType.force_manual_review,
     description: currentType.description,
     configure_default_reminder_policy: Boolean(policy),
@@ -185,7 +180,6 @@ export default function CertificateTypesPage() {
       name: values.name?.trim(),
       issuing_authority: optionalText(values.issuing_authority),
       default_validity_months: values.default_validity_months,
-      is_required: values.is_required ?? true,
       force_manual_review: values.force_manual_review ?? true,
       description: optionalText(values.description),
       default_reminder_policy: defaultReminderPolicy,
@@ -197,7 +191,6 @@ export default function CertificateTypesPage() {
           name: payload.name,
           issuing_authority: payload.issuing_authority,
           default_validity_months: payload.default_validity_months,
-          is_required: payload.is_required,
           force_manual_review: payload.force_manual_review,
           description: payload.description,
           default_reminder_policy: payload.default_reminder_policy,
@@ -281,14 +274,6 @@ export default function CertificateTypesPage() {
     { title: '证书类型', dataIndex: 'name' },
     { title: '发证机构', dataIndex: 'issuing_authority' },
     { title: '默认有效期(月)', dataIndex: 'default_validity_months', valueType: 'digit', width: 140 },
-    {
-      title: '是否必备',
-      dataIndex: 'is_required',
-      width: 110,
-      valueType: 'select',
-      valueEnum: certificateTypeRequiredValueEnum,
-      renderText: (val: boolean) => String(val),
-    },
     {
       title: '默认提醒策略',
       dataIndex: 'default_reminder_policy',
@@ -400,11 +385,6 @@ export default function CertificateTypesPage() {
         <ProFormText name="name" label="证书类型" rules={[{ required: true, message: '请输入证书类型' }]} />
         <ProFormText name="issuing_authority" label="发证机构" />
         <ProFormDigit name="default_validity_months" label="默认有效期(月)" min={1} />
-        <ProFormSwitch
-          name="is_required"
-          label="必备证书"
-          extra="开启后会纳入缺失必备证书统计；关闭后仍可维护持证记录，但不会把未持有员工计入缺失风险。"
-        />
         <ProFormSwitch name="force_manual_review" label="强制复核" />
         <ProFormTextArea name="description" label="说明" />
         <ProFormSwitch
@@ -504,9 +484,6 @@ export default function CertificateTypesPage() {
                   {currentTrace.certificate_type.default_validity_months
                     ? `${currentTrace.certificate_type.default_validity_months} 个月`
                     : '-'}
-                </Descriptions.Item>
-                <Descriptions.Item label="是否必备">
-                  {currentTrace.certificate_type.is_required ? '必备' : '可选'}
                 </Descriptions.Item>
                 <Descriptions.Item label="强制复核">
                   {currentTrace.certificate_type.force_manual_review ? '是' : '否'}

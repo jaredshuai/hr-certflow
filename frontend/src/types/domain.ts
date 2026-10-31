@@ -117,7 +117,6 @@ export interface CertificateType {
   name: string;
   issuing_authority?: string;
   default_validity_months?: number;
-  is_required: boolean;
   force_manual_review: boolean;
   description?: string;
   default_reminder_policy?: CertificateTypeDefaultReminderPolicy | null;
@@ -281,18 +280,6 @@ export interface DashboardRiskTrace {
   review_tasks: ReviewTask[];
   reminder_tasks: ReminderTask[];
   audit_logs: CertificateTraceAuditLog[];
-  missing_required_items: DashboardMissingRequiredItem[];
-}
-
-export interface DashboardMissingRequiredItem {
-  employee_id: string;
-  employee_no: string;
-  employee_name: string;
-  department?: string;
-  certificate_type_id: string;
-  certificate_type_code: string;
-  certificate_type_name: string;
-  target_path: string;
 }
 
 export interface DashboardChartRow {
@@ -555,17 +542,14 @@ export interface CertificateCoverageDepartmentRow {
 export interface CertificateTypeRiskRow {
   certificate_type_id: string;
   certificate_type_name: string;
-  is_required: boolean;
   active_count: number;
   expiring_count: number;
   expired_count: number;
-  missing_employee_count: number;
   risk_count: number;
   target_path: string;
   active_target_path: string;
   expiring_target_path: string;
   expired_target_path: string;
-  missing_employee_target_path: string;
 }
 
 export interface CertificateCoverageReport {

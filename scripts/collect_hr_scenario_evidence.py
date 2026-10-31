@@ -249,7 +249,6 @@ class ScenarioEvidenceCollector:
                     "review_tasks",
                     "reminder_tasks",
                     "audit_logs",
-                    "missing_required_items",
                 )
             )
         if trace_payloads:

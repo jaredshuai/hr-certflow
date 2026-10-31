@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from uuid import UUID
-
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.schemas.certificates import EmployeeCertificateRead, TraceAuditLogRead
 from app.schemas.documents import CertificateDocumentRead, ReviewTaskRead
@@ -41,17 +39,6 @@ class DashboardSummaryRead(BaseModel):
     risk_rows: list[DashboardRiskRow]
 
 
-class DashboardMissingRequiredItem(BaseModel):
-    employee_id: UUID
-    employee_no: str
-    employee_name: str
-    department: str | None
-    certificate_type_id: UUID
-    certificate_type_code: str
-    certificate_type_name: str
-    target_path: str
-
-
 class DashboardRiskTraceRead(BaseModel):
     risk: DashboardRiskRow
     certificates: list[EmployeeCertificateRead]
@@ -59,4 +46,3 @@ class DashboardRiskTraceRead(BaseModel):
     review_tasks: list[ReviewTaskRead]
     reminder_tasks: list[ReminderTaskRead]
     audit_logs: list[TraceAuditLogRead]
-    missing_required_items: list[DashboardMissingRequiredItem] = Field(default_factory=list)

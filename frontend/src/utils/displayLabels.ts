@@ -259,11 +259,6 @@ export const forceManualReviewValueEnum: StatusValueEnum<'true' | 'false'> = {
   false: { text: '否', status: 'Success' },
 };
 
-export const certificateTypeRequiredValueEnum: StatusValueEnum<'true' | 'false'> = {
-  true: { text: '必备', status: 'Error' },
-  false: { text: '可选', status: 'Default' },
-};
-
 export const documentStatusValueEnum: StatusValueEnum<DocumentStatus> = {
   PENDING_UPLOAD: { text: '待确认上传', status: 'Processing' },
   UPLOADED: { text: '已上传', status: 'Processing' },

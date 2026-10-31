@@ -330,12 +330,10 @@ def _complete_json_payloads() -> dict[str, Any]:
             "certificate_type_risk_rows": [
                 {
                     "certificate_type_id": "type-1",
-                    "certificate_type_name": "Required Type",
-                    "is_required": True,
+                    "certificate_type_name": "Safety Type",
                     "active_count": 1,
                     "expiring_count": 0,
                     "expired_count": 1,
-                    "missing_employee_count": 0,
                     "risk_count": 1,
                     "target_path": "/certificates?certificate_type_id=type-1",
                     "active_target_path": "/certificates?status_group=current",
@@ -351,7 +349,6 @@ def _complete_json_payloads() -> dict[str, Any]:
             "review_tasks": [],
             "reminder_tasks": [reminder_task],
             "audit_logs": [audit_log],
-            "missing_required_items": [],
         },
         "/employees/page": {"data": [certificate_trace["employee"]], "total": 1},
         "/certificate-types/page": {"data": [certificate_trace["certificate_type"]], "total": 1},

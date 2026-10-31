@@ -15,7 +15,6 @@ import type {
 import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
 import { useChartHeight } from '@/utils/useChartHeight';
-import { certificateTypeRequiredValueEnum } from '@/utils/displayLabels';
 import { message } from '@/utils/messageApi';
 
 const emptyReport: CertificateCoverageReport = {
@@ -111,25 +110,12 @@ export default function ReportsPage() {
           count: row.expired_count,
           target_path: row.expired_target_path,
         },
-        {
-          category: `${row.certificate_type_name} / 缺失员工`,
-          count: row.missing_employee_count,
-          target_path: row.missing_employee_target_path,
-        },
       ]).filter((row) => row.count > 0),
     [report.certificate_type_risk_rows],
   );
 
   const riskColumns: ProColumns<CertificateTypeRiskRow>[] = [
     { title: '证书类型', dataIndex: 'certificate_type_name' },
-    {
-      title: '策略',
-      dataIndex: 'is_required',
-      width: 90,
-      valueType: 'select',
-      valueEnum: certificateTypeRequiredValueEnum,
-      renderText: (val: boolean) => String(val),
-    },
     {
       title: '有效数',
       dataIndex: 'active_count',
@@ -160,22 +146,6 @@ export default function ReportsPage() {
       render: (_, record) => (
         <Button type="link" size="small" disabled={record.expired_count === 0} onClick={() => history.push(record.expired_target_path)}>
           {record.expired_count}
-        </Button>
-      ),
-    },
-    {
-      title: '缺失员工数',
-      dataIndex: 'missing_employee_count',
-      valueType: 'digit',
-      width: 120,
-      render: (_, record) => (
-        <Button
-          type="link"
-          size="small"
-          disabled={record.missing_employee_count === 0}
-          onClick={() => history.push(record.missing_employee_target_path)}
-        >
-          {record.missing_employee_count}
         </Button>
       ),
     },

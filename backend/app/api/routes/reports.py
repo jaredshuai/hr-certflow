@@ -79,30 +79,20 @@ def build_certificate_coverage_report(
 
     certificate_type_risk_rows: list[CertificateTypeRiskRow] = []
     for certificate_type in sorted(certificate_types, key=lambda item: item.name):
-        is_required = bool(getattr(certificate_type, "is_required", True))
         type_certificates = certificates_by_type[str(certificate_type.id)]
         active_count = sum(1 for item in type_certificates if item.status in ACTIVE_COVERAGE_STATUSES)
         expiring_count = sum(1 for item in type_certificates if item.status == CertificateStatus.EXPIRING)
         expired_count = sum(1 for item in type_certificates if item.status == CertificateStatus.EXPIRED)
-        covered_for_type = {
-            item.employee_id
-            for item in type_certificates
-            if item.status in ACTIVE_COVERAGE_STATUSES and item.employee_id in active_employee_ids
-        }
-        missing_employee_count = max(len(active_employee_ids - covered_for_type), 0) if is_required else 0
-        risk_count = expiring_count + expired_count + missing_employee_count
+        risk_count = expiring_count + expired_count
         certificate_type_risk_rows.append(
             # `target_path` keeps the legacy certificate-risk drill-down. The
-            # typed target paths below explain each number precisely, including
-            # missing employees that do not have a certificate row yet.
+            # typed target paths below explain each number precisely.
             CertificateTypeRiskRow(
                 certificate_type_id=str(certificate_type.id),
                 certificate_type_name=certificate_type.name,
-                is_required=is_required,
                 active_count=active_count,
                 expiring_count=expiring_count,
                 expired_count=expired_count,
-                missing_employee_count=missing_employee_count,
                 risk_count=risk_count,
                 target_path="/certificates?"
                 + urlencode({"certificate_type_id": str(certificate_type.id), "status_group": "risk"}),
@@ -120,13 +110,6 @@ def build_certificate_coverage_report(
                     {
                         "certificate_type_id": str(certificate_type.id),
                         "status": CertificateStatus.EXPIRED.value,
-                    }
-                ),
-                missing_employee_target_path="/employees?"
-                + urlencode(
-                    {
-                        "employment_status": EmploymentStatus.ACTIVE.value,
-                        "missing_certificate_type_id": str(certificate_type.id),
                     }
                 ),
             )
@@ -173,15 +156,13 @@ def build_certificate_coverage_report_csv(report: CertificateCoverageReportRead)
     for row in report.department_rows:
         writer.writerow([row.department, row.employee_count, row.covered_employee_count, row.coverage])
     writer.writerow([])
-    writer.writerow(["证书类型", "是否必备", "有效数", "即将到期", "已过期", "缺失员工数", "风险合计"])
+    writer.writerow(["证书类型", "有效数", "即将到期", "已过期", "风险合计"])
     for row in report.certificate_type_risk_rows:
         writer.writerow([
             row.certificate_type_name,
-            "是" if row.is_required else "否",
             row.active_count,
             row.expiring_count,
             row.expired_count,
-            row.missing_employee_count,
             row.risk_count,
         ])
     writer.writerow([])

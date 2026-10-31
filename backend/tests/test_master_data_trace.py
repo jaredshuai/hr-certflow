@@ -187,7 +187,6 @@ def test_get_certificate_type_trace_links_policy_certificates_reminders_and_audi
         name="电工证",
         issuing_authority="应急管理局",
         default_validity_months=72,
-        is_required=True,
         force_manual_review=True,
         created_at=now,
         updated_at=now,

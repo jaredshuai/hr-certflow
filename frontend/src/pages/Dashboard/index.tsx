@@ -9,7 +9,6 @@ import { history, request } from '@umijs/max';
 import { getResource } from '@/services/api';
 import type {
   DashboardChartRow,
-  DashboardMissingRequiredItem,
   DashboardRiskRow,
   DashboardRiskTrace,
   DashboardSummary,
@@ -316,40 +315,6 @@ export default function DashboardPage() {
                   </Button>
                 </Descriptions.Item>
               </Descriptions>
-            </ProCard>
-
-            <ProCard title={`缺失必备证书（${currentRiskTrace.missing_required_items.length}）`}>
-              {currentRiskTrace.missing_required_items.length > 0 ? (
-                <ProTable<DashboardMissingRequiredItem>
-                  rowKey={(record) => `${record.employee_id}-${record.certificate_type_id}`}
-                  search={false}
-                  options={false}
-                  pagination={{ pageSize: 10, hideOnSinglePage: true }}
-                  dataSource={currentRiskTrace.missing_required_items}
-                  columns={[
-                    { title: '工号', dataIndex: 'employee_no', width: 100 },
-                    { title: '姓名', dataIndex: 'employee_name', width: 100 },
-                    { title: '部门', dataIndex: 'department', width: 120 },
-                    {
-                      title: '缺失证书',
-                      dataIndex: 'certificate_type_name',
-                      renderText: (_, record) => `${record.certificate_type_name}（${record.certificate_type_code}）`,
-                    },
-                    {
-                      title: '操作',
-                      valueType: 'option',
-                      width: 100,
-                      render: (_, record) => (
-                        <Button type="link" size="small" onClick={() => navigateTo(record.target_path)}>
-                          查看员工
-                        </Button>
-                      ),
-                    },
-                  ]}
-                />
-              ) : (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无缺失必备证书明细" />
-              )}
             </ProCard>
 
             <ProCard title={`关联证书（${currentRiskTrace.certificates.length}）`}>
