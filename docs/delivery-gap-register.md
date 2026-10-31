@@ -61,6 +61,15 @@ complete product requirement is satisfied".
 
 ## Local Evidence Notes
 
+- 2026-10-31: Business-logic audit fixes (issues #23–#31, commits `a2b84dc`
+  through `46e2ffb`) were promoted to dev by release run `41213783817`
+  (promotion commit `240a6e6`), including migration `0009` that merges
+  duplicate open reminder tasks. HR scenario evidence run `41214429267`
+  reported `Overall: PASS` (16 checks). Locally: backend ruff/ty and full pytest
+  with `DATABASE_URL` (206 passed, no skips), frontend lint/type-check/build.
+  Scope decision: all work targets dev only; release is not promoted. Employee
+  master data moving to Casdoor (#32) and operator identity/authorization (#33)
+  are pending the infra integration docs.
 - 2026-10-31: Commit `c27c3a7` (issues #21 and #22) was promoted to dev by
   release run `41204145695`. That run's rollout gate timed out only because the
   k3s node was still pulling the new image for the migration Job; the
