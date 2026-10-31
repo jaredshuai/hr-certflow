@@ -130,12 +130,14 @@ class ReminderTaskScanCreate(BaseModel):
 class ReminderTaskScanRead(BaseModel):
     created: int
     scan_date: date
+    status_changed: int = 0
 
 
 class FeedbackCreate(BaseModel):
     status: FeedbackStatus
     content: str | None = None
     created_by: str = Field(min_length=1, max_length=128)
+    expected_updated_at: datetime | None = None
 
 
 class FeedbackRead(ORMModel):

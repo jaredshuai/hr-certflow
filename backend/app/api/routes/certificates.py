@@ -40,7 +40,11 @@ from app.schemas.certificates import (
 from app.schemas.employees import EmployeeRead
 from app.services.audit import record_audit
 from app.services.certificates import (
+    CLOSED_REASON_CERTIFICATE_ARCHIVED,
+    CLOSED_REASON_VALID_TO_CHANGED,
+    close_open_reminder_tasks,
     is_current_certificate_status,
+    needs_expiry_follow_up,
     replace_active_certificates,
     resolve_certificate_status,
     validate_certificate_business_rules,
@@ -464,7 +468,13 @@ def create_employee_certificate(
     )
     db.add(certificate)
     db.flush()
-    replaced_certificates = replace_active_certificates(db, certificate, now=now, target_status=target_status)
+    replaced_certificates = replace_active_certificates(
+        db,
+        certificate,
+        now=now,
+        target_status=target_status,
+        audit=audit_context_kwargs(request_context),
+    )
     if certificate.status != target_status:
         certificate.status = target_status
         db.flush()
@@ -475,6 +485,7 @@ def create_employee_certificate(
         resource_id=str(certificate.id),
         after={
             **payload.model_dump(mode="json"),
+            "source": "manual",
             "status": certificate.status.value,
             "replaced_certificate_ids": [str(item.id) for item in replaced_certificates],
         },
@@ -483,6 +494,32 @@ def create_employee_certificate(
     db.commit()
     db.refresh(certificate)
     return certificate
+
+
+def _close_reminder_tasks_after_update(
+    db: Session,
+    certificate: EmployeeCertificate,
+    *,
+    original_valid_to: date | None,
+    now: datetime,
+    audit: dict,
+) -> None:
+    if not needs_expiry_follow_up(certificate.status):
+        close_open_reminder_tasks(
+            db,
+            [certificate.id],
+            now=now,
+            reason=CLOSED_REASON_CERTIFICATE_ARCHIVED,
+            audit=audit,
+        )
+    elif certificate.valid_to != original_valid_to:
+        close_open_reminder_tasks(
+            db,
+            [certificate.id],
+            now=now,
+            reason=CLOSED_REASON_VALID_TO_CHANGED,
+            audit=audit,
+        )
 
 
 @router.patch("/{certificate_id}", response_model=EmployeeCertificateRead)
@@ -520,6 +557,7 @@ def update_employee_certificate(
     before = EmployeeCertificateRead.model_validate(certificate).model_dump(mode="json")
     needs_current_replacement = is_current_certificate_status(target_status)
     original_status = certificate.status
+    original_valid_to = certificate.valid_to
     if needs_current_replacement and is_current_certificate_status(certificate.status):
         certificate.status = CertificateStatus.DRAFT
         db.flush()
@@ -530,11 +568,24 @@ def update_employee_certificate(
     now = datetime.now(UTC)
     if "confirmed_by" in update_data:
         certificate.confirmed_at = now if update_data["confirmed_by"] else None
-    replaced_certificates = replace_active_certificates(db, certificate, now=now, target_status=target_status)
+    replaced_certificates = replace_active_certificates(
+        db,
+        certificate,
+        now=now,
+        target_status=target_status,
+        audit=audit_context_kwargs(request_context),
+    )
     if certificate.status != target_status:
         certificate.status = target_status
     if certificate.status != original_status or update_data or "confirmed_by" in update_data:
         db.flush()
+    _close_reminder_tasks_after_update(
+        db,
+        certificate,
+        original_valid_to=original_valid_to,
+        now=now,
+        audit=audit_context_kwargs(request_context),
+    )
     record_audit(
         db,
         action="employee_certificate.update",

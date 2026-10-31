@@ -31,6 +31,7 @@ def test_scan_tasks_records_audited_manual_scan(monkeypatch) -> None:
 
     monkeypatch.setattr(reminders_route, "scan_and_create_reminder_tasks", fake_scan_and_create_reminder_tasks)
     monkeypatch.setattr(reminders_route, "record_audit", fake_record_audit)
+    monkeypatch.setattr(reminders_route, "refresh_certificate_expiry_statuses", lambda fake_db: 2)
 
     result = reminders_route.scan_tasks(
         ReminderTaskScanCreate(operator="Alice HR", scan_date=date(2026, 5, 6)),
@@ -38,6 +39,7 @@ def test_scan_tasks_records_audited_manual_scan(monkeypatch) -> None:
     )
 
     assert result.created == 3
+    assert result.status_changed == 2
     assert result.scan_date == date(2026, 5, 6)
     assert scan_calls == [date(2026, 5, 6)]
     assert db.commits == 1
@@ -46,6 +48,7 @@ def test_scan_tasks_records_audited_manual_scan(monkeypatch) -> None:
             "action": "reminder_task.scan",
             "resource_type": "reminder_task",
             "after": {
+                "status_changed": 2,
                 "created": 3,
                 "scan_date": "2026-05-06",
                 "operator": "Alice HR",

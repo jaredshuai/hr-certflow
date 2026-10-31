@@ -436,6 +436,7 @@ export interface ReminderTaskScanPayload {
 export interface ReminderTaskScanResult {
   created: number;
   scan_date: string;
+  status_changed: number;
 }
 
 export interface CertificateTraceCertificateType {

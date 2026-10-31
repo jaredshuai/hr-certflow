@@ -2,18 +2,47 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
+from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings
 from app.domain.enums import CertificateStatus, EmploymentStatus, ReminderEventType, ReminderTaskStatus
 from app.models import Employee, EmployeeCertificate, ReminderEvent, ReminderPolicy, ReminderTask
 from app.services.audit import record_audit
+from app.services.certificates import (
+    CLOSED_REASON_CERTIFICATE_ARCHIVED,
+    CLOSED_REASON_EMPLOYEE_LEFT,
+    CLOSED_REASON_RENEWED_BY_REPLACEMENT,
+    SCHEDULER_ACTOR_SOURCE,
+    SYSTEM_ACTOR_NAME,
+    close_open_reminder_tasks,
+    needs_expiry_follow_up,
+)
 from app.services.notifications import NotificationMessage, NotificationRouter
+
+_SCHEDULER_AUDIT = {"actor_name": SYSTEM_ACTOR_NAME, "actor_source": SCHEDULER_ACTOR_SOURCE}
+
+
+def stale_task_close_reason(task: ReminderTask) -> tuple[ReminderTaskStatus, str] | None:
+    """任务所跟进的持证记录已不需要跟进时，返回应闭环的状态和原因。"""
+    certificate = task.employee_certificate
+    if certificate.status == CertificateStatus.REPLACED:
+        return ReminderTaskStatus.RESOLVED, CLOSED_REASON_RENEWED_BY_REPLACEMENT
+    if not needs_expiry_follow_up(certificate.status):
+        return ReminderTaskStatus.CLOSED, CLOSED_REASON_CERTIFICATE_ARCHIVED
+    if certificate.employee.employment_status == EmploymentStatus.LEFT:
+        return ReminderTaskStatus.CLOSED, CLOSED_REASON_EMPLOYEE_LEFT
+    return None
 
 
 def scan_and_create_reminder_tasks(db: Session, *, today: date | None = None) -> int:
+    """为进入提醒窗口的持证记录建提醒任务：每条持证记录每个有效期至只建一件（见 GLOSSARY.md「提醒任务」）。
+
+    提醒窗口取适用启用策略中最大的提醒天数；任务挂在给出该天数的策略上（同天数时证书类型专属策略优先）。
+    已闭环的任务不会因为后续阈值重建。
+    """
     scan_date = today or datetime.now(UTC).date()
     policies = db.scalars(select(ReminderPolicy).where(ReminderPolicy.enabled.is_(True))).all()
     if not policies:
@@ -35,32 +64,66 @@ def scan_and_create_reminder_tasks(db: Session, *, today: date | None = None) ->
         if valid_to is None:
             continue
 
-        for policy in _policies_for_certificate(policies, certificate):
-            for days_before in policy.days_before_expiry:
-                trigger_date = valid_to - timedelta(days=days_before)
-                if trigger_date > scan_date or scan_date > valid_to:
-                    continue
+        selected = _window_policy_for_certificate(policies, certificate)
+        if selected is None:
+            continue
+        policy, window_days = selected
+        trigger_date = valid_to - timedelta(days=window_days)
+        if trigger_date > scan_date or scan_date > valid_to:
+            continue
 
-                idempotency_key = f"{certificate.id}:{policy.id}:{valid_to.isoformat()}:{days_before}"
-                exists = db.scalar(
-                    select(ReminderTask.id).where(ReminderTask.idempotency_key == idempotency_key)
-                )
-                if exists:
-                    continue
+        if _has_task_for_expiry_cycle(db, certificate.id, valid_to):
+            continue
 
-                db.add(
-                    ReminderTask(
-                        employee_certificate_id=certificate.id,
-                        policy_id=policy.id,
-                        status=ReminderTaskStatus.PENDING,
-                        trigger_date=trigger_date,
-                        due_date=scan_date + timedelta(days=policy.second_reminder_after_days),
-                        idempotency_key=idempotency_key,
-                    )
-                )
-                created += 1
+        db.add(
+            ReminderTask(
+                employee_certificate_id=certificate.id,
+                policy_id=policy.id,
+                status=ReminderTaskStatus.PENDING,
+                trigger_date=trigger_date,
+                due_date=scan_date + timedelta(days=policy.second_reminder_after_days),
+                idempotency_key=expiry_cycle_idempotency_key(certificate.id, valid_to),
+            )
+        )
+        created += 1
 
     return created
+
+
+def expiry_cycle_idempotency_key(certificate_id: UUID, valid_to: date) -> str:
+    return f"{certificate_id}:{valid_to.isoformat()}"
+
+
+def _has_task_for_expiry_cycle(db: Session, certificate_id: UUID, valid_to: date) -> bool:
+    # 兼容旧格式 "{certificate}:{policy}:{valid_to}:{days}"，避免对存量周期重复建任务。
+    legacy_pattern = f"{certificate_id}:%:{valid_to.isoformat()}:%"
+    existing = db.scalar(
+        select(ReminderTask.id)
+        .where(
+            or_(
+                ReminderTask.idempotency_key == expiry_cycle_idempotency_key(certificate_id, valid_to),
+                ReminderTask.idempotency_key.like(legacy_pattern),
+            )
+        )
+        .limit(1)
+    )
+    return existing is not None
+
+
+def _window_policy_for_certificate(
+    policies: Sequence[ReminderPolicy],
+    certificate: EmployeeCertificate,
+) -> tuple[ReminderPolicy, int] | None:
+    best: tuple[ReminderPolicy, int] | None = None
+    for policy in _policies_for_certificate(policies, certificate):
+        if not policy.days_before_expiry:
+            continue
+        days = max(policy.days_before_expiry)
+        if best is None or days > best[1] or (
+            days == best[1] and policy.certificate_type_id is not None and best[0].certificate_type_id is None
+        ):
+            best = (policy, days)
+    return best
 
 
 def dispatch_due_reminder_notifications(
@@ -93,6 +156,19 @@ def dispatch_due_reminder_notifications(
     router = NotificationRouter(settings)
     sent_or_recorded = 0
     for task in tasks:
+        stale = stale_task_close_reason(task)
+        if stale is not None:
+            close_status, close_reason = stale
+            close_open_reminder_tasks(
+                db,
+                [task.employee_certificate_id],
+                now=datetime.now(UTC),
+                reason=close_reason,
+                status=close_status,
+                audit=_SCHEDULER_AUDIT,
+            )
+            continue
+
         channels = _channels_for_task(task)
         event_type = _next_dispatch_event_type(db, task, scan_date, channels)
         if event_type is None:
@@ -154,6 +230,7 @@ def dispatch_due_reminder_notifications(
                 "sent": has_sent,
                 "results": results,
             },
+            **_SCHEDULER_AUDIT,
         )
     return sent_or_recorded
 
@@ -197,10 +274,11 @@ def dispatch_single_reminder_task(
         if channel in already_sent_channels
     ]
     if simulate:
+        # 模拟只留痕，不算已发送、不推进任务状态，也不占用真实发送的事件窗口。
         results = [
             {
                 "channel": channel,
-                "status": "sent",
+                "status": "simulated",
                 "simulated": True,
                 "operator": operator,
             }

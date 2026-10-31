@@ -126,8 +126,8 @@ def test_replacing_certificate_closes_open_reminder_tasks(db_session: Session) -
     assert new_certificate.status == CertificateStatus.ACTIVE
     assert old_certificate.status == CertificateStatus.REPLACED
     assert old_certificate.replaced_by_id == new_certificate.id
-    assert reminder_task.status == ReminderTaskStatus.CLOSED
-    assert reminder_task.closed_reason == "certificate_replaced"
+    assert reminder_task.status == ReminderTaskStatus.RESOLVED
+    assert reminder_task.closed_reason == "renewed_by_replacement"
 
 
 def test_dispatch_reminder_advances_state_after_successful_email(
@@ -380,7 +380,7 @@ def test_hr_feedback_records_real_actor_and_event_source(db_session: Session) ->
     assert events[0].recipient == "Alice HR"
 
 
-def test_manual_simulated_dispatch_advances_reminder_without_external_provider(db_session: Session) -> None:
+def test_manual_simulated_dispatch_records_preview_without_advancing_task(db_session: Session) -> None:
     task = _create_pending_reminder_task(db_session)
 
     result = dispatch_task(
@@ -392,12 +392,13 @@ def test_manual_simulated_dispatch_advances_reminder_without_external_provider(d
     db_session.flush()
     assert result.event_type == "FIRST_REMINDER"
     assert result.simulated is True
-    assert task.status == ReminderTaskStatus.WAITING_FEEDBACK
-    assert task.last_event_at is not None
+    # 模拟只留痕：任务状态不变，事件不算已发送，不占用真实发送窗口。
+    assert task.status == ReminderTaskStatus.PENDING
     events = list(task.events)
     assert len(events) == 2
     assert {event.channel for event in events} == {"email", "wecom"}
-    assert all(event.sent_at is not None for event in events)
+    assert all(event.sent_at is None for event in events)
+    assert all(event.payload["status"] == "simulated" for event in events)
     assert all(event.payload["simulate"] is True for event in events)
 
 
@@ -774,8 +775,8 @@ def test_review_approval_creates_active_certificate_and_replaces_old_one(db_sess
     assert document.status == DocumentStatus.CONFIRMED
     assert old_certificate.status == CertificateStatus.REPLACED
     assert old_certificate.replaced_by_id == decision.certificates[0].id
-    assert reminder_task.status == ReminderTaskStatus.CLOSED
-    assert reminder_task.closed_reason == "certificate_replaced"
+    assert reminder_task.status == ReminderTaskStatus.RESOLVED
+    assert reminder_task.closed_reason == "renewed_by_replacement"
 
 
 def test_review_approval_derives_valid_to_from_certificate_type_default(

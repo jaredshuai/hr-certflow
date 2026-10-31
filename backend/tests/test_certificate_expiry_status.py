@@ -233,8 +233,8 @@ def test_new_current_certificate_replaces_expired_one_and_closes_its_reminders(d
     assert [item.id for item in replaced] == [expired.id]
     assert expired.status == CertificateStatus.REPLACED
     assert expired.replaced_by_id == new_certificate.id
-    assert escalated_task.status == ReminderTaskStatus.CLOSED
-    assert escalated_task.closed_reason == "certificate_replaced"
+    assert escalated_task.status == ReminderTaskStatus.RESOLVED
+    assert escalated_task.closed_reason == "renewed_by_replacement"
 
 
 def _certificate(

@@ -20,6 +20,7 @@ import {
   documentStatusLabel,
   reminderStatusLabel,
   reviewStatusLabel,
+  reminderClosedReasonLabel,
 } from '@/utils/displayLabels';
 import { emptyTableText } from '@/utils/emptyStates';
 import { useChartHeight } from '@/utils/useChartHeight';
@@ -394,7 +395,7 @@ export default function DashboardPage() {
                         <Typography.Text strong>{reminderStatusLabel(task.status)}</Typography.Text>
                         <Typography.Text type="secondary">
                           发起：{task.trigger_date} / 截止：{task.due_date || '-'} / 关闭原因：
-                          {task.closed_reason || '-'}
+                          {reminderClosedReasonLabel(task.closed_reason)}
                         </Typography.Text>
                       </Space>
                     ),

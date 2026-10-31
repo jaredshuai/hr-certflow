@@ -68,9 +68,22 @@ const reminderEventTypeLabels: Record<string, string> = {
 const feedbackStatusLabels: Record<string, string> = {
   NOTIFIED_EMPLOYEE: '已通知员工',
   PROCESSING: '办理中',
-  RENEWED: '已换证',
+  RENEWED: '已续证',
   NO_ACTION_REQUIRED: '无需处理',
   EMPLOYEE_LEFT: '员工离职',
+  IGNORED: '已忽略',
+};
+
+const reminderClosedReasonLabels: Record<string, string> = {
+  renewed: '已续证',
+  renewed_by_replacement: '新持证记录已替换（已续证）',
+  certificate_replaced: '持证记录已被替换',
+  certificate_archived: '持证记录已归档',
+  valid_to_changed: '有效期至已变更',
+  employee_left: '员工已离职',
+  duplicate_merged: '重复任务已合并',
+  NO_ACTION_REQUIRED: '无需处理',
+  EMPLOYEE_LEFT: '员工已离职',
   IGNORED: '已忽略',
 };
 
@@ -107,6 +120,8 @@ const auditActionLabels: Record<string, string> = {
   'reminder_task.notification.dispatch': '发送提醒通知',
   'reminder_task.notification.manual_dispatch': '手动发送提醒通知',
   'reminder_task.feedback.create': '记录人力反馈',
+  'reminder_task.close': '提醒任务闭环',
+  'employee_certificate.replace': '持证记录被新记录替换',
   'review_task.approve': '复核通过',
   'review_task.reject': '复核驳回',
 };
@@ -206,6 +221,10 @@ export function reminderEventTypeLabel(value: ReminderEventType | null | undefin
 
 export function feedbackStatusLabel(value: string | null | undefined): string {
   return labelFromMap(value, feedbackStatusLabels);
+}
+
+export function reminderClosedReasonLabel(value: string | null | undefined): string {
+  return labelFromMap(value, reminderClosedReasonLabels);
 }
 
 export function reminderChannelLabel(value: string | null | undefined): string {

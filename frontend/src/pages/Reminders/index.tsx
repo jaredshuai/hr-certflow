@@ -39,6 +39,7 @@ import {
   reminderEventTypeLabel,
   reminderStatusLabel,
   reminderStatusValueEnum,
+  reminderClosedReasonLabel,
 } from '@/utils/displayLabels';
 import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
@@ -113,7 +114,10 @@ function reminderFiltersFromSearch(search: string): Record<string, unknown> {
 }
 
 function isDispatchEvent(event: ReminderEvent): event is ReminderEvent & { channel: string } {
-  return dispatchEventTypes.includes(event.event_type) && Boolean(event.channel);
+  // 模拟留痕不算发送，不进入渠道发送汇总。
+  return (
+    dispatchEventTypes.includes(event.event_type) && Boolean(event.channel) && event.payload?.status !== 'simulated'
+  );
 }
 
 function isSuccessfulDispatchEvent(event: ReminderEvent): boolean {
@@ -259,6 +263,7 @@ export default function RemindersPage() {
         status,
         content,
         created_by: actor.name,
+        expected_updated_at: record.updated_at,
       });
       message.success('人力反馈已记录');
       actionRef.current?.reload();
@@ -300,7 +305,9 @@ export default function RemindersPage() {
         payload,
       );
       message.success(
-        `${simulate ? '模拟提醒' : '提醒发送'}已记录：${result.event_type}，${result.results.length} 个渠道`,
+        simulate
+          ? `模拟提醒已留痕：${result.event_type}，${result.results.length} 个渠道（不推进任务状态，不算已发送）`
+          : `提醒发送已记录：${result.event_type}，${result.results.length} 个渠道`,
       );
       actionRef.current?.reload();
       if (timelineOpen && currentTimeline?.task.id === record.id) {
@@ -325,7 +332,9 @@ export default function RemindersPage() {
       const result = await postResource<ReminderTaskScanResult, ReminderTaskScanPayload>('/reminders/tasks/scan', {
         operator,
       });
-      message.success(`已扫描到期证书，新增 ${result.created} 条提醒任务`);
+      message.success(
+        `已扫描到期证书：更新 ${result.status_changed} 条持证状态，新增 ${result.created} 条提醒任务`,
+      );
       actionRef.current?.reload();
     } catch (error) {
       message.error(error instanceof Error ? error.message : '提醒任务扫描失败');
@@ -423,7 +432,12 @@ export default function RemindersPage() {
       valueEnum: reminderStatusValueEnum,
     },
     { title: '提醒策略', dataIndex: 'policy_name', search: false, renderText: (value) => value || '-' },
-    { title: '关闭原因', dataIndex: 'closed_reason', search: false },
+    {
+      title: '闭环原因',
+      dataIndex: 'closed_reason',
+      search: false,
+      renderText: (value) => reminderClosedReasonLabel(value),
+    },
     {
       title: '提醒与反馈',
       valueType: 'option',
@@ -667,7 +681,7 @@ export default function RemindersPage() {
                   {currentTimeline.task.last_event_at || '-'}
                 </Descriptions.Item>
                 <Descriptions.Item label="关闭原因">
-                  {currentTimeline.task.closed_reason || '-'}
+                  {reminderClosedReasonLabel(currentTimeline.task.closed_reason)}
                 </Descriptions.Item>
               </Descriptions>
             </ProCard>

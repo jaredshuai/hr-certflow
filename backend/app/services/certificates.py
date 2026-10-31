@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain.enums import CertificateStatus, EmploymentStatus, ReminderTaskStatus
-from app.models import CertificateType, Employee, EmployeeCertificate, ReminderPolicy, ReminderTask
+from app.domain.enums import CertificateStatus, EmploymentStatus, ReminderEventType, ReminderTaskStatus
+from app.models import CertificateType, Employee, EmployeeCertificate, ReminderEvent, ReminderPolicy, ReminderTask
 from app.services.audit import record_audit
 
 _ACTIVE_CERTIFICATE_STATUSES = (
@@ -32,6 +33,22 @@ _REPLACEABLE_CERTIFICATE_STATUSES = (
 
 SYSTEM_ACTOR_NAME = "system"
 SCHEDULER_ACTOR_SOURCE = "scheduler"
+
+# 提醒任务闭环原因（见 GLOSSARY.md「闭环」）。
+CLOSED_REASON_RENEWED_BY_REPLACEMENT = "renewed_by_replacement"
+CLOSED_REASON_EMPLOYEE_LEFT = "employee_left"
+CLOSED_REASON_CERTIFICATE_ARCHIVED = "certificate_archived"
+CLOSED_REASON_VALID_TO_CHANGED = "valid_to_changed"
+
+# 仍需到期跟进的持证记录状态：已过期但未被替换的记录继续二次提醒和升级。
+_FOLLOW_UP_CERTIFICATE_STATUSES = _REPLACEABLE_CERTIFICATE_STATUSES
+_OPEN_REMINDER_TASK_STATUSES = (
+    ReminderTaskStatus.PENDING,
+    ReminderTaskStatus.FIRST_SENT,
+    ReminderTaskStatus.WAITING_FEEDBACK,
+    ReminderTaskStatus.SECOND_SENT,
+    ReminderTaskStatus.ESCALATED,
+)
 
 _DUPLICATE_CERTIFICATE_STATUSES = (
     CertificateStatus.DRAFT,
@@ -100,6 +117,10 @@ def _normalize_person_name(value: str) -> str:
 
 def is_current_certificate_status(status: CertificateStatus) -> bool:
     return status in _ACTIVE_CERTIFICATE_STATUSES
+
+
+def needs_expiry_follow_up(status: CertificateStatus) -> bool:
+    return status in _FOLLOW_UP_CERTIFICATE_STATUSES
 
 
 def is_expiry_derived_status(status: CertificateStatus) -> bool:
@@ -203,6 +224,7 @@ def replace_active_certificates(
     *,
     now: datetime,
     target_status: CertificateStatus | None = None,
+    audit: dict[str, Any] | None = None,
 ) -> list[EmployeeCertificate]:
     replacement_status = target_status or certificate.status
     if not is_current_certificate_status(replacement_status):
@@ -219,10 +241,28 @@ def replace_active_certificates(
         ).all()
     replaced = list(old_certificates)
     for old_certificate in replaced:
+        before_status = old_certificate.status
         old_certificate.status = CertificateStatus.REPLACED
         old_certificate.replaced_by_id = certificate.id
+        record_audit(
+            db,
+            action="employee_certificate.replace",
+            resource_type="employee_certificate",
+            resource_id=str(old_certificate.id),
+            before={"status": before_status.value},
+            after={"status": CertificateStatus.REPLACED.value, "replaced_by_id": str(certificate.id)},
+            **(audit or {}),
+        )
 
-    close_open_reminder_tasks(db, [item.id for item in replaced], now=now, reason="certificate_replaced")
+    # 替换即续证：旧记录上的跟进案件以「已解决」闭环。
+    close_open_reminder_tasks(
+        db,
+        [item.id for item in replaced],
+        now=now,
+        reason=CLOSED_REASON_RENEWED_BY_REPLACEMENT,
+        status=ReminderTaskStatus.RESOLVED,
+        audit=audit,
+    )
     db.flush()
     return replaced
 
@@ -233,18 +273,67 @@ def close_open_reminder_tasks(
     *,
     now: datetime,
     reason: str,
-) -> int:
+    status: ReminderTaskStatus = ReminderTaskStatus.CLOSED,
+    audit: dict[str, Any] | None = None,
+) -> list[ReminderTask]:
+    """闭环指定持证记录上全部未闭环的提醒任务，每件写一条 CLOSED 提醒事件和审计。"""
     if not certificate_ids:
-        return 0
+        return []
 
-    tasks = db.scalars(
-        select(ReminderTask).where(
-            ReminderTask.employee_certificate_id.in_(certificate_ids),
-            ReminderTask.status.notin_([ReminderTaskStatus.RESOLVED, ReminderTaskStatus.CLOSED]),
-        )
-    ).all()
+    tasks = list(
+        db.scalars(
+            select(ReminderTask)
+            .where(
+                ReminderTask.employee_certificate_id.in_(certificate_ids),
+                ReminderTask.status.in_(_OPEN_REMINDER_TASK_STATUSES),
+            )
+            .with_for_update()
+        ).all()
+    )
+    audit_kwargs = audit or {}
     for task in tasks:
-        task.status = ReminderTaskStatus.CLOSED
+        before_status = task.status
+        task.status = status
         task.resolved_at = now
         task.closed_reason = reason
-    return len(tasks)
+        task.last_event_at = now
+        db.add(
+            ReminderEvent(
+                reminder_task_id=task.id,
+                event_type=ReminderEventType.CLOSED,
+                event_date=now.date(),
+                channel="system",
+                payload={"reason": reason, "status": status.value},
+                sent_at=now,
+            )
+        )
+        record_audit(
+            db,
+            action="reminder_task.close",
+            resource_type="reminder_task",
+            resource_id=str(task.id),
+            before={"status": before_status.value},
+            after={"status": status.value, "closed_reason": reason},
+            **audit_kwargs,
+        )
+    return tasks
+
+
+def close_reminder_tasks_for_employee(
+    db: Session,
+    employee_id: UUID,
+    *,
+    now: datetime,
+    audit: dict[str, Any] | None = None,
+) -> list[ReminderTask]:
+    """员工离职：其全部持证记录上的未闭环提醒任务以「员工已离职」关闭。"""
+    certificate_ids = list(
+        db.scalars(select(EmployeeCertificate.id).where(EmployeeCertificate.employee_id == employee_id)).all()
+    )
+    return close_open_reminder_tasks(
+        db,
+        certificate_ids,
+        now=now,
+        reason=CLOSED_REASON_EMPLOYEE_LEFT,
+        audit=audit,
+    )

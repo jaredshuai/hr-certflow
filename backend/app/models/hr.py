@@ -217,6 +217,14 @@ class ReminderTask(TimestampMixin, Base):
             "employee_certificate_id",
             "status",
         ),
+        Index(
+            "uq_reminder_task_one_open_per_certificate",
+            "employee_certificate_id",
+            unique=True,
+            postgresql_where=text(
+                "status IN ('PENDING', 'FIRST_SENT', 'WAITING_FEEDBACK', 'SECOND_SENT', 'ESCALATED')"
+            ),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

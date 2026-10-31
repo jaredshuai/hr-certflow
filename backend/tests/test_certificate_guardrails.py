@@ -37,6 +37,9 @@ class FakeCertificateDb:
     def flush(self) -> None:
         self.flush_count += 1
 
+    def add(self, item: Any) -> None:
+        pass
+
 
 class FakeBusinessRuleDb:
     def __init__(self, employee: Employee, certificate_type: CertificateType) -> None:

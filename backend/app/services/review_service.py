@@ -223,7 +223,17 @@ def approve_review_task(
         db.add(certificate)
         db.flush()
 
-        replaced_certificates = replace_active_certificates(db, certificate, now=now, target_status=target_status)
+        replaced_certificates = replace_active_certificates(
+            db,
+            certificate,
+            now=now,
+            target_status=target_status,
+            audit={
+                "actor_name": audit_context.actor_name,
+                "request_id": audit_context.request_id,
+                "ip_address": audit_context.ip_address,
+            },
+        )
         certificate.status = target_status
         db.flush()
 

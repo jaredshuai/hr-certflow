@@ -50,9 +50,16 @@ from app.schemas.reminders import (
     ReminderTaskTimelineRead,
 )
 from app.services.audit import record_audit
-from app.services.reminder_service import dispatch_single_reminder_task, scan_and_create_reminder_tasks
+from app.services.certificates import refresh_certificate_expiry_statuses
+from app.services.reminder_service import (
+    dispatch_single_reminder_task,
+    scan_and_create_reminder_tasks,
+    stale_task_close_reason,
+)
 
 router = APIRouter()
+
+CLOSED_REMINDER_STATUSES = (ReminderTaskStatus.RESOLVED, ReminderTaskStatus.CLOSED)
 
 OPEN_REMINDER_STATUSES = (
     ReminderTaskStatus.PENDING,
@@ -61,6 +68,12 @@ OPEN_REMINDER_STATUSES = (
     ReminderTaskStatus.SECOND_SENT,
     ReminderTaskStatus.ESCALATED,
 )
+
+
+def _normalize_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _policy_to_read(policy: ReminderPolicy) -> ReminderPolicyRead:
@@ -423,12 +436,15 @@ def scan_tasks(
     request_context: RequestContext | None = Depends(get_request_context),
 ) -> ReminderTaskScanRead:
     scan_date = payload.scan_date or datetime.now(UTC).date()
+    # 持证状态只按真实当天刷新；scan_date 只用于模拟建任务，不能把证书提前推成已过期。
+    status_changed = refresh_certificate_expiry_statuses(db)
     created = scan_and_create_reminder_tasks(db, today=scan_date)
     record_audit(
         db,
         action="reminder_task.scan",
         resource_type="reminder_task",
         after={
+            "status_changed": status_changed,
             "created": created,
             "scan_date": scan_date.isoformat(),
             "operator": payload.operator,
@@ -438,7 +454,7 @@ def scan_tasks(
         ip_address=audit_ip_address(request_context),
     )
     db.commit()
-    return ReminderTaskScanRead(created=created, scan_date=scan_date)
+    return ReminderTaskScanRead(created=created, scan_date=scan_date, status_changed=status_changed)
 
 
 @router.get("/tasks/{reminder_task_id}/timeline", response_model=ReminderTaskTimelineRead)
@@ -508,6 +524,11 @@ def dispatch_task(
         raise HTTPException(status_code=404, detail="Reminder task not found")
     if reminder_task.status in {ReminderTaskStatus.RESOLVED, ReminderTaskStatus.CLOSED, ReminderTaskStatus.ESCALATED}:
         raise HTTPException(status_code=409, detail="Reminder task is already closed or escalated")
+    if stale_task_close_reason(reminder_task) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="该持证记录已不需要到期跟进（员工已离职，或记录已归档、已替换），请刷新后查看",
+        )
 
     try:
         event_type, results = dispatch_single_reminder_task(
@@ -547,21 +568,30 @@ def create_feedback(
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
 ) -> Feedback:
-    reminder_task = db.get(ReminderTask, reminder_task_id)
+    reminder_task = db.scalar(select(ReminderTask).where(ReminderTask.id == reminder_task_id).with_for_update())
     if not reminder_task:
         raise HTTPException(status_code=404, detail="Reminder task not found")
+    if payload.expected_updated_at is not None and _normalize_datetime(reminder_task.updated_at) != _normalize_datetime(
+        payload.expected_updated_at
+    ):
+        raise HTTPException(status_code=409, detail="提醒任务已被更新，请刷新后再记录反馈")
+    if reminder_task.status in CLOSED_REMINDER_STATUSES:
+        raise HTTPException(status_code=409, detail="提醒任务已闭环，不能再记录反馈")
 
+    feedback_payload = payload.model_dump(exclude={"expected_updated_at"})
     feedback = Feedback(
         reminder_task_id=reminder_task.id,
         employee_certificate_id=reminder_task.employee_certificate_id,
-        **payload.model_dump(),
+        **feedback_payload,
     )
     db.add(feedback)
     now = datetime.now(UTC)
     before = ReminderTaskRead.model_validate(reminder_task).model_dump(mode="json")
     reminder_task.last_event_at = now
     if payload.status in {FeedbackStatus.NOTIFIED_EMPLOYEE, FeedbackStatus.PROCESSING}:
-        reminder_task.status = ReminderTaskStatus.WAITING_FEEDBACK
+        # 已升级的案件不因过程反馈回退，否则会重新进入二次提醒。
+        if reminder_task.status != ReminderTaskStatus.ESCALATED:
+            reminder_task.status = ReminderTaskStatus.WAITING_FEEDBACK
     elif payload.status == FeedbackStatus.RENEWED:
         reminder_task.status = ReminderTaskStatus.RESOLVED
         reminder_task.resolved_at = now
@@ -582,7 +612,7 @@ def create_feedback(
             event_date=now.date(),
             channel="hr_feedback",
             recipient=payload.created_by,
-            payload=payload.model_dump(mode="json"),
+            payload=payload.model_dump(mode="json", exclude={"expected_updated_at"}),
             sent_at=now,
         )
     )
@@ -594,7 +624,7 @@ def create_feedback(
         resource_id=str(reminder_task.id),
         before=before,
         after={
-            "feedback": payload.model_dump(mode="json"),
+            "feedback": payload.model_dump(mode="json", exclude={"expected_updated_at"}),
             "task_status": reminder_task.status.value,
             "closed_reason": reminder_task.closed_reason,
         },

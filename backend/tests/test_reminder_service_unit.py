@@ -99,19 +99,48 @@ def test_scan_and_create_reminder_tasks_creates_due_tasks_for_policy_windows() -
 
     created = reminder_service.scan_and_create_reminder_tasks(db, today=date(2026, 5, 6))
 
-    assert created == 2
-    assert len(db.added) == 2
-    tasks = sorted(db.added, key=lambda item: item.trigger_date)
-    assert all(isinstance(task, ReminderTask) for task in tasks)
-    assert {task.employee_certificate_id for task in tasks} == {certificate.id}
-    assert {task.policy_id for task in tasks} == {policy.id}
-    assert {task.status for task in tasks} == {ReminderTaskStatus.PENDING}
-    assert [task.trigger_date for task in tasks] == [date(2026, 4, 20), date(2026, 5, 6)]
-    assert {task.due_date for task in tasks} == {date(2026, 5, 13)}
-    assert {task.idempotency_key for task in tasks} == {
-        f"{certificate.id}:{policy.id}:2026-05-20:30",
-        f"{certificate.id}:{policy.id}:2026-05-20:14",
-    }
+    # 一条持证记录每个有效期至只建一件任务，从最早的提醒阈值（30 天）起算。
+    assert created == 1
+    assert len(db.added) == 1
+    task = db.added[0]
+    assert isinstance(task, ReminderTask)
+    assert task.employee_certificate_id == certificate.id
+    assert task.policy_id == policy.id
+    assert task.status == ReminderTaskStatus.PENDING
+    assert task.trigger_date == date(2026, 4, 20)
+    assert task.due_date == date(2026, 5, 13)
+    assert task.idempotency_key == f"{certificate.id}:2026-05-20"
+
+
+def test_scan_prefers_policy_with_widest_window_and_skips_existing_cycle() -> None:
+    certificate_type_id = uuid.uuid4()
+    certificate = EmployeeCertificate(
+        id=uuid.uuid4(),
+        employee_id=uuid.uuid4(),
+        certificate_type_id=certificate_type_id,
+        holder_name="张三",
+        status=CertificateStatus.ACTIVE,
+        valid_to=date(2026, 5, 20),
+    )
+    global_policy = ReminderPolicy(
+        id=uuid.uuid4(), name="global", days_before_expiry=[30], second_reminder_after_days=7, channels=["email"]
+    )
+    type_policy = ReminderPolicy(
+        id=uuid.uuid4(),
+        certificate_type_id=certificate_type_id,
+        name="type",
+        days_before_expiry=[30, 7],
+        second_reminder_after_days=3,
+        channels=["wecom"],
+    )
+    db = FakeScanDb(policies=[global_policy, type_policy], certificates=[certificate])
+
+    assert reminder_service.scan_and_create_reminder_tasks(db, today=date(2026, 5, 6)) == 1
+    assert [task.policy_id for task in db.added] == [type_policy.id]
+
+    db_with_existing = FakeScanDb(policies=[global_policy, type_policy], certificates=[certificate])
+    db_with_existing.existing_task_id = uuid.uuid4()
+    assert reminder_service.scan_and_create_reminder_tasks(db_with_existing, today=date(2026, 5, 6)) == 0
 
 
 def test_dispatch_due_retries_unsent_channel_without_resending_successful_channel(monkeypatch) -> None:

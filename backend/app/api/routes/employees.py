@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from io import StringIO
 from uuid import UUID
 
@@ -37,6 +38,7 @@ from app.schemas.employees import (
     EmployeeUpdate,
 )
 from app.services.audit import record_audit
+from app.services.certificates import close_reminder_tasks_for_employee
 
 router = APIRouter()
 
@@ -163,6 +165,21 @@ def parse_employee_import_csv(content: str) -> tuple[list[tuple[int, EmployeeCre
     return rows, errors
 
 
+def _close_reminder_tasks_if_left(
+    db: Session,
+    employee: Employee,
+    original_status: EmploymentStatus,
+    request_context: RequestContext | None,
+) -> None:
+    if employee.employment_status == EmploymentStatus.LEFT and original_status != EmploymentStatus.LEFT:
+        close_reminder_tasks_for_employee(
+            db,
+            employee.id,
+            now=datetime.now(UTC),
+            audit=audit_context_kwargs(request_context),
+        )
+
+
 def import_employee_rows(
     db: Session,
     rows: Iterable[tuple[int, EmployeeCreate]],
@@ -186,9 +203,11 @@ def import_employee_rows(
         payload_data = payload.model_dump()
         if employee:
             before = EmployeeRead.model_validate(employee).model_dump(mode="json")
+            original_status = employee.employment_status
             for field, value in payload_data.items():
                 if field != "employee_no":
                     setattr(employee, field, value)
+            _close_reminder_tasks_if_left(db, employee, original_status, request_context)
             record_audit(
                 db,
                 action="employee.import.update",
@@ -597,8 +616,10 @@ def update_employee(
         raise HTTPException(status_code=404, detail="Employee not found")
 
     before = EmployeeRead.model_validate(employee).model_dump(mode="json")
+    original_status = employee.employment_status
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(employee, field, value)
+    _close_reminder_tasks_if_left(db, employee, original_status, request_context)
     record_audit(
         db,
         action="employee.update",
