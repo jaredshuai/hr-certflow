@@ -79,12 +79,14 @@ export default function EmployeesPage() {
     const department = params.get('department');
     const employmentStatus = params.get('employment_status');
     const missingCertificateTypeId = params.get('missing_certificate_type_id');
+    const onRoll = params.get('on_roll');
     return {
       ...(department ? { department } : {}),
       ...(employmentStatus && employmentStatus in employmentStatusValueEnum
         ? { employment_status: employmentStatus as EmploymentStatus }
         : {}),
       ...(missingCertificateTypeId ? { missing_certificate_type_id: missingCertificateTypeId } : {}),
+      ...(onRoll === 'true' ? { on_roll: 'true' } : {}),
     };
   }, [location.search]);
 

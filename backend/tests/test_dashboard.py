@@ -78,14 +78,14 @@ def test_build_dashboard_summary_exposes_north_star_loop() -> None:
         pending_review_count=3,
         second_reminder_count=1,
         open_reminder_count=2,
-        archived_count=3,
+        current_certificate_count=3,
         certificate_status_counts=[(CertificateStatus.ACTIVE, 2), (CertificateStatus.EXPIRING, 1)],
     ).model_dump()
 
     assert payload["coverage"] == 75
     assert payload["certificate_status_rows"] == [
-        {"category": "有效", "count": 2, "target_path": "/certificates?status=ACTIVE"},
-        {"category": "即将到期", "count": 1, "target_path": "/certificates?status=EXPIRING"},
+        {"category": "有效", "count": 2, "target_path": "/certificates?on_roll=true&status=ACTIVE"},
+        {"category": "即将到期", "count": 1, "target_path": "/certificates?on_roll=true&status=EXPIRING"},
     ]
     assert payload["pipeline_steps"] == [
         {"title": "上传原件", "description": "2 件待识别", "count": 2, "target_path": "/documents?status=UPLOADED"},
@@ -95,7 +95,7 @@ def test_build_dashboard_summary_exposes_north_star_loop() -> None:
             "title": "正式入库",
             "description": "3 件已入库",
             "count": 3,
-            "target_path": "/certificates?status_group=current",
+            "target_path": "/certificates?on_roll=true&status_group=current",
         },
         {"title": "到期提醒", "description": "2 件提醒中", "count": 2, "target_path": "/reminders?status=open"},
     ]
@@ -274,7 +274,7 @@ def test_dashboard_summary_uses_business_objects(db_session: Session) -> None:
             "title": "正式入库",
             "description": "1 件已入库",
             "count": 1,
-            "target_path": "/certificates?status_group=current",
+            "target_path": "/certificates?on_roll=true&status_group=current",
         },
         {"title": "到期提醒", "description": "1 件提醒中", "count": 1, "target_path": "/reminders?status=open"},
     ]

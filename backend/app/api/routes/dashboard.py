@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
-from app.domain.enums import CertificateStatus, DocumentStatus, ReminderTaskStatus, ReviewStatus
+from app.domain.enums import CertificateStatus, DocumentStatus, EmploymentStatus, ReminderTaskStatus, ReviewStatus
 from app.models import (
     AuditLog,
     CertificateDocument,
@@ -27,6 +27,7 @@ from app.schemas.dashboard import (
 )
 from app.schemas.documents import CertificateDocumentRead, ReviewTaskRead
 from app.schemas.reminders import ReminderTaskRead
+from app.services.certificates import on_roll_employee_ids
 
 router = APIRouter()
 
@@ -51,7 +52,7 @@ OPEN_REMINDER_STATUSES = (
     ReminderTaskStatus.ESCALATED,
 )
 RISK_ROW_DEFINITIONS = {
-    "expired-certificates": ("已过期证书", "需跟进", "/certificates?status=EXPIRED"),
+    "expired-certificates": ("已过期证书", "需跟进", "/certificates?on_roll=true&status=EXPIRED"),
     "failed-documents": ("识别失败文件", "需跟进", "/documents?status=FAILED"),
     "pending-reviews": ("待复核识别", "处理中", "/review-queue"),
     "second-reminders": ("二次或升级提醒", "升级前", "/reminders?status=SECOND_SENT&status=ESCALATED"),
@@ -65,7 +66,12 @@ def _count(db: Session, statement) -> int:
 def _count_certificates(db: Session, *statuses: CertificateStatus) -> int:
     return _count(
         db,
-        select(func.count()).select_from(EmployeeCertificate).where(EmployeeCertificate.status.in_(statuses)),
+        select(func.count())
+        .select_from(EmployeeCertificate)
+        .where(
+            EmployeeCertificate.status.in_(statuses),
+            EmployeeCertificate.employee_id.in_(on_roll_employee_ids()),
+        ),
     )
 
 
@@ -163,11 +169,15 @@ def _dashboard_risk_trace_payload(
 
 @router.get("/summary", response_model=DashboardSummaryRead)
 def get_dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummaryRead:
-    employee_count = _count(db, select(func.count()).select_from(Employee))
+    employee_count = _count(
+        db,
+        select(func.count()).select_from(Employee).where(Employee.employment_status != EmploymentStatus.LEFT),
+    )
     covered_employee_count = _count(
         db,
         select(func.count(func.distinct(EmployeeCertificate.employee_id))).where(
-            EmployeeCertificate.status.in_(ACTIVE_COVERAGE_STATUSES)
+            EmployeeCertificate.status.in_(ACTIVE_COVERAGE_STATUSES),
+            EmployeeCertificate.employee_id.in_(on_roll_employee_ids()),
         ),
     )
 
@@ -179,12 +189,13 @@ def get_dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummaryRead
     pending_review_count = _count_reviews(db, *PENDING_REVIEW_STATUSES)
     second_reminder_count = _count_reminders(db, *SECOND_REMINDER_STATUSES)
     open_reminder_count = _count_reminders(db, *OPEN_REMINDER_STATUSES)
-    archived_count = _count_certificates(db, *ACTIVE_COVERAGE_STATUSES)
+    current_certificate_count = _count_certificates(db, *ACTIVE_COVERAGE_STATUSES)
 
     certificate_status_counts = [
         (status, int(count))
         for status, count in db.execute(
             select(EmployeeCertificate.status, func.count())
+            .where(EmployeeCertificate.employee_id.in_(on_roll_employee_ids()))
             .group_by(EmployeeCertificate.status)
             .order_by(EmployeeCertificate.status)
         )
@@ -201,7 +212,7 @@ def get_dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummaryRead
         pending_review_count=pending_review_count,
         second_reminder_count=second_reminder_count,
         open_reminder_count=open_reminder_count,
-        archived_count=archived_count,
+        current_certificate_count=current_certificate_count,
         certificate_status_counts=certificate_status_counts,
     )
 
@@ -218,7 +229,7 @@ def build_dashboard_summary(
     pending_review_count: int,
     second_reminder_count: int,
     open_reminder_count: int,
-    archived_count: int,
+    current_certificate_count: int,
     certificate_status_counts: Iterable[tuple[CertificateStatus, int]],
 ) -> DashboardSummaryRead:
     coverage = round((covered_employee_count / employee_count) * 100, 1) if employee_count else 0
@@ -226,14 +237,14 @@ def build_dashboard_summary(
         DashboardChartRow(
             category=CERTIFICATE_STATUS_LABELS[status],
             count=count,
-            target_path=f"/certificates?status={status.value}",
+            target_path=f"/certificates?on_roll=true&status={status.value}",
         )
         for status, count in certificate_status_counts
         if count
     ]
     workload_rows = [
-        DashboardChartRow(category="即将到期", count=expiring_count, target_path="/certificates?status=EXPIRING"),
-        DashboardChartRow(category="已过期", count=expired_count, target_path="/certificates?status=EXPIRED"),
+        DashboardChartRow(category="即将到期", count=expiring_count, target_path="/certificates?on_roll=true&status=EXPIRING"),
+        DashboardChartRow(category="已过期", count=expired_count, target_path="/certificates?on_roll=true&status=EXPIRED"),
         DashboardChartRow(category="识别失败", count=failed_document_count, target_path="/documents?status=FAILED"),
         DashboardChartRow(category="待复核", count=pending_review_count, target_path="/review-queue"),
         DashboardChartRow(
@@ -264,9 +275,9 @@ def build_dashboard_summary(
         ),
         DashboardPipelineStep(
             title="正式入库",
-            description=f"{archived_count} 件已入库",
-            count=archived_count,
-            target_path="/certificates?status_group=current",
+            description=f"{current_certificate_count} 件已入库",
+            count=current_certificate_count,
+            target_path="/certificates?on_roll=true&status_group=current",
         ),
         DashboardPipelineStep(
             title="到期提醒",
@@ -300,7 +311,10 @@ def _trace_expired_certificates(db: Session, limit: int) -> DashboardRiskTraceRe
     certificates = list(
         db.scalars(
             select(EmployeeCertificate)
-            .where(EmployeeCertificate.status == CertificateStatus.EXPIRED)
+            .where(
+                EmployeeCertificate.status == CertificateStatus.EXPIRED,
+                EmployeeCertificate.employee_id.in_(on_roll_employee_ids()),
+            )
             .order_by(EmployeeCertificate.updated_at.desc())
             .limit(limit)
         ).all()

@@ -253,8 +253,11 @@ def _employee_statement(
     position: str | None = None,
     employment_status: EmploymentStatus | None = None,
     missing_certificate_type_id: UUID | None = None,
+    on_roll: bool | None = None,
 ):
     statement = select(Employee)
+    if on_roll:
+        statement = statement.where(Employee.employment_status != EmploymentStatus.LEFT)
     if keyword:
         like = f"%{keyword.strip()}%"
         statement = statement.where(
@@ -333,6 +336,7 @@ def page_employees(
     position: str | None = None,
     employment_status: EmploymentStatus | None = None,
     missing_certificate_type_id: UUID | None = None,
+    on_roll: bool | None = None,
 ) -> EmployeePageRead:
     current = max(current, 1)
     page_size = min(max(page_size, 1), 200)
@@ -344,6 +348,7 @@ def page_employees(
         position=position,
         employment_status=employment_status,
         missing_certificate_type_id=missing_certificate_type_id,
+        on_roll=on_roll,
     )
     total = int(db.scalar(select(func.count()).select_from(filtered.subquery())) or 0)
     rows = db.scalars(
@@ -362,6 +367,7 @@ def export_employees_csv(
     position: str | None = None,
     employment_status: EmploymentStatus | None = None,
     missing_certificate_type_id: UUID | None = None,
+    on_roll: bool | None = None,
 ) -> Response:
     rows = db.scalars(
         _employee_statement(
@@ -372,6 +378,7 @@ def export_employees_csv(
             position=position,
             employment_status=employment_status,
             missing_certificate_type_id=missing_certificate_type_id,
+            on_roll=on_roll,
         ).order_by(Employee.created_at.desc())
     ).all()
     return Response(

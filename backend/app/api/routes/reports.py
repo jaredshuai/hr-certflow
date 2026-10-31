@@ -45,7 +45,8 @@ def build_certificate_coverage_report(
     certificate_types: list[CertificateType],
     certificates: list[EmployeeCertificate],
 ) -> CertificateCoverageReportRead:
-    active_employees = [employee for employee in employees if employee.employment_status == EmploymentStatus.ACTIVE]
+    # 在册员工 = 非离职；离职员工的持证记录不计入覆盖和风险（与看板、下钻口径一致）。
+    active_employees = [employee for employee in employees if employee.employment_status != EmploymentStatus.LEFT]
     active_employee_ids = {employee.id for employee in active_employees}
     covered_employee_ids = {
         certificate.employee_id
@@ -67,14 +68,14 @@ def build_certificate_coverage_report(
             employee_count=len(employee_ids),
             covered_employee_count=len(department_covered_ids[department]),
             coverage=_coverage_ratio(len(department_covered_ids[department]), len(employee_ids)),
-            target_path="/employees?"
-            + urlencode({"department": department, "employment_status": EmploymentStatus.ACTIVE.value}),
+            target_path="/employees?" + urlencode({"department": department, "on_roll": "true"}),
         )
         for department, employee_ids in sorted(department_employee_ids.items())
     ]
 
     certificates_by_type: dict[str, list[EmployeeCertificate]] = defaultdict(list)
-    for certificate in certificates:
+    on_roll_certificates = [item for item in certificates if item.employee_id in active_employee_ids]
+    for certificate in on_roll_certificates:
         certificates_by_type[str(certificate.certificate_type_id)].append(certificate)
 
     certificate_type_risk_rows: list[CertificateTypeRiskRow] = []
@@ -95,12 +96,13 @@ def build_certificate_coverage_report(
                 expired_count=expired_count,
                 risk_count=risk_count,
                 target_path="/certificates?"
-                + urlencode({"certificate_type_id": str(certificate_type.id), "status_group": "risk"}),
+                + urlencode({"on_roll": "true", "certificate_type_id": str(certificate_type.id), "status_group": "risk"}),
                 active_target_path="/certificates?"
-                + urlencode({"certificate_type_id": str(certificate_type.id), "status_group": "current"}),
+                + urlencode({"on_roll": "true", "certificate_type_id": str(certificate_type.id), "status_group": "current"}),
                 expiring_target_path="/certificates?"
                 + urlencode(
                     {
+                        "on_roll": "true",
                         "certificate_type_id": str(certificate_type.id),
                         "status": CertificateStatus.EXPIRING.value,
                     }
@@ -108,6 +110,7 @@ def build_certificate_coverage_report(
                 expired_target_path="/certificates?"
                 + urlencode(
                     {
+                        "on_roll": "true",
                         "certificate_type_id": str(certificate_type.id),
                         "status": CertificateStatus.EXPIRED.value,
                     }
@@ -116,7 +119,7 @@ def build_certificate_coverage_report(
         )
 
     expiry_month_counts: dict[str, int] = defaultdict(int)
-    for certificate in certificates:
+    for certificate in on_roll_certificates:
         if certificate.status in RISK_STATUSES and isinstance(certificate.valid_to, date):
             expiry_month_counts[certificate.valid_to.strftime("%Y-%m")] += 1
 
@@ -133,6 +136,7 @@ def build_certificate_coverage_report(
                 target_path="/certificates?"
                 + urlencode(
                     {
+                        "on_roll": "true",
                         "status_group": "risk",
                         "valid_to_from": _month_range(month)[0],
                         "valid_to_to": _month_range(month)[1],

@@ -118,12 +118,14 @@ export default function CertificatesPage() {
     const statusGroup = params.get('status_group');
     const validToFrom = params.get('valid_to_from');
     const validToTo = params.get('valid_to_to');
+    const onRoll = params.get('on_roll');
     return {
       ...(status && status in certificateStatusValueEnum ? { status: status as CertificateStatus } : {}),
       ...(certificateTypeId ? { certificate_type_id: certificateTypeId } : {}),
       ...(statusGroup ? { status_group: statusGroup } : {}),
       ...(validToFrom ? { valid_to_from: validToFrom } : {}),
       ...(validToTo ? { valid_to_to: validToTo } : {}),
+      ...(onRoll === 'true' ? { on_roll: 'true' } : {}),
     };
   }, [location.search]);
 
@@ -297,7 +299,7 @@ export default function CertificatesPage() {
         }}
         locale={{ emptyText: emptyTableText('暂无持证记录，请先上传识别或手动新增') }}
         toolbar={{
-          title: '当前与历史持证记录',
+          title: urlFilters.on_roll ? '当前与历史持证记录（仅在册员工）' : '当前与历史持证记录',
           actions: [
             <Button key="export" onClick={exportCertificates}>
               导出当前筛选

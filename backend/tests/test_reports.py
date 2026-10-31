@@ -55,6 +55,14 @@ def test_build_certificate_coverage_report_groups_department_type_and_expiry_ris
             status=CertificateStatus.EXPIRED,
             valid_to=date(2026, 5, 31),
         ),
+        # 离职员工的过期记录不计入风险，也不进入到期月份统计。
+        EmployeeCertificate(
+            employee_id=employee_c.id,
+            certificate_type_id=forklift_type.id,
+            holder_name="王五",
+            status=CertificateStatus.EXPIRED,
+            valid_to=date(2026, 7, 31),
+        ),
     ]
 
     report = build_certificate_coverage_report(
@@ -72,7 +80,7 @@ def test_build_certificate_coverage_report_groups_department_type_and_expiry_ris
             "employee_count": 2,
             "covered_employee_count": 2,
             "coverage": 100,
-            "target_path": "/employees?department=%E5%B7%A5%E7%A8%8B%E9%83%A8&employment_status=ACTIVE",
+            "target_path": "/employees?department=%E5%B7%A5%E7%A8%8B%E9%83%A8&on_roll=true",
         }
     ]
     safety_row = next(row for row in report.certificate_type_risk_rows if row.certificate_type_name == "安全员证")
@@ -80,26 +88,26 @@ def test_build_certificate_coverage_report_groups_department_type_and_expiry_ris
     forklift_row = next(row for row in report.certificate_type_risk_rows if row.certificate_type_name == "叉车证")
     assert safety_row.active_count == 2
     assert safety_row.expiring_count == 1
-    assert safety_row.target_path == f"/certificates?certificate_type_id={safety_type.id}&status_group=risk"
-    assert safety_row.active_target_path == f"/certificates?certificate_type_id={safety_type.id}&status_group=current"
-    assert safety_row.expiring_target_path == f"/certificates?certificate_type_id={safety_type.id}&status=EXPIRING"
-    assert safety_row.expired_target_path == f"/certificates?certificate_type_id={safety_type.id}&status=EXPIRED"
+    assert safety_row.target_path == f"/certificates?on_roll=true&certificate_type_id={safety_type.id}&status_group=risk"
+    assert safety_row.active_target_path == f"/certificates?on_roll=true&certificate_type_id={safety_type.id}&status_group=current"
+    assert safety_row.expiring_target_path == f"/certificates?on_roll=true&certificate_type_id={safety_type.id}&status=EXPIRING"
+    assert safety_row.expired_target_path == f"/certificates?on_roll=true&certificate_type_id={safety_type.id}&status=EXPIRED"
     assert electric_row.expired_count == 1
     assert electric_row.risk_count == 1
-    assert electric_row.target_path == f"/certificates?certificate_type_id={electric_type.id}&status_group=risk"
-    assert electric_row.expired_target_path == f"/certificates?certificate_type_id={electric_type.id}&status=EXPIRED"
+    assert electric_row.target_path == f"/certificates?on_roll=true&certificate_type_id={electric_type.id}&status_group=risk"
+    assert electric_row.expired_target_path == f"/certificates?on_roll=true&certificate_type_id={electric_type.id}&status=EXPIRED"
     assert forklift_row.active_count == 0
     assert forklift_row.risk_count == 0
     assert [row.model_dump() for row in report.expiry_month_rows] == [
         {
             "category": "2026-05",
             "count": 1,
-            "target_path": "/certificates?status_group=risk&valid_to_from=2026-05-01&valid_to_to=2026-05-31",
+            "target_path": "/certificates?on_roll=true&status_group=risk&valid_to_from=2026-05-01&valid_to_to=2026-05-31",
         },
         {
             "category": "2026-06",
             "count": 1,
-            "target_path": "/certificates?status_group=risk&valid_to_from=2026-06-01&valid_to_to=2026-06-30",
+            "target_path": "/certificates?on_roll=true&status_group=risk&valid_to_from=2026-06-01&valid_to_to=2026-06-30",
         },
     ]
 

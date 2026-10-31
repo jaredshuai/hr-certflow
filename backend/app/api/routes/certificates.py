@@ -46,6 +46,7 @@ from app.services.certificates import (
     final_certificate_status,
     is_current_certificate_status,
     needs_expiry_follow_up,
+    on_roll_employee_ids,
     replace_active_certificates,
     resolve_certificate_status,
     validate_certificate_business_rules,
@@ -67,8 +68,11 @@ def _certificate_statement(
     status_group: str | None = None,
     valid_to_from: date | None = None,
     valid_to_to: date | None = None,
+    on_roll: bool | None = None,
 ):
     statement = select(EmployeeCertificate)
+    if on_roll:
+        statement = statement.where(EmployeeCertificate.employee_id.in_(on_roll_employee_ids()))
     if keyword:
         like = f"%{keyword.strip()}%"
         statement = statement.where(
@@ -199,6 +203,7 @@ def page_employee_certificates(
     status_group: str | None = None,
     valid_to_from: date | None = None,
     valid_to_to: date | None = None,
+    on_roll: bool | None = None,
 ) -> EmployeeCertificatePageRead:
     current = max(current, 1)
     page_size = min(max(page_size, 1), 200)
@@ -213,6 +218,7 @@ def page_employee_certificates(
         status_group=status_group,
         valid_to_from=valid_to_from,
         valid_to_to=valid_to_to,
+        on_roll=on_roll,
     )
     total = int(db.scalar(select(func.count()).select_from(filtered.subquery())) or 0)
     rows = db.scalars(
@@ -234,6 +240,7 @@ def export_employee_certificates_csv(
     status_group: str | None = None,
     valid_to_from: date | None = None,
     valid_to_to: date | None = None,
+    on_roll: bool | None = None,
 ) -> Response:
     rows = db.scalars(
         _certificate_statement(
@@ -247,6 +254,7 @@ def export_employee_certificates_csv(
             status_group=status_group,
             valid_to_from=valid_to_from,
             valid_to_to=valid_to_to,
+            on_roll=on_roll,
         ).order_by(EmployeeCertificate.created_at.desc())
     ).all()
     employee_names, certificate_type_names = _load_certificate_export_labels(db, rows)

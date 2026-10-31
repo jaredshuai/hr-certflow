@@ -119,6 +119,11 @@ def is_current_certificate_status(status: CertificateStatus) -> bool:
     return status in _ACTIVE_CERTIFICATE_STATUSES
 
 
+def on_roll_employee_ids():
+    """在册员工（非离职）的 id 子查询；看板、报表和风险下钻共用这一口径。"""
+    return select(Employee.id).where(Employee.employment_status != EmploymentStatus.LEFT)
+
+
 def needs_expiry_follow_up(status: CertificateStatus) -> bool:
     return status in _FOLLOW_UP_CERTIFICATE_STATUSES
 
