@@ -17,3 +17,9 @@ test('identity headers set by callers are stripped regardless of case', () => {
 
   assert.deepEqual(Object.keys(headers).sort(), ['Content-Type', 'X-Request-ID']);
 });
+
+test('missing base headers still produce X-Request-ID only', () => {
+  const headers = buildRequestHeaders(undefined, 'req-3');
+
+  assert.deepEqual(headers, { 'X-Request-ID': 'req-3' });
+});

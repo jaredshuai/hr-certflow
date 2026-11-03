@@ -3,7 +3,7 @@ from __future__ import annotations
 import ipaddress
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 只有这两个环境允许在没有网关时使用固定开发操作人；缺失或其它值一律按 release 处理。
@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     # AUTH_REQUIRED=false 时（仅 local/dev）所有请求都记在这个固定操作人名下，请求无法覆盖。
     dev_operator_name: str = Field(default="dev-unauthenticated", min_length=1, max_length=128)
 
+    @field_validator("dev_operator_name")
+    @classmethod
+    def _dev_operator_name_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("DEV_OPERATOR_NAME must not be blank")
+        return value
+
     @property
     def uses_dev_operator(self) -> bool:
         return not self.auth_required and self.app_env in DEV_OPERATOR_ENVS
@@ -108,8 +115,11 @@ class Settings(BaseSettings):
 
 
 def parse_trusted_proxy_networks(value: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
-    """解析逗号分隔的 CIDR；任一项非法即抛 ValueError。"""
-    return [ipaddress.ip_network(item.strip(), strict=False) for item in value.split(",") if item.strip()]
+    """解析逗号分隔的 CIDR；任一项非法或为 0 前缀全网段即抛 ValueError。"""
+    networks = [ipaddress.ip_network(item.strip(), strict=False) for item in value.split(",") if item.strip()]
+    if any(network.prefixlen == 0 for network in networks):
+        raise ValueError("zero-prefix networks (e.g. 0.0.0.0/0, ::/0) are not allowed")
+    return networks
 
 
 def validate_auth_settings(settings: Settings) -> None:
@@ -120,6 +130,8 @@ def validate_auth_settings(settings: Settings) -> None:
                 f"AUTH_REQUIRED=false is only allowed when APP_ENV is local or dev, got APP_ENV={settings.app_env!r}"
             )
         return
+    if not settings.app_env.strip():
+        raise RuntimeError("AUTH_REQUIRED=true requires a non-empty APP_ENV")
     try:
         networks = parse_trusted_proxy_networks(settings.trusted_proxy_cidrs)
     except ValueError as exc:

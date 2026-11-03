@@ -73,9 +73,13 @@ def validate_values(env_name: str, path: Path) -> None:
         require(cidrs, f"{path}: TRUSTED_PROXY_CIDRS is required when AUTH_REQUIRED is true")
         for cidr in cidrs:
             try:
-                ipaddress.ip_network(cidr, strict=False)
+                network = ipaddress.ip_network(cidr, strict=False)
             except ValueError as exc:
                 raise RuntimeError(f"{path}: TRUSTED_PROXY_CIDRS has invalid entry {cidr!r}") from exc
+            require(
+                network.prefixlen > 0,
+                f"{path}: TRUSTED_PROXY_CIDRS must not contain zero-prefix network {cidr!r}",
+            )
 
     for image_name in ("api", "web"):
         image = images.get(image_name) or {}

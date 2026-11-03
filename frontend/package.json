@@ -10,7 +10,7 @@
     "build": "max build",
     "lint": "max lint",
     "type-check": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test 'tests/*.test.mjs'"
+    "test": "node --test \"tests/*.test.mjs\""
   },
   "dependencies": {
     "@ant-design/charts": "^2.6.7",

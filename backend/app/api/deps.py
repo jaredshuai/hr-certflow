@@ -14,6 +14,7 @@ REQUEST_CONTEXT_STATE_KEY = "request_context"
 REQUEST_ID_HEADER = "X-Request-ID"
 HR_ACTOR_HEADER = "X-HR-Actor"
 HR_ACTOR_SOURCE_HEADER = "X-HR-Actor-Source"
+MAX_ACTOR_NAME_LENGTH = 128
 
 
 @dataclass(frozen=True)
@@ -64,7 +65,11 @@ def _clean_actor_header(value: str | None) -> str | None:
     cleaned = _clean_header(value)
     if not cleaned:
         return None
-    return _clean_header(unquote(cleaned))
+    decoded = _clean_header(unquote(cleaned))
+    # 超过 String(128) 列上限的身份头按无操作人处理，避免写库溢出。
+    if not decoded or len(decoded) > MAX_ACTOR_NAME_LENGTH:
+        return None
+    return decoded
 
 
 def _forwarded_client_ip(request: Request) -> str | None:

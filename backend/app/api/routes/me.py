@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.api.deps import RequestContext, get_request_context
-from app.core.config import DEV_OPERATOR_SOURCE
+from app.core.config import get_settings
 from app.schemas.common import MeResponse
 
 router = APIRouter()
@@ -19,8 +19,9 @@ def current_actor(
     dev（AUTH_REQUIRED=false）为固定开发操作人，``authenticated=False`` 以便区分。
     没有操作人的请求在中间件层即返回 401，不会到达此处。
     """
+    settings = get_settings()
     return MeResponse(
         name=request_context.actor_name,
         source=request_context.actor_source,
-        authenticated=request_context.actor_source != DEV_OPERATOR_SOURCE,
+        authenticated=not settings.uses_dev_operator and request_context.actor_name is not None,
     )

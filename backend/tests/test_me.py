@@ -49,3 +49,15 @@ def test_me_returns_dev_operator_as_unauthenticated(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"name": "dev-unauthenticated", "source": "dev-unauthenticated", "authenticated": False}
+
+
+def test_me_authenticated_ignores_header_supplied_source(monkeypatch) -> None:
+    """authenticated 由服务端配置推导；伪造 source=dev-unauthenticated 不会把已认证请求降级。"""
+    client = _make_client(monkeypatch, app_env="release", auth_required=True, peer="10.34.200.5")
+    response = client.get(
+        "/api/v1/me",
+        headers={"X-HR-Actor": "Alice", "X-HR-Actor-Source": "dev-unauthenticated"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["authenticated"] is True
