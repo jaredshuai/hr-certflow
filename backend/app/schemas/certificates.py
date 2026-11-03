@@ -108,7 +108,6 @@ class EmployeeCertificateCreate(BaseModel):
     valid_to: date | None = None
     review_date: date | None = None
     status: CertificateStatus = CertificateStatus.ACTIVE
-    confirmed_by: str | None = Field(default=None, max_length=128)
 
 
 class EmployeeCertificateUpdate(BaseModel):
@@ -123,7 +122,6 @@ class EmployeeCertificateUpdate(BaseModel):
     valid_to: date | None = None
     review_date: date | None = None
     status: CertificateStatus | None = None
-    confirmed_by: str | None = Field(default=None, max_length=128)
 
 
 class EmployeeCertificateRead(ORMModel):

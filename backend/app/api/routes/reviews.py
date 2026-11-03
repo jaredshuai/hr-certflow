@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import RequestContext, audit_actor_name, audit_ip_address, audit_request_id, get_request_context
+from app.api.deps import RequestContext, audit_context_kwargs, get_current_operator, get_request_context
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.domain.enums import ReviewStatus
@@ -47,15 +47,8 @@ def _assert_review_task_is_current(review_task: ReviewTask, expected_updated_at:
         raise HTTPException(status_code=409, detail="Review task has changed, please refresh")
 
 
-def _request_context_to_audit_context(
-    request_context: RequestContext | None,
-    fallback_actor: str,
-) -> AuditContext:
-    return AuditContext(
-        actor_name=audit_actor_name(request_context, fallback_actor),
-        request_id=audit_request_id(request_context),
-        ip_address=audit_ip_address(request_context),
-    )
+def _request_context_to_audit_context(request_context: RequestContext | None) -> AuditContext:
+    return AuditContext(**audit_context_kwargs(request_context))
 
 
 def _build_document_read_url(review_task: ReviewTask) -> str | None:
@@ -210,6 +203,7 @@ def approve_review_task(
     payload: ReviewApproveCreate,
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
+    operator: str = Depends(get_current_operator),
 ) -> ReviewDecisionRead:
     review_task = db.scalar(
         select(ReviewTask)
@@ -225,9 +219,9 @@ def approve_review_task(
         db,
         review_task=review_task,
         items=payload.certificates,
-        reviewed_by=payload.reviewed_by,
+        reviewed_by=operator,
         notes=payload.notes,
-        audit_context=_request_context_to_audit_context(request_context, payload.reviewed_by),
+        audit_context=_request_context_to_audit_context(request_context),
     )
     return ReviewDecisionRead(
         review_task=_review_task_to_read(result.review_task),
@@ -245,6 +239,7 @@ def reject_review_task(
     payload: ReviewRejectCreate,
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
+    operator: str = Depends(get_current_operator),
 ) -> ReviewTaskRead:
     if payload.status not in {ReviewStatus.REJECTED, ReviewStatus.NEEDS_INFO}:
         raise HTTPException(status_code=400, detail="status must be REJECTED or NEEDS_INFO")
@@ -263,8 +258,8 @@ def reject_review_task(
         db,
         review_task=review_task,
         status=payload.status,
-        reviewed_by=payload.reviewed_by,
+        reviewed_by=operator,
         notes=payload.notes,
-        audit_context=_request_context_to_audit_context(request_context, payload.reviewed_by),
+        audit_context=_request_context_to_audit_context(request_context),
     )
     return _review_task_to_read(task)

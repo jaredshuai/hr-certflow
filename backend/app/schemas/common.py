@@ -24,9 +24,8 @@ class HealthResponse(BaseModel):
 class MeResponse(BaseModel):
     """当前请求的可信操作人身份。
 
-    由网关 OIDC 认证后覆写 ``X-HR-Actor`` 注入，应用层只透传可信值。
-    ``name`` 为空表示未认证（过渡态 ``auth_required=False`` 时可见；
-    ``auth_required=True`` 时此接口在中间件层即返回 401，不会到达此处）。
+    ``authenticated=False`` 表示 dev 固定开发操作人（``source=dev-unauthenticated``），
+    不是真实登录身份。未认证请求在中间件层即返回 401，不会到达此处。
     """
 
     name: str | None

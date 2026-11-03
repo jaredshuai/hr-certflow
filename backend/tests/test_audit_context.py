@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
+
 from app.api.deps import build_request_context, get_request_context
+from app.core.config import get_settings
 from app.services.audit import record_audit
 
 
@@ -15,45 +18,52 @@ class FakeDb:
         self.added.append(item)
 
 
-def test_get_request_context_prefers_forwarded_for_and_request_id() -> None:
+@pytest.fixture()
+def release_settings(monkeypatch):
+    get_settings.cache_clear()
+    monkeypatch.setenv("APP_ENV", "release")
+    monkeypatch.setenv("AUTH_REQUIRED", "true")
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.0/8")
+    yield
+    get_settings.cache_clear()
+
+
+def test_get_request_context_prefers_forwarded_for_and_request_id(release_settings) -> None:
     request = SimpleNamespace(
-        headers={"x-forwarded-for": "10.0.0.1, 10.0.0.2"},
+        headers={"x-forwarded-for": "10.0.0.1, 10.0.0.2", "X-HR-Actor": " Alice HR ", "X-Request-ID": " req-1 "},
         client=SimpleNamespace(host="127.0.0.1"),
     )
 
-    context = get_request_context(request, x_hr_actor=" Alice HR ", x_request_id=" req-1 ")
+    context = get_request_context(request)  # type: ignore[arg-type]
 
     assert context.actor_name == "Alice HR"
     assert context.request_id == "req-1"
     assert context.ip_address == "10.0.0.1"
 
 
-def test_get_request_context_decodes_ascii_safe_actor_header() -> None:
+def test_get_request_context_decodes_ascii_safe_actor_header(release_settings) -> None:
     request = SimpleNamespace(
-        headers={},
+        headers={"X-HR-Actor": "%E5%BC%A0%E4%B8%89%20HR", "X-Request-ID": "req-encoded-actor"},
         client=SimpleNamespace(host="127.0.0.1"),
     )
 
-    context = get_request_context(
-        request,
-        x_hr_actor="%E5%BC%A0%E4%B8%89%20HR",
-        x_request_id="req-encoded-actor",
-    )
+    context = get_request_context(request)  # type: ignore[arg-type]
 
     assert context.actor_name == "张三 HR"
     assert context.request_id == "req-encoded-actor"
 
 
-def test_get_request_context_reuses_state_context() -> None:
+def test_get_request_context_reuses_state_context(release_settings) -> None:
     request = SimpleNamespace(
-        headers={},
+        headers={"X-HR-Actor": "Alice HR", "X-Request-ID": "req-1"},
         client=SimpleNamespace(host="127.0.0.1"),
         state=SimpleNamespace(),
     )
-    context = build_request_context(request, x_hr_actor="Alice HR", x_request_id="req-1")
+    context = build_request_context(request)  # type: ignore[arg-type]
     request.state.request_context = context
+    request.headers = {"X-HR-Actor": "Bob HR", "X-Request-ID": "req-2"}
 
-    reused = get_request_context(request, x_hr_actor="Bob HR", x_request_id="req-2")
+    reused = get_request_context(request)  # type: ignore[arg-type]
 
     assert reused is context
     assert reused.actor_name == "Alice HR"

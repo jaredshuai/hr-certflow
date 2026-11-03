@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import ipaddress
 from functools import lru_cache
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 只有这两个环境允许在没有网关时使用固定开发操作人；缺失或其它值一律按 release 处理。
+DEV_OPERATOR_ENVS: frozenset[str] = frozenset({"local", "dev"})
+DEV_OPERATOR_SOURCE = "dev-unauthenticated"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "HR CertFlow"
-    app_env: str = "local"
+    app_env: str = ""
     app_timezone: str = "Asia/Shanghai"
     auto_create_tables: bool = False
     # 识别中超过该分钟数未完成的原件视为识别超时，标为失败，HR 可重新识别。
@@ -54,6 +59,12 @@ class Settings(BaseSettings):
 
     trusted_proxy_cidrs: str = ""
     auth_required: bool = False
+    # AUTH_REQUIRED=false 时（仅 local/dev）所有请求都记在这个固定操作人名下，请求无法覆盖。
+    dev_operator_name: str = Field(default="dev-unauthenticated", min_length=1, max_length=128)
+
+    @property
+    def uses_dev_operator(self) -> bool:
+        return not self.auth_required and self.app_env in DEV_OPERATOR_ENVS
 
     @property
     def cors_origins(self) -> list[str]:
@@ -94,6 +105,27 @@ class Settings(BaseSettings):
     @property
     def resolved_celery_fanout_prefix(self) -> str:
         return f"{self.resolved_celery_redis_hash_tag}:fanout"
+
+
+def parse_trusted_proxy_networks(value: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    """解析逗号分隔的 CIDR；任一项非法即抛 ValueError。"""
+    return [ipaddress.ip_network(item.strip(), strict=False) for item in value.split(",") if item.strip()]
+
+
+def validate_auth_settings(settings: Settings) -> None:
+    """启动时校验身份来源配置，配置不安全时拒绝启动。"""
+    if not settings.auth_required:
+        if settings.app_env not in DEV_OPERATOR_ENVS:
+            raise RuntimeError(
+                f"AUTH_REQUIRED=false is only allowed when APP_ENV is local or dev, got APP_ENV={settings.app_env!r}"
+            )
+        return
+    try:
+        networks = parse_trusted_proxy_networks(settings.trusted_proxy_cidrs)
+    except ValueError as exc:
+        raise RuntimeError(f"TRUSTED_PROXY_CIDRS is invalid: {exc}") from exc
+    if not networks:
+        raise RuntimeError("AUTH_REQUIRED=true requires a non-empty TRUSTED_PROXY_CIDRS")
 
 
 @lru_cache

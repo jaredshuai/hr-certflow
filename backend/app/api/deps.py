@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+
+from app.core.config import DEV_OPERATOR_SOURCE, parse_trusted_proxy_networks
 
 REQUEST_CONTEXT_STATE_KEY = "request_context"
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -38,9 +40,9 @@ def audit_context_kwargs(context: object | None) -> dict[str, Any]:
     }
 
 
-def audit_actor_name(context: object | None, fallback: str | None = None) -> str | None:
+def audit_actor_name(context: object | None) -> str | None:
     normalized = normalize_request_context(context)
-    return (normalized.actor_name if normalized else None) or fallback
+    return normalized.actor_name if normalized else None
 
 
 def audit_request_id(context: object | None) -> str | None:
@@ -79,75 +81,63 @@ def _is_trusted_proxy(ip: str | None, trusted_cidrs: str) -> bool:
         return False
     try:
         addr = ipaddress.ip_address(ip)
+        networks = parse_trusted_proxy_networks(trusted_cidrs)
     except ValueError:
+        # 启动时 validate_auth_settings 已拒绝非法配置；这里再兜底按不可信处理。
         return False
-    for cidr in trusted_cidrs.split(","):
-        cidr = cidr.strip()
-        if not cidr:
-            continue
-        try:
-            if addr in ipaddress.ip_network(cidr, strict=False):
-                return True
-        except ValueError:
-            continue
-    return False
+    return any(addr in network for network in networks)
 
 
-def build_request_context(
-    request: Request,
-    *,
-    x_hr_actor: str | None = None,
-    x_request_id: str | None = None,
-    x_hr_actor_source: str | None = None,
-) -> RequestContext:
+def build_request_context(request: Request) -> RequestContext:
     from app.core.config import get_settings
 
     settings = get_settings()
-    actor_name = _clean_actor_header(x_hr_actor if x_hr_actor is not None else request.headers.get(HR_ACTOR_HEADER))
-    request_id = _clean_header(x_request_id if x_request_id is not None else request.headers.get(REQUEST_ID_HEADER))
-    actor_source = _clean_header(
-        x_hr_actor_source
-        if x_hr_actor_source is not None
-        else request.headers.get(HR_ACTOR_SOURCE_HEADER)
-    )
+    request_id = _clean_header(request.headers.get(REQUEST_ID_HEADER)) or str(uuid.uuid4())
 
     # 信任与否只看直连对端（网关）；X-Forwarded-For 可被客户端自填，不能作为信任依据。
     peer_ip = request.client.host if request.client else None
-    if settings.trusted_proxy_cidrs:
-        peer_trusted = _is_trusted_proxy(peer_ip, settings.trusted_proxy_cidrs)
-        if not peer_trusted:
-            actor_name = None
-            actor_source = None
-        client_ip = (_forwarded_client_ip(request) if peer_trusted else None) or peer_ip
-    else:
-        client_ip = _forwarded_client_ip(request) or peer_ip
+    peer_trusted = _is_trusted_proxy(peer_ip, settings.trusted_proxy_cidrs)
+    client_ip = (_forwarded_client_ip(request) if peer_trusted else None) or peer_ip
 
+    if settings.uses_dev_operator:
+        # dev 没有网关：一律记为固定开发操作人，请求里的任何身份头都不采信。
+        return RequestContext(
+            actor_name=settings.dev_operator_name,
+            request_id=request_id,
+            ip_address=client_ip,
+            actor_source=DEV_OPERATOR_SOURCE,
+        )
+
+    # 过渡期身份来源：只采信可信网段网关写入的身份头，其它来源按未认证处理。
+    # 第 3 步接入 BFF SDK 后整体删除。
+    actor_name = _clean_actor_header(request.headers.get(HR_ACTOR_HEADER)) if peer_trusted else None
+    actor_source = _clean_header(request.headers.get(HR_ACTOR_SOURCE_HEADER)) if peer_trusted else None
     return RequestContext(
         actor_name=actor_name,
-        request_id=request_id or str(uuid.uuid4()),
+        request_id=request_id,
         ip_address=client_ip,
-        actor_source=actor_source,
+        actor_source=actor_source if actor_name else None,
     )
 
 
-def get_request_context(
-    request: Request,
-    x_hr_actor: str | None = Header(default=None, alias=HR_ACTOR_HEADER),
-    x_request_id: str | None = Header(default=None, alias=REQUEST_ID_HEADER),
-) -> RequestContext:
+def get_request_context(request: Request) -> RequestContext:
     state = getattr(request, "state", None)
     existing = normalize_request_context(getattr(state, REQUEST_CONTEXT_STATE_KEY, None))
     if existing:
         context = existing
     else:
-        context = build_request_context(request, x_hr_actor=x_hr_actor, x_request_id=x_request_id)
+        context = build_request_context(request)
         if state is not None:
             setattr(state, REQUEST_CONTEXT_STATE_KEY, context)
 
-    from app.core.config import get_settings
-
-    settings = get_settings()
-    if settings.auth_required and not context.actor_name:
+    if not context.actor_name:
         raise HTTPException(status_code=401, detail="Authenticated actor required")
 
     return context
+
+
+def get_current_operator(request_context: RequestContext = Depends(get_request_context)) -> str:
+    """写接口的操作人只来自服务端认定的身份，不从请求体或查询参数接收。"""
+    if not request_context.actor_name:
+        raise HTTPException(status_code=401, detail="Authenticated actor required")
+    return request_context.actor_name

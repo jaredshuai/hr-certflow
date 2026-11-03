@@ -13,11 +13,11 @@ from app import models  # noqa: F401
 from app.api.deps import REQUEST_CONTEXT_STATE_KEY, REQUEST_ID_HEADER, build_request_context
 from app.api.router import api_router
 from app.api.routes import internal
-from app.core.config import get_settings
+from app.core.config import get_settings, validate_auth_settings
 from app.db.base import Base
 from app.db.session import get_engine
 
-# 仅这些路径精确绕过 auth_required:Kubernetes 探针无 X-HR-Actor,
+# 仅这些路径精确绕过认证:Kubernetes 探针没有操作人,
 # 若走认证会 401 导致 Pod 不 Ready。绝不允许通配 /api/v1/* 豁免。
 AUTH_BYPASS_PATHS: frozenset[str] = frozenset({"/_internal/healthz"})
 
@@ -38,11 +38,10 @@ class RequestContextMiddleware:
             scope["state"] = {}
         scope["state"][REQUEST_CONTEXT_STATE_KEY] = context
 
-        settings = get_settings()
-        # 探针端点精确绕过:AUTH_REQUIRED=true 时 kubelet probe 无 actor,
-        # 必须放行否则 Pod 不 Ready。仅 /_internal/healthz 豁免,/api/v1/* 不豁免。
+        # 没有操作人的请求一律 401(dev 固定开发操作人总是存在)。
+        # 探针端点精确绕过:仅 /_internal/healthz 豁免,/api/v1/* 不豁免。
         auth_bypassed = request.url.path in AUTH_BYPASS_PATHS
-        if settings.auth_required and not context.actor_name and not auth_bypassed:
+        if not context.actor_name and not auth_bypassed:
             response = {
                 "type": "http.response.start",
                 "status": 401,
@@ -72,6 +71,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        validate_auth_settings(settings)
         if settings.auto_create_tables:
             if settings.app_env == "local":
                 Base.metadata.create_all(bind=get_engine())
