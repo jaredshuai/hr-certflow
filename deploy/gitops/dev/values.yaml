@@ -1,5 +1,7 @@
 config:
   APP_ENV: dev
+  # dev 没有网关：所有请求记在固定开发操作人 dev-unauthenticated 名下。
+  AUTH_REQUIRED: "false"
   AUTO_CREATE_TABLES: 'false'
   API_CORS_ORIGINS: http://10.34.200.180
   CELERY_NAMESPACE: hr-certflow-dev

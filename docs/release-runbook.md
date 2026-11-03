@@ -295,7 +295,11 @@ HR CertFlow 是 system of record，审计日志中的操作人必须可信。在
 
 ### 应用层配置
 
-release（由 infra 在运行时配置中提供）：
+release 与 dev 的这几项唯一真相源是本仓库 `deploy/gitops/<env>/values.yaml` 的 `config:`
+（Argo CD 经 Helm 渲染为 `hr-certflow-config` ConfigMap），不在 Secret 或 infra 侧配置中。
+`scripts/validate_deploy_artifacts.py` 在 CI 中按与启动校验相同的规则检查。
+
+release：
 
 ```yaml
 APP_ENV: release
@@ -307,7 +311,7 @@ dev / local：
 
 ```yaml
 APP_ENV: dev            # 或 local
-AUTH_REQUIRED: "false"  # 缺省即 false
+AUTH_REQUIRED: "false"  # dev values 中显式声明
 # DEV_OPERATOR_NAME: dev-unauthenticated   # 可选，固定开发操作人名称
 ```
 
@@ -328,7 +332,8 @@ API 启动时校验，配置不安全时拒绝启动：
 1. Traefik 剥离客户端自带的 `X-HR-Actor*` 头。
 2. oauth2-proxy（Casdoor OIDC）认证后，由 actor-header-adapter **覆写** `X-HR-Actor` /
    `X-HR-Actor-Source: casdoor`。
-3. 网关所在 Pod 网段配进 `TRUSTED_PROXY_CIDRS`，并设 `AUTH_REQUIRED=true`。
+3. 直连 API 的 Traefik 所在 Pod 网段（k3s `10.42.0.0/16`）已写入 release values 的
+   `TRUSTED_PROXY_CIDRS`，`AUTH_REQUIRED="true"` 同样写在 release values 中。
 
 ### 验证
 
