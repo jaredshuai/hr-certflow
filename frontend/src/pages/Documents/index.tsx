@@ -23,7 +23,6 @@ import {
 import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
 import { message } from '@/utils/messageApi';
-import { actorProvider } from '@/utils/actorProvider';
 
 function documentStatusFromSearch(search: string): DocumentStatus | undefined {
   const value = new URLSearchParams(search).get('status');
@@ -78,16 +77,10 @@ export default function DocumentsPage() {
   }
 
   async function recognizeDocument(record: CertificateDocument) {
-    const operator = actorProvider.getCurrent()?.name;
-    if (!operator) {
-      message.warning('请先在右上角填写当前操作人');
-      return;
-    }
-
     setRunningAction({ documentId: record.id, action: 'recognize' });
     try {
       await postResource<RecognitionDispatch>(
-        `/documents/${record.id}/recognize-async?user=${encodeURIComponent(operator)}`,
+        `/documents/${record.id}/recognize-async`,
       );
 
       const pollIntervalMs = 2000;
