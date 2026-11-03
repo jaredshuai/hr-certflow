@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.core.config import get_settings
 
@@ -119,7 +120,10 @@ def test_dev_operator_name_is_server_configured(monkeypatch) -> None:
 # --- 启动校验 -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("trusted_cidrs", ["", " , ", "10.42.0.0/16,not-a-cidr"])
+@pytest.mark.parametrize(
+    "trusted_cidrs",
+    ["", " , ", "10.42.0.0/16,not-a-cidr", "0.0.0.0/0", "::/0", "10.42.0.0/16,0.0.0.0/0"],
+)
 def test_startup_fails_when_auth_required_without_valid_trusted_cidrs(monkeypatch, trusted_cidrs: str) -> None:
     _configure(monkeypatch, app_env="release", auth_required=True, trusted_cidrs=trusted_cidrs)
 
@@ -151,3 +155,31 @@ def test_missing_app_env_is_not_treated_as_dev(monkeypatch) -> None:
     response = TestClient(create_app()).get("/api/v1/me", headers={"X-HR-Actor": "Mallory"})
 
     assert response.status_code == 401
+
+
+# --- 启动校验补充：APP_ENV / 操作人名 / 身份头长度 ------------------------------
+
+
+@pytest.mark.parametrize("app_env", [None, "", "   "])
+def test_startup_fails_when_auth_required_without_app_env(monkeypatch, app_env: str | None) -> None:
+    _configure(monkeypatch, app_env=app_env, auth_required=True, trusted_cidrs="10.42.0.0/16")
+
+    with pytest.raises(RuntimeError, match="APP_ENV"):
+        _start(monkeypatch)
+
+
+def test_dev_operator_name_blank_is_rejected(monkeypatch) -> None:
+    _configure(monkeypatch, app_env="dev", auth_required=False)
+    monkeypatch.setenv("DEV_OPERATOR_NAME", "   ")
+    get_settings.cache_clear()
+
+    with pytest.raises(ValidationError):
+        get_settings()
+
+
+@pytest.mark.parametrize(("actor", "expected"), [("a" * 128, 200), ("a" * 129, 401)])
+def test_release_actor_header_over_128_chars_is_no_actor(monkeypatch, actor: str, expected: int) -> None:
+    """X-HR-Actor 解码后超过 128 字符按无操作人处理，避免溢出 String(128) 列。"""
+    client = _release_client(monkeypatch, peer="10.42.3.7")
+
+    assert client.get("/api/v1/me", headers={"X-HR-Actor": actor}).status_code == expected

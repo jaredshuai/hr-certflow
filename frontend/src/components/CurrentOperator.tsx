@@ -22,8 +22,8 @@ export function CurrentOperator() {
       );
     case 'dev-operator':
       return (
-        <Tooltip title="开发环境未接入登录，所有操作都记在这个固定开发操作人名下">
-          <Tag icon={<UserOutlined />} color="orange">
+        <Tooltip title="开发环境未接入登录，所有操作都记在这个固定开发操作人名下" trigger={['hover', 'focus']}>
+          <Tag icon={<UserOutlined />} color="orange" tabIndex={0}>
             开发环境：{state.name}
           </Tag>
         </Tooltip>
