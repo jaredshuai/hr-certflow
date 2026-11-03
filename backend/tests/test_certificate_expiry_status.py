@@ -157,6 +157,7 @@ def test_manual_create_derives_status_instead_of_trusting_payload(db_session: Se
         ),
         db_session,
         None,
+        operator="Alice HR",
     )
 
     assert certificate.status == CertificateStatus.ACTIVE
@@ -201,6 +202,7 @@ def test_manual_status_other_than_expiry_states_is_kept(db_session: Session) -> 
         ),
         db_session,
         None,
+        operator="Alice HR",
     )
 
     assert certificate.status == CertificateStatus.ARCHIVED
@@ -255,6 +257,7 @@ def test_backfilled_older_certificate_is_replaced_by_existing_newer_one(db_sessi
         ),
         db_session,
         None,
+        operator="Alice HR",
     )
 
     db_session.refresh(current)
@@ -281,6 +284,7 @@ def test_backfilled_expired_certificate_does_not_add_expired_risk(db_session: Se
         ),
         db_session,
         None,
+        operator="Alice HR",
     )
 
     assert historical.status == CertificateStatus.REPLACED
@@ -310,6 +314,7 @@ def test_newer_expired_certificate_supersedes_older_expired_one(db_session: Sess
         ),
         db_session,
         None,
+        operator="Alice HR",
     )
 
     db_session.refresh(old_expired)
@@ -334,6 +339,7 @@ def test_replaced_certificate_cannot_be_revived(db_session: Session) -> None:
         ),
         db_session,
         None,
+        operator="Alice HR",
     )
     db_session.refresh(old)
     assert old.status == CertificateStatus.REPLACED
@@ -376,6 +382,7 @@ def test_manual_create_rejects_workflow_statuses(db_session: Session, status: Ce
             ),
             db_session,
             None,
+            operator="Alice HR",
         )
     assert exc_info.value.status_code == 400
 

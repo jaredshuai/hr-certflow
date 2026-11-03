@@ -110,7 +110,6 @@ class ReminderTaskPageRead(BaseModel):
 
 
 class ReminderDispatchCreate(BaseModel):
-    operator: str = Field(min_length=1, max_length=128)
     simulate: bool = True
     channels: list[str] | None = None
 
@@ -123,7 +122,6 @@ class ReminderDispatchRead(BaseModel):
 
 
 class ReminderTaskScanCreate(BaseModel):
-    operator: str = Field(min_length=1, max_length=128)
     scan_date: date | None = None
 
 
@@ -136,7 +134,6 @@ class ReminderTaskScanRead(BaseModel):
 class FeedbackCreate(BaseModel):
     status: FeedbackStatus
     content: str | None = None
-    created_by: str = Field(min_length=1, max_length=128)
     expected_updated_at: datetime | None = None
 
 

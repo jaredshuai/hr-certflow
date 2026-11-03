@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 from pathlib import Path
 from typing import Any
 
@@ -10,11 +11,13 @@ import yaml
 EXPECTED = {
     "dev": {
         "app_env": "dev",
+        "auth_required": "false",
         "namespace": "hr-certflow-dev",
         "path_prefix": "/hr-certflow-dev",
     },
     "release": {
         "app_env": "release",
+        "auth_required": "true",
         "namespace": "hr-certflow-release",
         "path_prefix": "/hr-certflow",
     },
@@ -60,6 +63,19 @@ def validate_values(env_name: str, path: Path) -> None:
     )
     require("{" not in str(config.get("CELERY_REDIS_PREFIX")), f"{path}: Redis Cluster hash-tag prefix is not allowed")
     require(ingress.get("pathPrefix") == expected["path_prefix"], f"{path}: unexpected ingress path prefix")
+    # 与 API 启动校验一致：release 必须开启认证并给出合法可信网段，否则新镜像会拒绝启动。
+    require(
+        str(config.get("AUTH_REQUIRED")).lower() == expected["auth_required"],
+        f"{path}: AUTH_REQUIRED must be {expected['auth_required']}",
+    )
+    if expected["auth_required"] == "true":
+        cidrs = [item.strip() for item in str(config.get("TRUSTED_PROXY_CIDRS") or "").split(",") if item.strip()]
+        require(cidrs, f"{path}: TRUSTED_PROXY_CIDRS is required when AUTH_REQUIRED is true")
+        for cidr in cidrs:
+            try:
+                ipaddress.ip_network(cidr, strict=False)
+            except ValueError as exc:
+                raise RuntimeError(f"{path}: TRUSTED_PROXY_CIDRS has invalid entry {cidr!r}") from exc
 
     for image_name in ("api", "web"):
         image = images.get(image_name) or {}

@@ -14,10 +14,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import (
     RequestContext,
-    audit_actor_name,
     audit_context_kwargs,
-    audit_ip_address,
-    audit_request_id,
+    get_current_operator,
     get_request_context,
 )
 from app.core.config import get_settings
@@ -434,6 +432,7 @@ def scan_tasks(
     payload: ReminderTaskScanCreate,
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
+    operator: str = Depends(get_current_operator),
 ) -> ReminderTaskScanRead:
     scan_date = payload.scan_date or datetime.now(UTC).date()
     # 持证状态只按真实当天刷新；scan_date 只用于模拟建任务，不能把证书提前推成已过期。
@@ -447,11 +446,9 @@ def scan_tasks(
             "status_changed": status_changed,
             "created": created,
             "scan_date": scan_date.isoformat(),
-            "operator": payload.operator,
+            "operator": operator,
         },
-        actor_name=audit_actor_name(request_context, payload.operator),
-        request_id=audit_request_id(request_context),
-        ip_address=audit_ip_address(request_context),
+        **audit_context_kwargs(request_context),
     )
     db.commit()
     return ReminderTaskScanRead(created=created, scan_date=scan_date, status_changed=status_changed)
@@ -509,6 +506,7 @@ def dispatch_task(
     payload: ReminderDispatchCreate,
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
+    operator: str = Depends(get_current_operator),
 ) -> ReminderDispatchRead:
     reminder_task = db.scalar(
         select(ReminderTask)
@@ -535,14 +533,10 @@ def dispatch_task(
             db,
             get_settings(),
             reminder_task,
-            operator=payload.operator,
+            operator=operator,
             simulate=payload.simulate,
             channels=payload.channels,
-            request_context={
-                "actor_name": audit_actor_name(request_context),
-                "request_id": audit_request_id(request_context),
-                "ip_address": audit_ip_address(request_context),
-            },
+            request_context=audit_context_kwargs(request_context),
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -567,6 +561,7 @@ def create_feedback(
     payload: FeedbackCreate,
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
+    operator: str = Depends(get_current_operator),
 ) -> Feedback:
     reminder_task = db.scalar(select(ReminderTask).where(ReminderTask.id == reminder_task_id).with_for_update())
     if not reminder_task:
@@ -582,6 +577,7 @@ def create_feedback(
     feedback = Feedback(
         reminder_task_id=reminder_task.id,
         employee_certificate_id=reminder_task.employee_certificate_id,
+        created_by=operator,
         **feedback_payload,
     )
     db.add(feedback)
@@ -611,7 +607,7 @@ def create_feedback(
             event_type=ReminderEventType.FEEDBACK,
             event_date=now.date(),
             channel="hr_feedback",
-            recipient=payload.created_by,
+            recipient=operator,
             payload=payload.model_dump(mode="json", exclude={"expected_updated_at"}),
             sent_at=now,
         )
@@ -628,9 +624,7 @@ def create_feedback(
             "task_status": reminder_task.status.value,
             "closed_reason": reminder_task.closed_reason,
         },
-        actor_name=audit_actor_name(request_context, payload.created_by),
-        request_id=audit_request_id(request_context),
-        ip_address=audit_ip_address(request_context),
+        **audit_context_kwargs(request_context),
     )
     db.commit()
     db.refresh(feedback)

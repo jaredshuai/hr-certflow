@@ -146,7 +146,7 @@ def test_manual_dispatch_rejects_task_of_left_employee(db_session: Session) -> N
     db_session.flush()
 
     with pytest.raises(HTTPException) as exc_info:
-        dispatch_task(task.id, ReminderDispatchCreate(operator="Alice HR", simulate=False), db_session, None)
+        dispatch_task(task.id, ReminderDispatchCreate(simulate=False), db_session, None, operator="Alice HR")
 
     assert exc_info.value.status_code == 409
 
@@ -160,9 +160,10 @@ def test_feedback_on_closed_task_is_rejected(db_session: Session) -> None:
     with pytest.raises(HTTPException) as exc_info:
         create_feedback(
             task.id,
-            FeedbackCreate(status=FeedbackStatus.NOTIFIED_EMPLOYEE, created_by="Alice HR"),
+            FeedbackCreate(status=FeedbackStatus.NOTIFIED_EMPLOYEE),
             db_session,
             None,
+            operator="Alice HR",
         )
 
     assert exc_info.value.status_code == 409
@@ -174,9 +175,10 @@ def test_progress_feedback_keeps_escalated_task_escalated(db_session: Session) -
 
     create_feedback(
         task.id,
-        FeedbackCreate(status=FeedbackStatus.PROCESSING, created_by="Alice HR"),
+        FeedbackCreate(status=FeedbackStatus.PROCESSING),
         db_session,
         None,
+        operator="Alice HR",
     )
 
     db_session.refresh(task)
@@ -190,9 +192,10 @@ def test_feedback_with_stale_updated_at_is_rejected(db_session: Session) -> None
     with pytest.raises(HTTPException) as exc_info:
         create_feedback(
             task.id,
-            FeedbackCreate(status=FeedbackStatus.PROCESSING, created_by="Alice HR", expected_updated_at=stale),
+            FeedbackCreate(status=FeedbackStatus.PROCESSING, expected_updated_at=stale),
             db_session,
             None,
+            operator="Alice HR",
         )
 
     assert exc_info.value.status_code == 409

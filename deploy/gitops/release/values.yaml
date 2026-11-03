@@ -1,5 +1,8 @@
 config:
   APP_ENV: release
+  AUTH_REQUIRED: "true"
+  # 过渡值：直连 API 的 Traefik 在 k3s Pod 网段内；#33 第 3 步接入 BFF SDK 后删除。
+  TRUSTED_PROXY_CIDRS: 10.42.0.0/16
   AUTO_CREATE_TABLES: 'false'
   API_CORS_ORIGINS: http://10.34.200.180
   CELERY_NAMESPACE: hr-certflow-release

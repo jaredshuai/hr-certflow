@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.api.deps import RequestContext, get_request_context
+from app.core.config import DEV_OPERATOR_SOURCE
 from app.schemas.common import MeResponse
 
 router = APIRouter()
@@ -14,12 +15,12 @@ def current_actor(
 ) -> MeResponse:
     """返回当前请求的可信操作人。
 
-    前端用于在右上角展示「谁在操作」。actor 由网关 OIDC 注入，应用层
-    只透传可信来源的值（见 ``deps.build_request_context`` 的 trusted proxy
-    校验）。未认证时 ``name=None``、``authenticated=False``。
+    前端用于在右上角展示「谁在操作」。release 过渡期由可信网段网关注入身份头；
+    dev（AUTH_REQUIRED=false）为固定开发操作人，``authenticated=False`` 以便区分。
+    没有操作人的请求在中间件层即返回 401，不会到达此处。
     """
     return MeResponse(
         name=request_context.actor_name,
         source=request_context.actor_source,
-        authenticated=request_context.actor_name is not None,
+        authenticated=request_context.actor_source != DEV_OPERATOR_SOURCE,
     )

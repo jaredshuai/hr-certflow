@@ -29,7 +29,6 @@ import { apiErrorMessage, isReviewStaleActionError, reviewStaleActionMessage } f
 import { documentStatusLabel } from '@/utils/displayLabels';
 import { certificateTypeSelectRequest, employeeSelectRequest } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
-import { actorProvider } from '@/utils/actorProvider';
 
 interface CertificateFormValues {
   employee_id?: string;
@@ -42,7 +41,6 @@ interface CertificateFormValues {
   valid_from?: unknown;
   valid_to?: unknown;
   review_date?: unknown;
-  reviewed_by?: string;
   notes?: string;
 }
 
@@ -151,11 +149,11 @@ export default function UploadRecognitionPage() {
     return review;
   }
 
-  async function recognizeDocument(targetDocumentId: string, actor: string) {
+  async function recognizeDocument(targetDocumentId: string) {
     setRecognitionStatus('识别中');
 
     await postResource<RecognitionDispatch>(
-      `/documents/${targetDocumentId}/recognize-async?user=${encodeURIComponent(actor)}`,
+      `/documents/${targetDocumentId}/recognize-async`,
     );
 
     const pollIntervalMs = 2000;
@@ -213,11 +211,6 @@ export default function UploadRecognitionPage() {
     if (!validateUploadFile(selectedFile)) {
       return;
     }
-    const actor = actorProvider.getCurrent();
-    if (!actor) {
-      message.warning('请先在右上角设置当前操作人');
-      return;
-    }
     if (submitting) return;
 
     setErrorMessage(undefined);
@@ -256,7 +249,7 @@ export default function UploadRecognitionPage() {
       setUploading(false);
       setRecognizing(true);
       try {
-        await recognizeDocument(intent.document_id, actor.name);
+        await recognizeDocument(intent.document_id);
         message.success('上传和识别已完成，请复核后确认');
       } finally {
         setRecognizing(false);
@@ -276,17 +269,12 @@ export default function UploadRecognitionPage() {
       message.warning('请先上传文件');
       return;
     }
-    const actor = actorProvider.getCurrent();
-    if (!actor) {
-      message.warning('请先在右上角设置当前操作人');
-      return;
-    }
     if (submitting) return;
 
     setErrorMessage(undefined);
     setRecognizing(true);
     try {
-      await recognizeDocument(documentId, actor.name);
+      await recognizeDocument(documentId);
       message.success('重新识别已完成');
     } catch (error) {
       setRecognitionStatus('识别失败');
@@ -325,7 +313,6 @@ export default function UploadRecognitionPage() {
     };
     const payload: ReviewApprovePayload = {
       certificates: [certItem],
-      reviewed_by: values.reviewed_by!.trim(),
       notes: values.notes,
       expected_updated_at: reviewTaskUpdatedAt!,
     };
@@ -606,7 +593,6 @@ export default function UploadRecognitionPage() {
               tooltip="留空时，系统会按证书类型默认有效期和有效开始/发证日期自动计算"
             />
             <ProFormDatePicker name="review_date" label="复审日期" />
-            <ProFormText name="reviewed_by" label="复核人" rules={[{ required: true, message: '请输入复核人' }]} />
             <ProFormText name="notes" label="复核备注" />
           </ProForm>
         </ProCard>

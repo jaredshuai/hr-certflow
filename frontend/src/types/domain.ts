@@ -398,7 +398,6 @@ export interface ReviewApproveItem {
 
 export interface ReviewApprovePayload {
   certificates: ReviewApproveItem[];
-  reviewed_by: string;
   notes?: string;
   expected_updated_at: string;
 }
@@ -417,7 +416,6 @@ export interface ReviewTaskTrace {
 }
 
 export interface ReminderDispatchPayload {
-  operator: string;
   simulate: boolean;
   channels?: string[];
 }
@@ -430,7 +428,6 @@ export interface ReminderDispatchResult {
 }
 
 export interface ReminderTaskScanPayload {
-  operator: string;
   scan_date?: string;
 }
 

@@ -74,6 +74,7 @@ class AuditContext:
     actor_name: str | None = None
     request_id: str | None = None
     ip_address: str | None = None
+    actor_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -233,6 +234,7 @@ def approve_review_task(
                 "actor_name": audit_context.actor_name,
                 "request_id": audit_context.request_id,
                 "ip_address": audit_context.ip_address,
+                "actor_source": audit_context.actor_source,
             },
         )
         certificate.status = final_certificate_status(certificate, target_status)
@@ -273,6 +275,7 @@ def approve_review_task(
         actor_name=audit_context.actor_name,
         request_id=audit_context.request_id,
         ip_address=audit_context.ip_address,
+        actor_source=audit_context.actor_source,
     )
     db.commit()
     db.refresh(review_task)
@@ -324,6 +327,7 @@ def reject_review_task(
         actor_name=audit_context.actor_name,
         request_id=audit_context.request_id,
         ip_address=audit_context.ip_address,
+        actor_source=audit_context.actor_source,
     )
     db.commit()
     db.refresh(review_task)

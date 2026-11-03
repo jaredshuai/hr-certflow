@@ -363,9 +363,9 @@ def test_hr_feedback_records_real_actor_and_event_source(db_session: Session) ->
         FeedbackCreate(
             status=FeedbackStatus.NOTIFIED_EMPLOYEE,
             content="已通知员工准备续证材料",
-            created_by="Alice HR",
         ),
         db_session,
+        operator="Alice HR",
     )
 
     events = list(
@@ -385,8 +385,9 @@ def test_manual_simulated_dispatch_records_preview_without_advancing_task(db_ses
 
     result = dispatch_task(
         task.id,
-        ReminderDispatchCreate(operator="Alice HR", simulate=True, channels=["email", "wecom"]),
+        ReminderDispatchCreate(simulate=True, channels=["email", "wecom"]),
         db_session,
+        operator="Alice HR",
     )
 
     db_session.flush()
@@ -411,8 +412,9 @@ def test_manual_dispatch_rejects_closed_task(db_session: Session) -> None:
     with pytest.raises(HTTPException) as exc_info:
         dispatch_task(
             task.id,
-            ReminderDispatchCreate(operator="Alice HR", simulate=True),
+            ReminderDispatchCreate(simulate=True),
             db_session,
+            operator="Alice HR",
         )
 
     assert exc_info.value.status_code == 409
@@ -761,10 +763,10 @@ def test_review_approval_creates_active_certificate_and_replaces_old_one(db_sess
                     valid_to=date(2028, 6, 1),
                 ),
             ],
-            reviewed_by="Alice HR",
             expected_updated_at=review_task.updated_at,
             ),
         db_session,
+        operator="Alice HR",
     )
 
     db_session.flush()
@@ -815,10 +817,10 @@ def test_review_approval_derives_valid_to_from_certificate_type_default(
                     issue_date=date(2026, 5, 20),
                 ),
             ],
-            reviewed_by="Alice HR",
             expected_updated_at=review_task.updated_at,
             ),
         db_session,
+        operator="Alice HR",
     )
 
     assert decision.certificates[0] is not None
@@ -933,10 +935,10 @@ def test_review_approval_keeps_explicit_valid_to_over_certificate_type_default(
                     valid_to=date(2026, 8, 1),
                 ),
             ],
-            reviewed_by="Alice HR",
             expected_updated_at=review_task.updated_at,
             ),
         db_session,
+        operator="Alice HR",
     )
 
     assert decision.certificates[0] is not None
@@ -972,10 +974,10 @@ def test_review_approval_rejects_holder_name_mismatch(db_session: Session) -> No
                         holder_name="李四",
                     ),
                 ],
-                reviewed_by="Alice HR",
                 expected_updated_at=review_task.updated_at,
                 ),
             db_session,
+            operator="Alice HR",
         )
 
     assert "holder_name must match selected employee" in str(exc_info.value)
@@ -1015,10 +1017,10 @@ def test_review_approval_rejects_duplicate_certificate_number(db_session: Sessio
                         holder_name=employee.name,
                     ),
                 ],
-                reviewed_by="Alice HR",
                 expected_updated_at=review_task.updated_at,
                 ),
             db_session,
+            operator="Alice HR",
         )
 
     assert "already exists" in str(exc_info.value)
@@ -1052,10 +1054,10 @@ def test_review_approval_rejects_left_employee_for_current_certificate(db_sessio
                         holder_name=employee.name,
                     ),
                 ],
-                reviewed_by="Alice HR",
                 expected_updated_at=review_task.updated_at,
                 ),
             db_session,
+            operator="Alice HR",
         )
 
     assert "employee who has left" in str(exc_info.value)
@@ -1088,10 +1090,10 @@ def test_review_approval_requires_pending_review_document(db_session: Session) -
                         holder_name=employee.name,
                     ),
                 ],
-                reviewed_by="Alice HR",
                 expected_updated_at=review_task.updated_at,
                 ),
             db_session,
+            operator="Alice HR",
         )
 
     assert "not pending review" in str(exc_info.value)
@@ -1127,10 +1129,10 @@ def test_review_approval_rejects_stale_task_version(db_session: Session) -> None
                         holder_name=employee.name,
                     ),
                 ],
-                reviewed_by="Alice HR",
                 expected_updated_at=stale_updated_at,
                 ),
             db_session,
+            operator="Alice HR",
         )
 
     assert exc_info.value.status_code == 409

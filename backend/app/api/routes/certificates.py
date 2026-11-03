@@ -11,7 +11,7 @@ from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import RequestContext, audit_context_kwargs, get_request_context
+from app.api.deps import RequestContext, audit_context_kwargs, get_current_operator, get_request_context
 from app.db.session import get_db
 from app.domain.enums import CertificateStatus
 from app.models import (
@@ -447,6 +447,7 @@ def create_employee_certificate(
     payload: EmployeeCertificateCreate,
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
+    operator: str = Depends(get_current_operator),
 ) -> EmployeeCertificate:
     validate_certificate_dates(
         issue_date=payload.issue_date,
@@ -471,10 +472,11 @@ def create_employee_certificate(
     now = datetime.now(UTC)
     certificate_status = CertificateStatus.DRAFT if is_current_certificate_status(target_status) else target_status
     certificate = EmployeeCertificate(
-        **payload.model_dump(exclude={"confirmed_by", "status"}),
+        **payload.model_dump(exclude={"status"}),
         status=certificate_status,
-        confirmed_by=payload.confirmed_by,
-        confirmed_at=now if payload.confirmed_by else None,
+        # 手工录入即由当前操作人确认；确认人不从请求体接收。
+        confirmed_by=operator,
+        confirmed_at=now,
     )
     db.add(certificate)
     db.flush()
@@ -596,8 +598,6 @@ def update_employee_certificate(
         setattr(certificate, field, value)
 
     now = datetime.now(UTC)
-    if "confirmed_by" in update_data:
-        certificate.confirmed_at = now if update_data["confirmed_by"] else None
     replaced_certificates = replace_active_certificates(
         db,
         certificate,
@@ -608,7 +608,7 @@ def update_employee_certificate(
     final_status = final_certificate_status(certificate, target_status)
     if certificate.status != final_status:
         certificate.status = final_status
-    if certificate.status != original_status or update_data or "confirmed_by" in update_data:
+    if certificate.status != original_status or update_data:
         db.flush()
     _close_reminder_tasks_after_update(
         db,

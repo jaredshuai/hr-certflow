@@ -119,14 +119,12 @@ class ReviewApproveItem(BaseModel):
 
 class ReviewApproveCreate(BaseModel):
     certificates: list[ReviewApproveItem] = Field(min_length=1)
-    reviewed_by: str = Field(min_length=1, max_length=128)
     notes: str | None = None
     expected_updated_at: datetime
 
 
 class ReviewRejectCreate(BaseModel):
     status: ReviewStatus = ReviewStatus.REJECTED
-    reviewed_by: str = Field(min_length=1, max_length=128)
     notes: str | None = None
     expected_updated_at: datetime
 

@@ -1,7 +1,6 @@
 import {
   ModalForm,
   PageContainer,
-  ProFormText,
   ProFormTextArea,
   ProCard,
   ProTable,
@@ -42,7 +41,6 @@ import { message } from '@/utils/messageApi';
 import { getResource, listResource, postResource } from '@/services/api';
 
 interface RejectFormValues {
-  reviewed_by?: string;
   notes?: string;
 }
 
@@ -134,7 +132,6 @@ export default function ReviewQueuePage() {
   const [currentReview, setCurrentReview] = useState<ReviewTask>();
   const [certificateForms, setCertificateForms] = useState<ReviewApproveItem[]>([]);
   const [activeCertIndex, setActiveCertIndex] = useState(0);
-  const [reviewedBy, setReviewedBy] = useState('');
   const [reviewNotes, setReviewNotes] = useState('');
   const [approving, setApproving] = useState(false);
   const [decisionTarget, setDecisionTarget] = useState<ReviewDecisionTarget>();
@@ -163,7 +160,6 @@ export default function ReviewQueuePage() {
     setCurrentReview(record);
     setCertificateForms(buildApproveItems(record, employees, certificateTypes));
     setActiveCertIndex(0);
-    setReviewedBy('');
     setReviewNotes(record.notes || '');
   }
 
@@ -209,10 +205,6 @@ export default function ReviewQueuePage() {
 
   async function handleApprove(continueToNext = false) {
     if (!currentReview) return;
-    if (!reviewedBy.trim()) {
-      antdMessage.warning('请输入复核人');
-      return;
-    }
     for (let i = 0; i < certificateForms.length; i++) {
       const item = certificateForms[i];
       if (!item.employee_id || !item.certificate_type_id || !item.holder_name?.trim()) {
@@ -226,7 +218,6 @@ export default function ReviewQueuePage() {
         ...item,
         holder_name: item.holder_name.trim(),
       })),
-      reviewed_by: reviewedBy.trim(),
       notes: reviewNotes.trim() || undefined,
       expected_updated_at: currentReview.updated_at,
     };
@@ -267,7 +258,6 @@ export default function ReviewQueuePage() {
         ReviewTask,
         {
           status: ReviewDecisionTarget['status'];
-          reviewed_by: string;
           notes?: string;
           expected_updated_at: string;
         }
@@ -275,7 +265,6 @@ export default function ReviewQueuePage() {
         `/reviews/${decisionTarget.review.id}/reject`,
         {
           status: decisionTarget.status,
-          reviewed_by: values.reviewed_by!.trim(),
           notes: values.notes,
           expected_updated_at: decisionTarget.review.updated_at,
         },
@@ -741,13 +730,6 @@ export default function ReviewQueuePage() {
             <ProCard title="复核信息（所有证书共享）">
               <Form layout="vertical">
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  <Form.Item label="复核人">
-                    <Input
-                      value={reviewedBy}
-                      onChange={(e) => setReviewedBy(e.target.value)}
-                      placeholder="请输入复核人"
-                    />
-                  </Form.Item>
                   <Form.Item label="复核备注">
                     <Input.TextArea
                       value={reviewNotes}
@@ -785,7 +767,6 @@ export default function ReviewQueuePage() {
         }}
         onFinish={handleReject}
       >
-        <ProFormText name="reviewed_by" label="复核人" rules={[{ required: true, message: '请输入复核人' }]} />
         <ProFormTextArea
           name="notes"
           label={decisionTarget?.status === 'NEEDS_INFO' ? '补充说明' : '驳回原因'}

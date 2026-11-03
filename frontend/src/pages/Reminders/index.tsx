@@ -45,7 +45,6 @@ import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
 import { certificateTypeSelectRequest } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
-import { actorProvider } from '@/utils/actorProvider';
 import { parseDaysBeforeExpiryText } from '@/utils/reminderPolicyForm';
 
 const feedbackActions: Array<{ label: string; status: FeedbackStatus; content: string; danger?: boolean }> = [
@@ -251,18 +250,11 @@ export default function RemindersPage() {
   }
 
   async function submitFeedback(record: ReminderTask, status: FeedbackStatus, content: string) {
-    const actor = actorProvider.getCurrent();
-    if (!actor) {
-      message.warning('请先在右上角设置当前操作人');
-      return;
-    }
-
     setSubmittingId(`${record.id}:${status}`);
     try {
       await postResource(`/reminders/tasks/${record.id}/feedback`, {
         status,
         content,
-        created_by: actor.name,
         expected_updated_at: record.updated_at,
       });
       message.success('人力反馈已记录');
@@ -288,16 +280,10 @@ export default function RemindersPage() {
   }
 
   async function dispatchReminder(record: ReminderTask, simulate: boolean, channels?: string[]) {
-    const operator = actorProvider.getCurrent()?.name;
-    if (!operator) {
-      message.warning('请先在右上角设置当前操作人');
-      return;
-    }
-
     const normalizedChannels = channels?.filter(Boolean);
     setSubmittingId(channelDispatchSubmitId(record.id, simulate, normalizedChannels));
     try {
-      const payload: ReminderDispatchPayload = { operator, simulate };
+      const payload: ReminderDispatchPayload = { simulate };
       if (normalizedChannels && normalizedChannels.length > 0) payload.channels = normalizedChannels;
 
       const result = await postResource<ReminderDispatchResult, ReminderDispatchPayload>(
@@ -321,17 +307,9 @@ export default function RemindersPage() {
   }
 
   async function scanReminderTasks() {
-    const operator = actorProvider.getCurrent()?.name;
-    if (!operator) {
-      message.warning('请先在右上角设置当前操作人');
-      return;
-    }
-
     setScanning(true);
     try {
-      const result = await postResource<ReminderTaskScanResult, ReminderTaskScanPayload>('/reminders/tasks/scan', {
-        operator,
-      });
+      const result = await postResource<ReminderTaskScanResult, ReminderTaskScanPayload>('/reminders/tasks/scan', {});
       message.success(
         `已扫描到期证书：更新 ${result.status_changed} 条持证状态，新增 ${result.created} 条提醒任务`,
       );

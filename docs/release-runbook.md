@@ -288,45 +288,58 @@ Rules:
 
 ## 生产认证配置
 
-HR CertFlow 是 system of record，审计日志中的 actor 必须可信。应用层通过
-trusted proxy 校验实现最小信任链：只采信来自可信网关的 `X-HR-Actor` header。
+HR CertFlow 是 system of record，审计日志中的操作人必须可信。在 #33 第 3 步接入 BFF SDK
+之前，release 的过渡身份来源是：只采信来自可信网关的 `X-HR-Actor` / `X-HR-Actor-Source` 头。
+写接口不再从请求体或查询参数接收 `reviewed_by`、`operator`、`created_by`、`confirmed_by`、
+`user`；落库和审计中的操作人都取自后端当前操作人。
 
 ### 应用层配置
 
-在 Helm values 或 ConfigMap 中设置：
+release 与 dev 的这几项唯一真相源是本仓库 `deploy/gitops/<env>/values.yaml` 的 `config:`
+（Argo CD 经 Helm 渲染为 `hr-certflow-config` ConfigMap），不在 Secret 或 infra 侧配置中。
+`scripts/validate_deploy_artifacts.py` 在 CI 中按与启动校验相同的规则检查。
+
+release：
 
 ```yaml
+APP_ENV: release
 AUTH_REQUIRED: "true"
-TRUSTED_PROXY_CIDRS: "10.34.200.0/24"
+TRUSTED_PROXY_CIDRS: "10.42.0.0/16"   # 集群 Pod 网段，即直连 API 的网关所在网段
 ```
 
-- `AUTH_REQUIRED=true`：无 actor 的请求返回 401。
+dev / local：
+
+```yaml
+APP_ENV: dev            # 或 local
+AUTH_REQUIRED: "false"  # dev values 中显式声明
+# DEV_OPERATOR_NAME: dev-unauthenticated   # 可选，固定开发操作人名称
+```
+
 - `TRUSTED_PROXY_CIDRS`：逗号分隔的 CIDR 列表，匹配的是**直连 API 的对端地址**
   （网关 / ingress Pod 的地址），不是 `X-Forwarded-For` 里的终端用户地址。
-  对端不在列表内时，`X-HR-Actor` 和 `X-HR-Actor-Source` 会被剥离（不报错，仅剥离），
-  审计 IP 也只记录对端地址；对端可信时审计 IP 取 `X-Forwarded-For` 第一跳。
+  对端不在列表内时身份头一律忽略，请求按未认证处理（401）；审计 IP 也只记录对端地址。
+  对端可信时审计 IP 取 `X-Forwarded-For` 第一跳。
+- `AUTH_REQUIRED=false` 时所有请求都记在固定开发操作人名下（审计 `actor_source=dev-unauthenticated`），
+  请求里的身份头不会被采信。
 
-默认值（`AUTH_REQUIRED=false`、`TRUSTED_PROXY_CIDRS=""`）是过渡态，不破坏
-dev/smoke 流程。真业务上线前必须切换。
+API 启动时校验，配置不安全时拒绝启动：
+
+- `AUTH_REQUIRED=true` 但 `TRUSTED_PROXY_CIDRS` 为空或含非法 CIDR；
+- `AUTH_REQUIRED=false` 但 `APP_ENV` 不是 `local` / `dev`（`APP_ENV` 缺失按 release 处理）。
 
 ### 网关层配置（infra 职责）
 
-1. Ingress（Nginx/Envoy）对接企业 OIDC/SSO。
-2. 认证通过后，网关**覆写**（不是追加）`X-HR-Actor` 为可信身份。
-3. 网关必须 **strip** 客户端自带的 `X-HR-Actor`，防止直连绕过。
-4. Pod 网络 CIDR 配进 `TRUSTED_PROXY_CIDRS`。
-5. 设 `AUTH_REQUIRED=true`。
+1. Traefik 剥离客户端自带的 `X-HR-Actor*` 头。
+2. oauth2-proxy（Casdoor OIDC）认证后，由 actor-header-adapter **覆写** `X-HR-Actor` /
+   `X-HR-Actor-Source: casdoor`。
+3. 直连 API 的 Traefik 所在 Pod 网段（k3s `10.42.0.0/16`）已写入 release values 的
+   `TRUSTED_PROXY_CIDRS`，`AUTH_REQUIRED="true"` 同样写在 release values 中。
 
 ### 验证
 
 ```bash
-curl -H "X-HR-Actor: fake" https://<host>/hr-certflow/api/v1/health
-# 预期：401（非可信来源 + auth_required=true）
-
-curl -H "X-HR-Actor: real-user" \
-     -H "X-Forwarded-For: <pod-cidr-ip>" \
-     https://<host>/hr-certflow/api/v1/health
-# 预期：200
+curl -H "X-HR-Actor: fake" http://<host>/hr-certflow/api/v1/me
+# 预期：未经网关登录时 401（网关会剥离伪造头，直连 API 时对端不可信）
 ```
 
 ## Dependabot During Release Work

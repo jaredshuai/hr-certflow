@@ -3,20 +3,17 @@ from __future__ import annotations
 import csv
 from datetime import UTC, datetime
 from io import StringIO
-from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
     RequestContext,
-    audit_actor_name,
     audit_context_kwargs,
-    audit_ip_address,
-    audit_request_id,
+    get_current_operator,
     get_request_context,
 )
 from app.core.config import get_settings
@@ -410,9 +407,9 @@ def confirm_document_upload(
 )
 def recognize_document_async(
     document_id: UUID,
-    user: Annotated[str, Query(min_length=1, max_length=128)],
     db: Session = Depends(get_db),
     request_context: RequestContext | None = Depends(get_request_context),
+    user: str = Depends(get_current_operator),
 ) -> RecognitionDispatchRead:
     document = db.get(CertificateDocument, document_id)
     if not document:
@@ -436,9 +433,7 @@ def recognize_document_async(
         resource_type="certificate_document",
         resource_id=str(document.id),
         after={"status": DocumentStatus.PARSING.value, "user": user},
-        actor_name=audit_actor_name(request_context, user),
-        request_id=audit_request_id(request_context),
-        ip_address=audit_ip_address(request_context),
+        **audit_context_kwargs(request_context),
     )
     db.commit()
 

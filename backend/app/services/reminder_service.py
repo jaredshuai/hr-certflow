@@ -337,6 +337,7 @@ def dispatch_single_reminder_task(
         actor_name=(request_context or {}).get("actor_name") or operator,
         request_id=(request_context or {}).get("request_id"),
         ip_address=(request_context or {}).get("ip_address"),
+        actor_source=(request_context or {}).get("actor_source"),
     )
     return event_type, [*skipped_results, *results]
 
