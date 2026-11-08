@@ -20,9 +20,17 @@ export function apiErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+// umi request 对 HTTP 非 2xx 抛 AxiosError（状态在 error.response.status），
+// errorThrower 抛的 BizError 状态在 error.info.response.status / error.info.status。
+function axiosResponseStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object' || !('response' in error)) return undefined;
+  const status = (error as { response?: { status?: unknown } }).response?.status;
+  return typeof status === 'number' ? status : undefined;
+}
+
 export function apiErrorStatus(error: unknown): number | undefined {
   const info = errorInfo(error);
-  return info?.response?.status ?? info?.status;
+  return axiosResponseStatus(error) ?? info?.response?.status ?? info?.status;
 }
 
 export function isReviewStaleActionError(error: unknown): boolean {
