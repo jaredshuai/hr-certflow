@@ -7,6 +7,7 @@ import 'dayjs/locale/zh-cn';
 import type { ReactNode } from 'react';
 
 import { CurrentOperator } from '@/components/CurrentOperator';
+import { resolveAppBase } from '@/utils/loginRedirect';
 import { setMessageInstance } from '@/utils/messageApi';
 import { buildRequestHeaders, buildRequestId } from '@/utils/requestHeaders';
 
@@ -71,12 +72,8 @@ function resolveApiBasePath(): string {
     return '/api/v1';
   }
 
-  const match = window.location.pathname.match(/^\/(hr-certflow(?:-dev|-release)?)(\/|$)/);
-  if (!match) {
-    return '/api/v1';
-  }
-
-  return `/${match[1]}/api/v1`;
+  const appBase = resolveAppBase(window.location.pathname);
+  return appBase ? `${appBase}/api/v1` : '/api/v1';
 }
 
 export const request: RequestConfig = {
