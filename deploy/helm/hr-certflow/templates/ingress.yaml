@@ -31,6 +31,15 @@ spec:
       {{- end }}
       http:
         paths:
+          {{- if .Values.ingress.authPath }}
+          - path: {{ printf "%s/auth" .Values.ingress.pathPrefix | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hr-certflow.fullname" . }}-api
+                port:
+                  name: http
+          {{- end }}
           - path: {{ printf "%s/api" .Values.ingress.pathPrefix | quote }}
             pathType: Prefix
             backend:

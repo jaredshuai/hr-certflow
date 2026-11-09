@@ -115,4 +115,6 @@ ingress:
   className: traefik
   host: ""
   pathPrefix: /hr-certflow-dev
+  # 为 true 时追加 <pathPrefix>/auth → api（jxccs-access 的 /auth/* 路由）。默认关闭，release 不受影响。
+  authPath: false
   annotations: {}

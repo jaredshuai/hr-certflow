@@ -15,6 +15,25 @@ config:
   AWS_REQUEST_CHECKSUM_CALCULATION: when_required
   AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
   UPLOAD_PREFIX: hr-certflow/dev/certificates
+  # #33 第 3 步：jxccs-access（BFF 登录 + 业务会话 + 授权中心）dev 配置。仅 dev。
+  # Secret 键（hr-certflow-runtime-secrets，由 infra 写入，仓库不存值）：
+  #   AUTHZ_SERVICE_TOKEN、OIDC_CLIENT_SECRET
+  # 本阶段不开 mock：不设置 MOCK_MODE / MOCK_FIXTURE_PATH。
+  APP_ID: hr-certflow
+  PUBLIC_BASE_URL: http://10.34.200.180/hr-certflow-dev
+  OIDC_ISSUER_URL: http://10.34.200.223:8000
+  OIDC_ISSUER_KEY: casdoor-jiaxing-company
+  # TODO(infra): Casdoor 应用 hr-certflow-dev 创建后回填 client id。
+  OIDC_CLIENT_ID: 'hr-certflow-dev'
+  # 窄客户端自行拼接 /api/v1/check、/api/v1/batch-check，subject-context 拼 /api/v1/subject-context，
+  # 因此 base URL 不带 /api/v1。
+  AUTHZ_BASE_URL: http://authorization-center-dev.authorization-center-dev.svc.cluster.local:8080
+  # 会话 store 用 Redis db 1（db 0 已被 Celery broker/result 占用）。
+  # SESSION_STORE_URL 含 broker 密码，由 infra 注入 hr-certflow-runtime-secrets，不入库。
+  SESSION_IDLE_SECONDS: '1800'
+  SESSION_ABSOLUTE_SECONDS: '28800'
+  SESSION_CHECK_INTERVAL_SECONDS: '30'
+  POD_NAMESPACE: hr-certflow-dev
 images:
   api:
     repository: ghcr.io/jaredshuai/hr-certflow-api
@@ -24,6 +43,8 @@ images:
     tag: 92ea16a35b25
 ingress:
   pathPrefix: /hr-certflow-dev
+  # #33 第 3 步：/hr-certflow-dev/auth → api（同一 strip-prefix middleware）。仅 dev 开启。
+  authPath: true
 api:
   replicas: 1
 web:

@@ -7,7 +7,10 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev --no-install-project
+# #33 第 3 步：jxccs-access / jxccs-authz-client 以 vendor 快照从本地路径安装
+# （非 editable，装进 .venv 后运行镜像不再需要 vendor 目录），版本由 uv.lock 钉住。
+COPY vendor ./vendor
+RUN uv sync --locked --no-dev --no-install-project --no-editable
 
 FROM python:3.12-slim
 
