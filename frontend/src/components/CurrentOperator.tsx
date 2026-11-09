@@ -29,7 +29,12 @@ export function CurrentOperator() {
         </Tooltip>
       );
     case 'unauthenticated':
-      return <Tag color="red">未登录</Tag>;
+      return (
+        <>
+          <Tag color="red">未登录</Tag>
+          {state.loginUrl ? <a href={state.loginUrl}>登录</a> : null}
+        </>
+      );
     case 'error':
       return <Tag color="default">操作人加载失败</Tag>;
   }

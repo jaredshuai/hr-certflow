@@ -13,16 +13,30 @@ function errorInfo(error: unknown): ApiErrorInfo | undefined {
   return (error as { info?: ApiErrorInfo }).info;
 }
 
+function axiosResponseDetail(error: unknown): unknown {
+  if (!error || typeof error !== 'object' || !('response' in error)) return undefined;
+  const data = (error as { response?: { data?: unknown } }).response?.data;
+  return data && typeof data === 'object' ? (data as { detail?: unknown }).detail : undefined;
+}
+
 export function apiErrorMessage(error: unknown, fallback: string): string {
-  const detail = errorInfo(error)?.data?.detail;
+  const detail = errorInfo(error)?.data?.detail ?? axiosResponseDetail(error);
   if (typeof detail === 'string' && detail.trim()) return detail;
   if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
 }
 
+// umi request 对 HTTP 非 2xx 抛 AxiosError（状态在 error.response.status），
+// errorThrower 抛的 BizError 状态在 error.info.response.status / error.info.status。
+function axiosResponseStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object' || !('response' in error)) return undefined;
+  const status = (error as { response?: { status?: unknown } }).response?.status;
+  return typeof status === 'number' ? status : undefined;
+}
+
 export function apiErrorStatus(error: unknown): number | undefined {
   const info = errorInfo(error);
-  return info?.response?.status ?? info?.status;
+  return axiosResponseStatus(error) ?? info?.response?.status ?? info?.status;
 }
 
 export function isReviewStaleActionError(error: unknown): boolean {

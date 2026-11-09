@@ -13,7 +13,7 @@ export type ActorState =
   | { status: 'loading' }
   | { status: 'authenticated'; name: string; source: string | null }
   | { status: 'dev-operator'; name: string }
-  | { status: 'unauthenticated' }
+  | { status: 'unauthenticated'; loginUrl?: string }
   | { status: 'error' };
 
 /** 当前操作人只来自 GET /me；前端不再有任何 mock 兜底身份。 */
