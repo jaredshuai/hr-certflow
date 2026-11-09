@@ -10,6 +10,7 @@ dependencies = [
     "email-validator>=2.2.0",
     "fastapi>=0.115.0",
     "httpx>=0.27.2",
+    "jxccs-access[redis]",
     "psycopg[binary]>=3.3.4",
     "pydantic-settings>=2.5.2",
     "python-dateutil>=2.9",
@@ -22,6 +23,14 @@ dependencies = [
 [build-system]
 requires = ["setuptools>=82.0.1"]
 build-backend = "setuptools.build_meta"
+
+# #33 第 3 步：一步接入包以 vendor 快照引入（来源 commit 见各目录 VENDOR-SOURCE.txt）。
+# jxccs-authz-client 的来源由 vendor/jxccs-access/pyproject.toml 自带的
+# `../authorization-client-python` path source 决定（uv 会采用依赖自带的 sources），
+# 故目录布局与源仓库一致、不改上游 pyproject。镜像构建用 --no-editable 安装。
+# 传递依赖版本由 uv.lock 钉住。
+[tool.uv.sources]
+jxccs-access = { path = "vendor/jxccs-access" }
 
 [project.optional-dependencies]
 dev = [

@@ -1,0 +1,64 @@
+[project]
+name = "jxccs-access"
+version = "0.1.0.dev0"
+description = "One-step FastAPI access integration: OIDC BFF login, server-side session, CSRF, subject-context and dev mock"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "JXCCS" }]
+dependencies = [
+    "fastapi>=0.110",
+    "authlib>=1.6,<2",
+    "joserfc>=1.0",
+    "httpx>=0.27.0,<1.0.0",
+    "pyyaml>=6.0",
+    "jxccs-authz-client",
+]
+
+[project.optional-dependencies]
+redis = ["redis>=5.0"]
+
+[project.scripts]
+jxccs-access-check-fixture = "jxccs_access.fixture_check:main"
+
+[tool.uv.sources]
+jxccs-authz-client = { path = "../authorization-client-python", editable = true }
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "src"
+module-name = "jxccs_access"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13.0",
+    "pytest>=8.3.0",
+    "ruff>=0.7.0",
+    "uvicorn>=0.30",
+    "types-PyYAML",
+    "fakeredis>=2.23",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "examples"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+mypy_path = "src"
+packages = ["jxccs_access"]
+
+[[tool.mypy.overrides]]
+module = ["authlib.*"]
+ignore_missing_imports = true

@@ -1,0 +1,483 @@
+{
+  "fixtureVersion": "jxccs-authz-v1",
+  "issuer": "http://127.0.0.1:19091",
+  "note": "Synthetic persons, departments and opaque resource attributes only. Grants and denies explain fixed scenario facts; the provider replays recorded outcomes and implements no evaluator. No real identity, tenant or business model is defined here.",
+  "departments": ["dept-alpha", "dept-beta"],
+  "people": {
+    "member-a": {
+      "sub": "synth-member-0001",
+      "accountStatus": "ACTIVE",
+      "departmentIds": ["dept-alpha"],
+      "employeeId": null,
+      "displayName": "Synthetic Member A",
+      "companyRoles": []
+    },
+    "admin-b": {
+      "sub": "synth-member-0002",
+      "accountStatus": "ACTIVE",
+      "departmentIds": ["dept-alpha"],
+      "employeeId": null,
+      "displayName": "Synthetic Admin B",
+      "companyRoles": ["demo-review"]
+    },
+    "member-c": {
+      "sub": "synth-member-0003",
+      "accountStatus": "ACTIVE",
+      "departmentIds": ["dept-beta"],
+      "employeeId": null,
+      "displayName": "Synthetic Member C",
+      "companyRoles": []
+    },
+    "disabled-d": {
+      "sub": "synth-member-0004",
+      "accountStatus": "DISABLED",
+      "departmentIds": ["dept-alpha"],
+      "employeeId": null,
+      "displayName": "Synthetic Disabled D",
+      "companyRoles": []
+    },
+    "unconfirmed-e": {
+      "sub": "synth-member-0005",
+      "accountStatus": "ACTIVE",
+      "departmentIds": null,
+      "employeeId": null,
+      "displayName": "Synthetic Unconfirmed E",
+      "companyRoles": []
+    }
+  },
+  "bindings": [
+    {"application": "demo-app", "environment": "dev"}
+  ],
+  "ownership": {
+    "doc-100": {"tag": "alpha"},
+    "doc-200": {"tag": "beta"},
+    "doc-legacy-77": {"tag": "alpha", "extra": "legacy"}
+  },
+  "grants": [
+    {
+      "id": "grant-a-read-own",
+      "subjectSub": "synth-member-0001",
+      "permission": "document.read",
+      "resourceType": "document",
+      "scope": "SELF",
+      "note": "fixed scenario fact: member A reads their own document"
+    },
+    {
+      "id": "grant-a-update-own",
+      "subjectSub": "synth-member-0001",
+      "permission": "document.update",
+      "resourceType": "document",
+      "scope": "SELF",
+      "note": "fixed scenario fact: member A updates their own document"
+    },
+    {
+      "id": "grant-b-update-dept",
+      "subjectSub": "synth-member-0002",
+      "permission": "document.update",
+      "resourceType": "document",
+      "scope": "DEPARTMENT",
+      "note": "fixed scenario fact: admin B holds an explicit department grant; companyRoles never produce this"
+    },
+    {
+      "id": "grant-c-read-own",
+      "subjectSub": "synth-member-0003",
+      "permission": "document.read",
+      "resourceType": "document",
+      "scope": "SELF",
+      "note": "fixed scenario fact: member C reads their own document"
+    }
+  ],
+  "denies": [
+    {
+      "id": "deny-a-archive",
+      "subjectSub": "synth-member-0001",
+      "permission": "document.archive",
+      "resourceType": "document",
+      "note": "fixed scenario fact: explicit deny overrides any candidate allow"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "allow-member-a-read-100",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.read",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": true,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "string", "value": "pv-2026-10-18"},
+        "reasonCodes": ["SUBJECT_GRANT", "SCOPE_SELF_MATCH"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "allow-admin-b-update-100",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0002"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.update",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": true,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "string", "value": "pv-2026-10-18"},
+        "reasonCodes": ["DEPARTMENT_GRANT", "SCOPE_DEPARTMENT_MATCH"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "allow-member-a-update-100",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.update",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": true,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "string", "value": "pv-2026-10-18"},
+        "reasonCodes": ["SUBJECT_GRANT", "SCOPE_SELF_MATCH"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "allow-member-c-read-200",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0003"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.read",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-200",
+          "attributes": {"tag": "beta"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": true,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "string", "value": "pv-2026-10-18"},
+        "reasonCodes": ["SUBJECT_GRANT", "SCOPE_SELF_MATCH"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "deny-member-a-archive-100",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.archive",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": false,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "null"},
+        "reasonCodes": ["EXPLICIT_DENY"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "deny-member-c-update-100-scope",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0003"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.update",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": false,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "string", "value": "pv-2026-10-18"},
+        "reasonCodes": ["SCOPE_MISMATCH", "MISSING_GRANT"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "deny-disabled-d-read-100",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0004"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.read",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": false,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "absent"},
+        "reasonCodes": ["ACCOUNT_DISABLED"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "deny-disabled-d-update-100",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0004"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.update",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": false,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "absent"},
+        "reasonCodes": ["ACCOUNT_DISABLED"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "deny-outsider-read-100-unknown",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-outsider-9999"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.read",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": false,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "null"},
+        "reasonCodes": ["SUBJECT_UNKNOWN"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "deny-member-a-unknown-permission",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.nonexistent",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": false,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "null"},
+        "reasonCodes": ["UNKNOWN_PERMISSION"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "deny-member-a-update-legacy",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.update",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-legacy-77",
+          "attributes": {"tag": "alpha", "extra": "legacy"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": false,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "string", "value": "pv-2026-10-18"},
+        "reasonCodes": ["MISSING_GRANT"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "deny-member-a-read-100-attribute-mismatch",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.read",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "beta"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": false,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "string", "value": "pv-2026-10-18"},
+        "reasonCodes": ["MISSING_GRANT"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    },
+    {
+      "id": "fail-member-a-export-503",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.export",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "httpStatus",
+        "status": 503,
+        "code": "DEPENDENCY_UNAVAILABLE",
+        "message": "synthetic dependency unavailable"
+      }
+    },
+    {
+      "id": "fail-member-a-print-timeout",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.print",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {"kind": "timeout"}
+    },
+    {
+      "id": "fail-member-a-probe-upstream-401",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "service.probe",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "httpStatus",
+        "status": 401,
+        "code": "UNAUTHENTICATED",
+        "message": "synthetic service identity fault"
+      }
+    },
+    {
+      "id": "fail-member-c-admin-upstream-403",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0003"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.admin",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-200",
+          "attributes": {"tag": "beta"}
+        }
+      },
+      "outcome": {
+        "kind": "httpStatus",
+        "status": 403,
+        "code": "FORBIDDEN",
+        "message": "synthetic binding violation"
+      }
+    },
+    {
+      "id": "fail-member-a-list-429",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.list",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "httpStatus",
+        "status": 429,
+        "code": "RATE_LIMITED",
+        "retryAfterSeconds": 2,
+        "message": "synthetic rate limit"
+      }
+    },
+    {
+      "id": "deny-admin-b-read-100-foreign-issuer",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19092", "sub": "synth-member-0002"},
+        "application": "demo-app",
+        "environment": "dev",
+        "permission": "document.read",
+        "resource": {
+          "resourceType": "document",
+          "resourceId": "doc-100",
+          "attributes": {"tag": "alpha"}
+        }
+      },
+      "outcome": {
+        "kind": "decision",
+        "allowed": false,
+        "entitlementVersion": 41,
+        "policyVersion": {"mode": "null"},
+        "reasonCodes": ["SUBJECT_UNKNOWN"],
+        "evaluatedAt": "2026-10-21T02:00:00Z"
+      }
+    }
+  ]
+}

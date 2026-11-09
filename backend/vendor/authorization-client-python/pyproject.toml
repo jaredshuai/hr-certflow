@@ -1,0 +1,58 @@
+[project]
+name = "jxccs-authz-client"
+version = "0.1.0"
+description = "Internal synchronous authorization client for the JXCCS authorization center M6 decision API"
+readme = "README.md"
+license = { file = "LICENSE.internal.md" }
+requires-python = ">=3.11"
+authors = [{ name = "JXCCS" }]
+keywords = ["authorization", "authz", "m6", "internal"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+dependencies = ["httpx>=0.27.0,<1.0.0"]
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "src"
+module-name = "jxccs_authz"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13.0",
+    "pytest>=8.3.0",
+    "ruff>=0.7.0",
+    "twine>=5.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "clean_install: builds a wheel/sdist and installs it into a fresh environment (set JXCCS_RUN_CLEAN_INSTALL=1)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "examples"]
+extend-exclude = [".venv311"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+mypy_path = "src"
+packages = ["jxccs_authz"]
