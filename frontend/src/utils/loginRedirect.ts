@@ -30,9 +30,12 @@ export interface LoginRedirectLocation {
   hash: string;
 }
 
-/** 当前页面对应的登录入口；不在网关前缀下（本地/直连）时返回 undefined，不跳转。 */
+/** 只有 release 前缀挂了 oauth2-proxy 登录入口；dev 不接登录，永不跳转。 */
+const GATEWAY_LOGIN_APP_BASES = new Set(['/hr-certflow']);
+
+/** 当前页面对应的登录入口；不在网关登录前缀下（本地/直连/dev）时返回 undefined，不跳转。 */
 export function loginUrlForLocation(location: LoginRedirectLocation): string | undefined {
   const appBase = resolveAppBase(location.pathname);
-  if (!appBase) return undefined;
+  if (!appBase || !GATEWAY_LOGIN_APP_BASES.has(appBase)) return undefined;
   return buildLoginUrl(appBase, `${location.pathname}${location.search}${location.hash}`);
 }

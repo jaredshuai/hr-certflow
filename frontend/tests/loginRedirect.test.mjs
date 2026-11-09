@@ -33,6 +33,11 @@ test('no redirect outside the gateway prefix (local / direct access)', () => {
   assert.equal(loginUrlForLocation({ pathname: '/', search: '', hash: '' }), undefined);
 });
 
+test('dev and retired prefixes never redirect to login', () => {
+  assert.equal(loginUrlForLocation({ pathname: '/hr-certflow-dev/', search: '', hash: '' }), undefined);
+  assert.equal(loginUrlForLocation({ pathname: '/hr-certflow-release/', search: '', hash: '' }), undefined);
+});
+
 test('rd only allows same-origin paths under the app base', () => {
   assert.equal(safeReturnPath('/hr-certflow', '/hr-certflow/a?b=1'), '/hr-certflow/a?b=1');
   assert.equal(safeReturnPath('/hr-certflow', '/hr-certflow'), '/hr-certflow');
