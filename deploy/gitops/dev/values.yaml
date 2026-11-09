@@ -24,7 +24,7 @@ config:
   OIDC_ISSUER_URL: http://10.34.200.223:8000
   OIDC_ISSUER_KEY: casdoor-jiaxing-company
   # TODO(infra): Casdoor 应用 hr-certflow-dev 创建后回填 client id。
-  OIDC_CLIENT_ID: ''
+  OIDC_CLIENT_ID: 'hr-certflow-dev'
   # 窄客户端自行拼接 /api/v1/check、/api/v1/batch-check，subject-context 拼 /api/v1/subject-context，
   # 因此 base URL 不带 /api/v1。
   AUTHZ_BASE_URL: http://authorization-center-dev.authorization-center-dev.svc.cluster.local:8080

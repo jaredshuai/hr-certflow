@@ -6,6 +6,6 @@
     {"id":"app.view","resourceTypes":["application"],"actions":["view"],"risk":"low","supportedScopes":["SELF"]},
     {"id":"app.enter","resourceTypes":["application"],"actions":["enter"],"risk":"low","supportedScopes":["SELF"]},
     {"id":"certificate.view","resourceTypes":["certificate"],"actions":["view"],"risk":"low","supportedScopes":["ALL"]},
-    {"id":"certificate.manage","resourceTypes":["certificate"],"actions":["create","update","confirm"],"risk":"medium","supportedScopes":["ALL"]}
+    {"id":"certificate.manage","resourceTypes":["certificate"],"actions":["create","update","confirm"],"risk":"normal","supportedScopes":["ALL"]}
   ]
 }
