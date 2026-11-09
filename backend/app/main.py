@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from dataclasses import replace
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from jxccs_access import AccessError, current_principal
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app import models  # noqa: F401
+from app.api.access import ACCESS_PRINCIPAL_STATE_KEY, access_runtime, install_access, is_access_route, login_url
 from app.api.deps import REQUEST_CONTEXT_STATE_KEY, REQUEST_ID_HEADER, build_request_context
 from app.api.router import api_router
 from app.api.routes import internal
@@ -20,6 +25,20 @@ from app.db.session import get_engine
 # 仅这些路径精确绕过认证:Kubernetes 探针没有操作人,
 # 若走认证会 401 导致 Pod 不 Ready。绝不允许通配 /api/v1/* 豁免。
 AUTH_BYPASS_PATHS: frozenset[str] = frozenset({"/_internal/healthz"})
+
+
+async def _send_json(send: Send, status: int, payload: dict[str, Any], request_id: str) -> None:
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (REQUEST_ID_HEADER.lower().encode(), request_id.encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": json.dumps(payload).encode()})
 
 
 class RequestContextMiddleware:
@@ -36,6 +55,28 @@ class RequestContextMiddleware:
 
         if "state" not in scope:
             scope["state"] = {}
+
+        runtime = access_runtime(scope.get("app"))
+        if runtime is not None:
+            # jxccs-access 模式（本中间件位于 SDK 会话中间件之内）：操作人只取 SDK 业务会话主体。
+            # 无会话 401（带 loginUrl）、身份不合格 403、授权中心不可用 503；
+            # 仅探针与 SDK 自己的 /auth/* 不要求会话。
+            path = request.url.path
+            if path not in AUTH_BYPASS_PATHS and not is_access_route(path):
+                try:
+                    principal = await run_in_threadpool(current_principal)
+                except AccessError as exc:
+                    detail = dict(exc.detail) if isinstance(exc.detail, dict) else {"code": exc.code}
+                    if exc.status_code == 401:
+                        detail["loginUrl"] = login_url(runtime)
+                    await _send_json(send, exc.status_code, {"detail": detail}, context.request_id)
+                    return
+                context = replace(context, actor_name=principal.sub, actor_source=principal.issuer_key)
+                scope["state"][ACCESS_PRINCIPAL_STATE_KEY] = principal
+            scope["state"][REQUEST_CONTEXT_STATE_KEY] = context
+            await self.app(scope, receive, _with_request_id(send, context.request_id))
+            return
+
         scope["state"][REQUEST_CONTEXT_STATE_KEY] = context
 
         # 没有操作人的请求一律 401(dev 固定开发操作人总是存在)。
@@ -66,6 +107,16 @@ class RequestContextMiddleware:
         await self.app(scope, receive, send_with_request_id)
 
 
+def _with_request_id(send: Send, request_id: str) -> Send:
+    async def send_with_request_id(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            headers = MutableHeaders(scope=message)
+            headers[REQUEST_ID_HEADER] = request_id
+        await send(message)
+
+    return send_with_request_id
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
 
@@ -84,6 +135,9 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.add_middleware(RequestContextMiddleware)
+    if settings.access_sdk_enabled:
+        # SDK 会话/CSRF 中间件包在 RequestContextMiddleware 外面、CORS 里面。
+        install_access(app, settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

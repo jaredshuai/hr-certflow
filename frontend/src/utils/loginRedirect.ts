@@ -30,12 +30,24 @@ export interface LoginRedirectLocation {
   hash: string;
 }
 
-/** 只有 release 前缀挂了 oauth2-proxy 登录入口；dev 不接登录，永不跳转。 */
-const GATEWAY_LOGIN_APP_BASES = new Set(['/hr-certflow']);
+/** jxccs-access BFF 登录入口（#33 第 3 步，后端挂在 `<appBase>/auth/login`）。 */
+export function buildAccessLoginUrl(appBase: string, returnPath: string): string {
+  return `${appBase}/auth/login?return_to=${encodeURIComponent(safeReturnPath(appBase, returnPath))}`;
+}
 
-/** 当前页面对应的登录入口；不在网关登录前缀下（本地/直连/dev）时返回 undefined，不跳转。 */
+/**
+ * 各前缀的登录入口：release 前缀走 oauth2-proxy 网关登录；dev 前缀走后端 jxccs-access 登录。
+ * 其它前缀（含已退役的 -release）没有登录入口，永不跳转。
+ */
+const LOGIN_ENTRIES: Record<string, (appBase: string, returnPath: string) => string> = {
+  '/hr-certflow': buildLoginUrl,
+  '/hr-certflow-dev': buildAccessLoginUrl,
+};
+
+/** 当前页面对应的登录入口；不在有登录入口的前缀下（本地/直连）时返回 undefined，不跳转。 */
 export function loginUrlForLocation(location: LoginRedirectLocation): string | undefined {
   const appBase = resolveAppBase(location.pathname);
-  if (!appBase || !GATEWAY_LOGIN_APP_BASES.has(appBase)) return undefined;
-  return buildLoginUrl(appBase, `${location.pathname}${location.search}${location.hash}`);
+  const entry = appBase ? LOGIN_ENTRIES[appBase] : undefined;
+  if (!appBase || !entry) return undefined;
+  return entry(appBase, `${location.pathname}${location.search}${location.hash}`);
 }

@@ -46,3 +46,16 @@ test('AxiosError 409 stale detail in response.data.detail is detected', () => {
   assert.equal(isReviewStaleActionError(conflict), true);
   assert.equal(apiErrorMessage(axiosError(401), 'fallback'), 'Request failed with status code 401');
 });
+
+test('jxccs-access {code} details map to Chinese messages', () => {
+  assert.equal(
+    apiErrorMessage(axiosError(403, { code: 'FORBIDDEN', requestId: 'r-1' }), '失败'),
+    '没有执行此操作的权限，请联系管理员授权。',
+  );
+  assert.equal(apiErrorMessage(axiosError(403, { code: 'CSRF_TOKEN_INVALID' }), '失败'), '页面已过期，请刷新后重试。');
+  assert.equal(
+    apiErrorMessage(axiosError(503, { code: 'DEPENDENCY_UNAVAILABLE' }), '失败'),
+    '权限服务暂时不可用，请稍后重试。',
+  );
+  assert.equal(apiErrorMessage(axiosError(400, { code: 'SOMETHING_ELSE' }), '失败'), 'Request failed with status code 400');
+});

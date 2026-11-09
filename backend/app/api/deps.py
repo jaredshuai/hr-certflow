@@ -104,6 +104,11 @@ def build_request_context(request: Request) -> RequestContext:
     peer_trusted = _is_trusted_proxy(peer_ip, settings.trusted_proxy_cidrs)
     client_ip = (_forwarded_client_ip(request) if peer_trusted else None) or peer_ip
 
+    if settings.access_sdk_enabled:
+        # jxccs-access 模式：操作人只来自 SDK 业务会话（由 RequestContextMiddleware 填入），
+        # 请求里的任何身份头都不采信。
+        return RequestContext(actor_name=None, request_id=request_id, ip_address=client_ip)
+
     if settings.uses_dev_operator:
         # dev 没有网关：一律记为固定开发操作人，请求里的任何身份头都不采信。
         return RequestContext(

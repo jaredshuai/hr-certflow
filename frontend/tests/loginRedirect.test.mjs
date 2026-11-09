@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  buildAccessLoginUrl,
   buildLoginUrl,
   loginUrlForLocation,
   resolveAppBase,
@@ -33,8 +34,18 @@ test('no redirect outside the gateway prefix (local / direct access)', () => {
   assert.equal(loginUrlForLocation({ pathname: '/', search: '', hash: '' }), undefined);
 });
 
-test('dev and retired prefixes never redirect to login', () => {
-  assert.equal(loginUrlForLocation({ pathname: '/hr-certflow-dev/', search: '', hash: '' }), undefined);
+test('dev prefix redirects to the jxccs-access BFF login with return_to', () => {
+  assert.equal(
+    loginUrlForLocation({ pathname: '/hr-certflow-dev/reviews', search: '?id=3', hash: '#top' }),
+    `/hr-certflow-dev/auth/login?return_to=${encodeURIComponent('/hr-certflow-dev/reviews?id=3#top')}`,
+  );
+  assert.equal(
+    buildAccessLoginUrl('/hr-certflow-dev', '//evil.example/'),
+    '/hr-certflow-dev/auth/login?return_to=%2Fhr-certflow-dev%2F',
+  );
+});
+
+test('retired prefixes never redirect to login', () => {
   assert.equal(loginUrlForLocation({ pathname: '/hr-certflow-release/', search: '', hash: '' }), undefined);
 });
 

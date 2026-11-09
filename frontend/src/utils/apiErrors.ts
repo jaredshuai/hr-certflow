@@ -19,9 +19,29 @@ function axiosResponseDetail(error: unknown): unknown {
   return data && typeof data === 'object' ? (data as { detail?: unknown }).detail : undefined;
 }
 
+// jxccs-access（dev 登录/会话/授权）返回 {detail: {code}}，按固定 code 给出中文提示。
+const ACCESS_ERROR_MESSAGES: Record<string, string> = {
+  UNAUTHENTICATED: '登录已失效，请重新登录。',
+  SESSION_EXPIRED: '登录已失效，请重新登录。',
+  FORBIDDEN: '没有执行此操作的权限，请联系管理员授权。',
+  IDENTITY_NOT_ELIGIBLE: '当前账号不可使用本系统，请联系管理员。',
+  CSRF_TOKEN_INVALID: '页面已过期，请刷新后重试。',
+  DEPENDENCY_UNAVAILABLE: '权限服务暂时不可用，请稍后重试。',
+};
+
+function accessErrorMessage(detail: unknown): string | undefined {
+  if (!detail || typeof detail !== 'object') return undefined;
+  const code = (detail as { code?: unknown }).code;
+  return typeof code === 'string' && Object.prototype.hasOwnProperty.call(ACCESS_ERROR_MESSAGES, code)
+    ? ACCESS_ERROR_MESSAGES[code]
+    : undefined;
+}
+
 export function apiErrorMessage(error: unknown, fallback: string): string {
   const detail = errorInfo(error)?.data?.detail ?? axiosResponseDetail(error);
   if (typeof detail === 'string' && detail.trim()) return detail;
+  const accessMessage = accessErrorMessage(detail);
+  if (accessMessage) return accessMessage;
   if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
 }
