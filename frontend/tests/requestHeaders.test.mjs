@@ -35,6 +35,7 @@ test('CSRF token is attached only to unsafe methods once /me provided one', () =
     assert.equal(buildRequestHeaders({}, 'req-7', 'get')['X-CSRF-Token'], undefined);
     assert.equal(buildRequestHeaders({}, 'req-8')['X-CSRF-Token'], undefined);
     assert.equal(buildRequestHeaders({ 'x-csrf-token': 'forged' }, 'req-9', 'get')['x-csrf-token'], undefined);
+    assert.equal(buildRequestHeaders({ 'x-csrf-token': 'forged' }, 'req-10', 'post')['X-CSRF-Token'], 'csrf-1');
   } finally {
     setCsrfToken(undefined);
   }

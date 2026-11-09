@@ -12,7 +12,7 @@ from app.schemas.common import MeResponse, SessionMeResponse
 router = APIRouter()
 
 
-@router.get("/me", response_model=MeResponse)
+@router.get("/me", response_model=MeResponse | SessionMeResponse)
 def current_actor(
     request: Request,
     request_context: RequestContext = Depends(get_request_context),

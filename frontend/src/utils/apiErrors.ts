@@ -32,7 +32,9 @@ const ACCESS_ERROR_MESSAGES: Record<string, string> = {
 function accessErrorMessage(detail: unknown): string | undefined {
   if (!detail || typeof detail !== 'object') return undefined;
   const code = (detail as { code?: unknown }).code;
-  return typeof code === 'string' ? ACCESS_ERROR_MESSAGES[code] : undefined;
+  return typeof code === 'string' && Object.prototype.hasOwnProperty.call(ACCESS_ERROR_MESSAGES, code)
+    ? ACCESS_ERROR_MESSAGES[code]
+    : undefined;
 }
 
 export function apiErrorMessage(error: unknown, fallback: string): string {

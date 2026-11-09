@@ -31,6 +31,13 @@ def install_access(app: FastAPI, settings: Settings) -> AccessRuntime:
             f"APP_ID (jxccs-access) is only enabled for APP_ENV local or dev, got APP_ENV={settings.app_env!r}"
         )
     config = AccessConfig.from_env()
+    # BaseSettings also reads .env; a dotenv-only APP_ID would enable this branch while the SDK
+    # (os.environ only) sees none. Refuse to start with a clear error instead of failing obscurely.
+    if config.app_id != settings.app_id:
+        raise RuntimeError(
+            f"APP_ID from settings ({settings.app_id!r}) does not match the process environment "
+            f"({config.app_id!r}); configure jxccs-access via environment variables, not .env only"
+        )
     # 登录后只允许回到本应用前缀下的同源路径（如 /hr-certflow-dev/...）。
     return jxccs_access.install(app, config, return_path_prefix=f"{config.public_path}/")
 

@@ -36,7 +36,8 @@ class MeResponse(BaseModel):
 class SessionMeResponse(MeResponse):
     """jxccs-access 模式下的当前主体（业务会话，#33 第 3 步）。
 
-    ``name`` 为展示用姓名（``display_name``，缺失时退回 ``sub``）；``source`` 固定为 ``casdoor``。
+    ``name`` 为展示用姓名（``display_name``，缺失时退回 ``sub``）；``source`` 为会话来源：
+    Casdoor 会话为 ``casdoor``，mock 会话为 ``mock``）。
     ``csrf_token`` 供前端写请求放进 ``X-CSRF-Token`` 头。
     """
 
