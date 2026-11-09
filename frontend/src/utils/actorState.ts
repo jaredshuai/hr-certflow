@@ -4,6 +4,8 @@ export interface MeResponse {
   name: string | null;
   source: string | null;
   authenticated: boolean;
+  /** 仅 jxccs-access 会话（dev）返回：写请求放进 X-CSRF-Token 头。 */
+  csrf_token?: string | null;
 }
 
 /** 后端 AUTH_REQUIRED=false（仅 local/dev）时的固定开发操作人来源。 */

@@ -80,7 +80,10 @@ export const request: RequestConfig = {
   baseURL: resolveApiBasePath(),
   timeout: 30000,
   requestInterceptors: [
-    (config: any) => ({ ...config, headers: buildRequestHeaders(config.headers, buildRequestId()) }),
+    (config: any) => ({
+      ...config,
+      headers: buildRequestHeaders(config.headers, buildRequestId(), config.method),
+    }),
   ],
   errorConfig: {
     errorThrower: (response: any) => {

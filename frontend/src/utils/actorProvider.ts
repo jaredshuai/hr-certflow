@@ -2,6 +2,7 @@ import { getResource } from '@/services/api';
 import { apiErrorStatus } from '@/utils/apiErrors';
 import { actorStateFromErrorStatus, actorStateFromMe, type ActorState, type MeResponse } from '@/utils/actorState';
 import { LOGIN_REDIRECT_MARKER_KEY, loginUrlForLocation } from '@/utils/loginRedirect';
+import { setCsrfToken } from '@/utils/requestHeaders';
 
 type Listener = (state: ActorState) => void;
 
@@ -33,10 +34,11 @@ function removeRedirectMarker() {
 
 // 当前操作人只展示 GET /me 的结果：
 //   - release：网关 OIDC 登录后注入的可信身份；
-//   - dev（AUTH_REQUIRED=false）：后端固定开发操作人，界面标明不是真实登录；
+//   - dev：后端 jxccs-access 业务会话主体（展示姓名；同时下发写请求用的 CSRF token）；
+//   - 未接 SDK 的本地（AUTH_REQUIRED=false）：后端固定开发操作人，界面标明不是真实登录；
 //   - 401：未登录。前端不再回退任何 mock 身份，也不向请求写入身份头。
-//     网关前缀下首次 401 自动跳转 oauth2-proxy 登录入口；带着防循环标记再次 401
-//     时不再跳转，只展示「未登录」和登录链接。
+//     有登录入口的前缀下首次 401 自动跳转登录（release：oauth2-proxy；dev：/auth/login）；
+//     带着防循环标记再次 401 时不再跳转，只展示「未登录」和登录链接。
 class MeActorProvider {
   private state: ActorState = { status: 'loading' };
   private loading = false;
@@ -62,7 +64,9 @@ class MeActorProvider {
 
   private async load() {
     try {
-      this.state = actorStateFromMe(await getResource<MeResponse>('/me'));
+      const me = await getResource<MeResponse>('/me');
+      setCsrfToken(me?.csrf_token);
+      this.state = actorStateFromMe(me);
       removeRedirectMarker();
     } catch (error) {
       this.state = actorStateFromErrorStatus(apiErrorStatus(error));
