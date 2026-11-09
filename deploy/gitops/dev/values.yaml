@@ -28,8 +28,8 @@ config:
   # 窄客户端自行拼接 /api/v1/check、/api/v1/batch-check，subject-context 拼 /api/v1/subject-context，
   # 因此 base URL 不带 /api/v1。
   AUTHZ_BASE_URL: http://authorization-center-dev.authorization-center-dev.svc.cluster.local:8080
-  # Celery broker/result 使用 db 0（REDIS_URL / CELERY_* 默认与文档均为 /0）；会话用空闲的 db 1。
-  SESSION_STORE_URL: redis://hr-certflow-redis-broker:6379/1
+  # 会话 store 用 Redis db 1（db 0 已被 Celery broker/result 占用）。
+  # SESSION_STORE_URL 含 broker 密码，由 infra 注入 hr-certflow-runtime-secrets，不入库。
   SESSION_IDLE_SECONDS: '1800'
   SESSION_ABSOLUTE_SECONDS: '28800'
   SESSION_CHECK_INTERVAL_SECONDS: '30'
