@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.access import certificate_collection, certificate_item, require_permission
 from app.api.deps import RequestContext, audit_context_kwargs, get_current_operator, get_request_context
 from app.db.session import get_db
 from app.domain.enums import CertificateStatus
@@ -54,6 +55,12 @@ from app.services.certificates import (
 )
 
 router = APIRouter()
+
+# #33 第 3 步 PEP（jxccs-access 启用时生效，未启用时为空操作）：读 certificate.view、写 certificate.manage。
+_VIEW_COLLECTION = [Depends(require_permission("certificate.view", certificate_collection))]
+_VIEW_ITEM = [Depends(require_permission("certificate.view", certificate_item))]
+_MANAGE_COLLECTION = [Depends(require_permission("certificate.manage", certificate_collection))]
+_MANAGE_ITEM = [Depends(require_permission("certificate.manage", certificate_item))]
 
 
 def _certificate_statement(
@@ -173,7 +180,7 @@ def _load_certificate_export_labels(
     return employee_names, certificate_type_names
 
 
-@router.get("", response_model=list[EmployeeCertificateRead])
+@router.get("", response_model=list[EmployeeCertificateRead], dependencies=_VIEW_COLLECTION)
 def list_employee_certificates(
     db: Session = Depends(get_db),
     limit: int = 100,
@@ -188,7 +195,7 @@ def list_employee_certificates(
     return list(db.scalars(statement).all())
 
 
-@router.get("/page", response_model=EmployeeCertificatePageRead)
+@router.get("/page", response_model=EmployeeCertificatePageRead, dependencies=_VIEW_COLLECTION)
 def page_employee_certificates(
     db: Session = Depends(get_db),
     current: int = 1,
@@ -227,7 +234,7 @@ def page_employee_certificates(
     return EmployeeCertificatePageRead(data=[EmployeeCertificateRead.model_validate(row) for row in rows], total=total)
 
 
-@router.get("/export.csv")
+@router.get("/export.csv", dependencies=_VIEW_COLLECTION)
 def export_employee_certificates_csv(
     db: Session = Depends(get_db),
     keyword: str | None = None,
@@ -295,7 +302,9 @@ def _load_certificate_trace_audit_logs(db: Session, certificate: EmployeeCertifi
     return sorted(logs_by_id.values(), key=lambda log: log.created_at, reverse=True)[:100]
 
 
-@router.get("/{certificate_id}/trace", response_model=EmployeeCertificateTraceRead)
+@router.get(
+    "/{certificate_id}/trace", response_model=EmployeeCertificateTraceRead, dependencies=_VIEW_ITEM
+)
 def get_employee_certificate_trace(
     certificate_id: UUID,
     db: Session = Depends(get_db),
@@ -442,7 +451,12 @@ def get_employee_certificate_trace(
     )
 
 
-@router.post("", response_model=EmployeeCertificateRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=EmployeeCertificateRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_MANAGE_COLLECTION,
+)
 def create_employee_certificate(
     payload: EmployeeCertificateCreate,
     db: Session = Depends(get_db),
@@ -552,7 +566,7 @@ def _close_reminder_tasks_after_update(
         )
 
 
-@router.patch("/{certificate_id}", response_model=EmployeeCertificateRead)
+@router.patch("/{certificate_id}", response_model=EmployeeCertificateRead, dependencies=_MANAGE_ITEM)
 def update_employee_certificate(
     certificate_id: UUID,
     payload: EmployeeCertificateUpdate,
