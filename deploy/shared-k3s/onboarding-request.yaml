@@ -63,6 +63,9 @@ runtimeSecretKeys:
   - DINGTALK_WEBHOOK_URL
   - SMTP_USERNAME
   - SMTP_PASSWORD
+  # #33 第 3 步（jxccs-access）：目前仅 dev 需要；值由 infra 写入，仓库不存值。
+  - AUTHZ_SERVICE_TOKEN
+  - OIDC_CLIENT_SECRET
 
 configMapKeys:
   - APP_NAME
@@ -88,6 +91,18 @@ configMapKeys:
   - SMTP_HOST
   - SMTP_PORT
   - SMTP_STARTTLS
+  # #33 第 3 步（jxccs-access）：目前仅 dev values 设置。
+  - APP_ID
+  - PUBLIC_BASE_URL
+  - OIDC_ISSUER_URL
+  - OIDC_ISSUER_KEY
+  - OIDC_CLIENT_ID
+  - AUTHZ_BASE_URL
+  - SESSION_STORE_URL
+  - SESSION_IDLE_SECONDS
+  - SESSION_ABSOLUTE_SECONDS
+  - SESSION_CHECK_INTERVAL_SECONDS
+  - POD_NAMESPACE
   - MAIL_FROM
 
 smoke:
