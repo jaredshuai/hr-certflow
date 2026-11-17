@@ -17,8 +17,8 @@ config:
   UPLOAD_PREFIX: hr-certflow/dev/certificates
   APP_ID: hr-certflow
   PUBLIC_BASE_URL: http://10.34.200.180/hr-certflow-dev
-  OIDC_ISSUER_URL: http://10.34.200.223:8000
-  OIDC_ISSUER_KEY: casdoor-jiaxing-company
+  OIDC_ISSUER_URL: http://10.34.200.180/hydra-dev
+  OIDC_ISSUER_KEY: hydra-jiaxing-company
   OIDC_CLIENT_ID: hr-certflow-dev
   AUTHZ_BASE_URL: http://authorization-center-dev.authorization-center-dev.svc.cluster.local:8080
   SESSION_IDLE_SECONDS: '1800'
