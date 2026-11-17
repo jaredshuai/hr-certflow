@@ -1,1 +1,1 @@
-jxccs-authz-client da6bb5db16efa61f3370062cc4ba49155ece4d2c
+jxccs-authz-client b1346c486722fda62b2cc08df23180f1f890343a

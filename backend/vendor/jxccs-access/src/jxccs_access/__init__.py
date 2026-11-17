@@ -18,6 +18,7 @@ from .authorization import (
     ItemAccessDecision,
     MockAuthorizer,
     RealAuthorizer,
+    build_authz_client,
 )
 from .config import AccessConfig, ConfigError
 from .errors import AccessError, CsrfRejected, Forbidden, Unauthenticated, Unavailable
@@ -71,20 +72,19 @@ def build_runtime(
         scopes=config.oidc_scopes,
         jwks_min_refresh_seconds=config.jwks_min_refresh_seconds,
     )
-    subject_context = subject_context or SubjectContextClient(
-        base_url=config.authz_base_url,
-        application=config.app_id,
-        environment=config.authz_environment,
-        issuer_key=config.oidc_issuer_key,
-        expected_issuer_url=config.oidc_issuer_url,
-        token_provider=config.service_token_provider,
-    )
-    authorizer = authorizer or RealAuthorizer.build(
-        application=config.app_id,
-        environment=config.authz_environment,
-        base_url=config.authz_base_url,
-        token_provider=config.service_token_provider,
-    )
+    if subject_context is None or authorizer is None:
+        client = build_authz_client(
+            application=config.app_id,
+            environment=config.authz_environment,
+            base_url=config.authz_base_url,
+            token_provider=config.service_token_provider,
+        )
+        subject_context = subject_context or SubjectContextClient(
+            client,
+            issuer_key=config.oidc_issuer_key,
+            expected_issuer_url=config.oidc_issuer_url,
+        )
+        authorizer = authorizer or RealAuthorizer(client)
     return AccessRuntime(
         config=config,
         store=store,

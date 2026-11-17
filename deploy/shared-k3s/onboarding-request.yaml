@@ -29,6 +29,12 @@ dependencies:
   external:
     - Shared Dify workflow-center endpoint and API key
     - WeCom/Feishu/DingTalk webhook or SMTP
+  identity:
+    # dev only (jxccs-access). Egress is infra-owned NetworkPolicy
+    # hr-certflow-dev/allow-authorization-center-dev; this repo declares the need only.
+    dev:
+      - Authorization Center runtime decision API (authorization-center-dev runtime pods, TCP 8080)
+      - Hydra OIDC issuer http://10.34.200.180/hydra-dev, reached via the Traefik ingress address (api pod egress to the Traefik pod, TCP 8000, because kube-proxy DNATs the external IP)
 
 infraToProvision:
   secrets:

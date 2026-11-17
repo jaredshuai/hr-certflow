@@ -64,27 +64,28 @@ def _from_authz(decision: AuthzDecision) -> AccessDecision:
     )
 
 
+def build_authz_client(
+    *,
+    application: str,
+    environment: str,
+    base_url: str,
+    token_provider: Callable[[], str],
+) -> AuthorizationClient:
+    """One narrow client per runtime, shared by check/batch-check and subject-context."""
+    config = ClientConfig(
+        mode="release" if environment == "release" else "integration",
+        provider="http",
+        application=application,
+        environment=environment,
+        base_url=base_url,
+    )
+    return build_client(config, token_provider)
+
+
 class RealAuthorizer:
     def __init__(self, client: AuthorizationClient) -> None:
         self._client = client
 
-    @classmethod
-    def build(
-        cls,
-        *,
-        application: str,
-        environment: str,
-        base_url: str,
-        token_provider: Callable[[], str],
-    ) -> RealAuthorizer:
-        config = ClientConfig(
-            mode="release" if environment == "release" else "integration",
-            provider="http",
-            application=application,
-            environment=environment,
-            base_url=base_url,
-        )
-        return cls(build_client(config, token_provider))
 
     def check(self, principal: Principal, permission: str, resource: ResourceRef) -> AccessDecision:
         try:

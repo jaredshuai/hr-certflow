@@ -1,9 +1,10 @@
-# jxccs-authz-client（内部 0.1.0）
+# jxccs-authz-client（内部 0.2.0）
 
-内部包，正式版本 `0.1.0`，distribution name `jxccs-authz-client`，import name
+内部包，正式版本 `0.2.0`，distribution name `jxccs-authz-client`，import name
 `jxccs_authz`，要求 Python `>=3.11`。它只承载授权中心 M6 decision API 的最小
 同步客户端：`Principal`、`ResourceRef`、`BatchItem`、`Decision`、`ItemDecision`、
-`ClientFailure`、`ClientConfig`、`check()`、`batch_check()`、固定错误映射和
+`SubjectContext`、`ClientFailure`、`ClientConfig`、`check()`、`batch_check()`、
+`subject_context_login()`、`subject_context_session()`、固定错误映射和
 local recorded-fixture testkit。许可证保持内部 proprietary
 `LICENSE.internal.md` 不变，不发布到公开 PyPI。
 
@@ -192,6 +193,26 @@ subject / application / environment / permission / resource / requestId
 上游顺序；`policyVersion` 仅兼容 absent / null / string，不凭空产生版本号；
 `evaluatedAt` 必须是带时区的 RFC3339 extended date-time。
 
+`subject_context_login` / `subject_context_session`（0.2.0 新增）：
+
+```python
+context = client.subject_context_login(principal)  # purpose LOGIN
+context = client.subject_context_session(principal, context.session_epoch)  # SESSION
+```
+
+- 请求固定为 `subject / application / environment / purpose / requestId`；
+  `SESSION` 追加 `sessionEpoch`（非负 int，LOGIN 绝不发送）。
+- `SubjectContext` 是合格性/展示事实，不是授权 allow：subject、application、
+  environment、requestId 必须回显一致，`accountStatus` 必为 `ACTIVE`，
+  `sessionEpoch`/`directoryGeneration` 为非负 int（拒绝 bool），
+  `departmentIds` 为非空字符串列表（空列表=已确认无部门），
+  `employeeId`/`displayName` 为 string 或 null；任何违反即 BAD_PROTOCOL。
+- `issuerUrl` 原样透传，SDK 不做 OIDC issuer 配置比对（那是接入包职责）。
+- 错误面可区分：`401 SESSION_EXPIRED` → `SessionExpiredError`（业务 401，
+  调用方须重新认证用户）；`403 IDENTITY_NOT_ELIGIBLE` → `NotEligibleError`
+  （业务 403）；其余服务凭据/传输/协议/限流/依赖失败仍走
+  `ClientFailureError` 既有类别（业务 503）。
+
 ## Principal 语义
 
 - 身份主键严格为 `(issuer, sub)`；大小写敏感，不做 URL 归一化或别名推断。
@@ -210,6 +231,8 @@ subject / application / environment / permission / resource / requestId
 |---|---|---|
 | 没有可信 Principal | `NoTrustedPrincipalError` | 401 |
 | 合法 200 `allowed=false`（显式 deny、scope mismatch、disabled、unknown tuple 决策） | `Decision` | 403 |
+| subject-context `401 SESSION_EXPIRED` | `SessionExpiredError` | 401 |
+| subject-context `403 IDENTITY_NOT_ELIGIBLE` | `NotEligibleError` | 403 |
 | 上游 service credential 401/403 | `ClientFailureError` / `SERVICE_CREDENTIAL` | 503 |
 | 网络、超时、坏协议 | `ClientFailureError` / `TRANSPORT` 或 `BAD_PROTOCOL` | 503 |
 | 限流 429 | `ClientFailureError` / `RATE_LIMITED` | 503 |
@@ -262,8 +285,10 @@ URL 必须是绝对 http(s)、带 host、端口可解析、无 userinfo、无 qu
 ## 公开 API
 
 `Principal`、`ResourceRef`、`BatchItem`、`Decision`、`ItemDecision`、
-`ClientFailure`、`ClientConfig`、`AuthorizationClient.check()` /
-`batch_check()`、`build_client`、`NoTrustedPrincipalError`、
+`SubjectContext`、`ClientFailure`、`ClientConfig`、
+`AuthorizationClient.check()` / `batch_check()` /
+`subject_context_login()` / `subject_context_session()`、`build_client`、
+`NoTrustedPrincipalError`、`SessionExpiredError`、`NotEligibleError`、
 `ClientFailureError`、`AuthorizationClientError`、`business_status_for`、
 `business_status_for_decision`，以及 `jxccs_authz.testkit` 中的 local
 `FixtureTransport` / `ScenarioLoadError`。

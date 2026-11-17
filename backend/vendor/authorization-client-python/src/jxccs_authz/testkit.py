@@ -17,7 +17,13 @@ import json
 from importlib import resources
 from typing import Any, cast
 
-from .client import BATCH_CHECK_PATH, CHECK_PATH, RawResponse, SimulatedFailure
+from .client import (
+    BATCH_CHECK_PATH,
+    CHECK_PATH,
+    SUBJECT_CONTEXT_PATH,
+    RawResponse,
+    SimulatedFailure,
+)
 from .errors import FailureCategory
 from .principal import AccountStatus, Principal
 
@@ -46,6 +52,7 @@ class FixtureTransport:
         self._state["_callSeq"] = 0
         self._state["_observedTuples"] = []
         self._index = self._build_index(self._state)
+        self._context_index = self._build_context_index(self._state)
 
     @classmethod
     def for_scenario(cls, scenario: str) -> FixtureTransport:
@@ -78,8 +85,18 @@ class FixtureTransport:
             index[key] = scenario
         return index
 
+    @staticmethod
+    def _build_context_index(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        index: dict[str, dict[str, Any]] = {}
+        for scenario in state.get("contextScenarios", []):
+            key = _context_tuple_key(scenario["match"])
+            if key in index:
+                raise ScenarioLoadError(f"duplicate context scenario tuple {scenario['id']!r}")
+            index[key] = scenario
+        return index
+
     def post_json(self, path: str, payload: dict[str, Any]) -> RawResponse:
-        if path not in (CHECK_PATH, BATCH_CHECK_PATH):
+        if path not in (CHECK_PATH, BATCH_CHECK_PATH, SUBJECT_CONTEXT_PATH):
             raise SimulatedFailure(
                 FailureCategory.SIMULATED_CONFIG,
                 upstream_code="SIMULATED_PATH_UNKNOWN",
@@ -90,7 +107,9 @@ class FixtureTransport:
         if path == CHECK_PATH:
             scenario = self._lookup(payload)
             return self._respond_single(scenario, request_id, seq)
-        return self._respond_batch(payload, request_id, seq)
+        if path == BATCH_CHECK_PATH:
+            return self._respond_batch(payload, request_id, seq)
+        return self._respond_context(payload, request_id, seq)
 
     def _lookup(self, envelope: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -167,6 +186,42 @@ class FixtureTransport:
             body=_json_bytes({"items": items, "requestId": top_id}),
         )
 
+    def _respond_context(self, payload: dict[str, Any], request_id: Any, seq: int) -> RawResponse:
+        if "contextScenarios" not in self._state:
+            raise SimulatedFailure(
+                FailureCategory.SIMULATED_CONFIG,
+                upstream_code="SIMULATED_PATH_UNKNOWN",
+            )
+        try:
+            key = _context_tuple_key(payload)
+        except (KeyError, TypeError) as exc:
+            raise _unknown_tuple_failure() from exc
+        self._state["_observedTuples"].append(key)
+        scenario = self._context_index.get(key)
+        if scenario is None:
+            raise _unknown_tuple_failure()
+        outcome = scenario["outcome"]
+        if outcome["kind"] != "subjectContext":
+            return _failure_response(outcome, request_id)
+        context = outcome["context"]
+        subject = payload["subject"]
+        body = {
+            "subject": {"issuer": subject["issuer"], "sub": subject["sub"]},
+            "issuerUrl": context["issuerUrl"],
+            "application": payload["application"],
+            "environment": payload["environment"],
+            "accountStatus": "ACTIVE",
+            "departmentIds": list(context["departmentIds"]),
+            "employeeId": context.get("employeeId"),
+            "displayName": context.get("displayName"),
+            "sessionEpoch": context["sessionEpoch"],
+            "directoryGeneration": context["directoryGeneration"],
+            "requestId": (
+                request_id if isinstance(request_id, str) and request_id else f"gen-ctx-{seq}"
+            ),
+        }
+        return RawResponse(status=200, body=_json_bytes(body))
+
     def principals(self) -> dict[str, Principal]:
         out: dict[str, Principal] = {}
         for fixture_id, person in self._baseline["people"].items():
@@ -203,6 +258,7 @@ class FixtureTransport:
         self._state["_callSeq"] = 0
         self._state["_observedTuples"] = []
         self._index = self._build_index(self._state)
+        self._context_index = self._build_context_index(self._state)
 
     def baseline_digest(self) -> dict[str, str]:
         sections = {
@@ -211,6 +267,7 @@ class FixtureTransport:
             "denies": self._state["denies"],
             "ownership": self._state["ownership"],
             "scenarios": self._state["scenarios"],
+            "contextScenarios": self._state.get("contextScenarios"),
             "runtime": {
                 "callSeq": self._state["_callSeq"],
                 "observed": self._state["_observedTuples"],
@@ -238,6 +295,20 @@ def _tuple_key(match_or_envelope: dict[str, Any]) -> str:
         "resourceType": resource["resourceType"],
         "resourceId": resource["resourceId"],
         "attributes": resource.get("attributes", {}),
+    }
+    return _canonical(key)
+
+
+def _context_tuple_key(match_or_envelope: dict[str, Any]) -> str:
+    """Exact subject-context tuple: identity + binding + purpose + epoch."""
+    subject = match_or_envelope["subject"]
+    key = {
+        "issuer": subject["issuer"],
+        "sub": subject["sub"],
+        "application": match_or_envelope.get("application"),
+        "environment": match_or_envelope.get("environment"),
+        "purpose": match_or_envelope["purpose"],
+        "sessionEpoch": match_or_envelope.get("sessionEpoch"),
     }
     return _canonical(key)
 

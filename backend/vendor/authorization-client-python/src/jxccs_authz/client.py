@@ -19,17 +19,22 @@ import httpx
 
 from .config import ClientConfig, ConfigError
 from .errors import (
+    AuthorizationClientError,
     ClientFailure,
     ClientFailureError,
     Decision,
     FailureCategory,
     ItemDecision,
+    NotEligibleError,
     NoTrustedPrincipalError,
+    SessionExpiredError,
+    SubjectContext,
 )
 from .principal import Principal
 
 CHECK_PATH = "/api/v1/check"
 BATCH_CHECK_PATH = "/api/v1/batch-check"
+SUBJECT_CONTEXT_PATH = "/api/v1/subject-context"
 BATCH_MIN_ITEMS = 1
 BATCH_MAX_ITEMS = 100
 REQUEST_ID_MAX_LENGTH = 128
@@ -434,6 +439,110 @@ def _map_error_status(response: RawResponse, caller_request_id: str | None) -> C
     )
 
 
+def _map_context_error_status(
+    response: RawResponse, caller_request_id: str | None
+) -> AuthorizationClientError:
+    """Subject-context error face: SESSION_EXPIRED/IDENTITY_NOT_ELIGIBLE stay distinct.
+
+    Everything else (service-credential 401/403, 400, 429, 5xx, unreadable body)
+    delegates to the shared decision-face mapping.
+    """
+    body: Any = None
+    try:
+        body = json.loads(response.body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        body = None
+    code: str | None = None
+    request_id = caller_request_id
+    if isinstance(body, dict):
+        raw_code = body.get("code")
+        if isinstance(raw_code, str):
+            code = raw_code
+        body_request_id = _safe_request_id(body.get("requestId"))
+        if body_request_id is not None:
+            request_id = body_request_id
+    if response.status == 401 and code == "SESSION_EXPIRED":
+        return SessionExpiredError(
+            ClientFailure(
+                FailureCategory.SESSION_EXPIRED,
+                upstream_status=401,
+                upstream_code=code,
+                request_id=request_id,
+            )
+        )
+    if response.status == 403 and code == "IDENTITY_NOT_ELIGIBLE":
+        return NotEligibleError(
+            ClientFailure(
+                FailureCategory.IDENTITY_NOT_ELIGIBLE,
+                upstream_status=403,
+                upstream_code=code,
+                request_id=request_id,
+            )
+        )
+    return _map_error_status(response, caller_request_id)
+
+
+def _subject_context_from_parsed(
+    payload: Any,
+    config: ClientConfig,
+    principal: Principal,
+    caller_request_id: str | None,
+) -> SubjectContext:
+    """Strict decode of ``SubjectContextResponse``; any shape violation is BAD_PROTOCOL."""
+    try:
+        if not isinstance(payload, dict):
+            raise _ProtocolBailout("subject-context must be a JSON object")
+        if payload.get("subject") != principal.subject_wire():
+            raise _ProtocolBailout("subject echo must equal the requested issuer/sub")
+        if payload.get("application") != config.application:
+            raise _ProtocolBailout("application echo mismatch")
+        if payload.get("environment") != config.environment:
+            raise _ProtocolBailout("environment echo mismatch")
+        issuer_url = _require_str(payload.get("issuerUrl"), "issuerUrl")
+        if payload.get("accountStatus") != "ACTIVE":
+            raise _ProtocolBailout("a 200 subject-context is always ACTIVE")
+        departments = payload.get("departmentIds")
+        if not isinstance(departments, list) or not all(
+            isinstance(d, str) and d for d in departments
+        ):
+            raise _ProtocolBailout("departmentIds must be a list of non-empty strings")
+        epoch_raw = payload.get("sessionEpoch")
+        generation_raw = payload.get("directoryGeneration")
+        if (
+            isinstance(epoch_raw, bool)
+            or isinstance(generation_raw, bool)
+            or not isinstance(epoch_raw, int)
+            or not isinstance(generation_raw, int)
+            or epoch_raw < 0
+            or generation_raw < 0
+        ):
+            raise _ProtocolBailout("epoch/generation must be non-negative integers")
+        employee_id = payload.get("employeeId")
+        display_name = payload.get("displayName")
+        for value in (employee_id, display_name):
+            if value is not None and not isinstance(value, str):
+                raise _ProtocolBailout("employeeId/displayName must be strings or null")
+        request_id = payload.get("requestId")
+        if request_id is not None and _safe_request_id(request_id) is None:
+            raise _ProtocolBailout("requestId must be null or a safe string")
+        if caller_request_id is not None and request_id != caller_request_id:
+            raise _ProtocolBailout("requestId echo mismatch")
+    except _ProtocolBailout:
+        raise _bad_protocol(caller_request_id) from None
+    return SubjectContext(
+        issuer_key=principal.issuer,
+        sub=principal.sub,
+        issuer_url=issuer_url,
+        account_status="ACTIVE",
+        department_ids=tuple(departments),
+        employee_id=employee_id,
+        display_name=display_name,
+        session_epoch=epoch_raw,
+        directory_generation=generation_raw,
+        request_id=request_id,
+    )
+
+
 class AuthorizationClient:
     """Synchronous check/batch-check client bound to one service context."""
 
@@ -556,6 +665,58 @@ class AuthorizationClient:
             )
             for item_id in expected_ids
         ]
+
+    def subject_context_login(
+        self,
+        principal: Principal | None,
+        request_id: str | None = None,
+    ) -> SubjectContext:
+        """Establish a login context (purpose LOGIN); ``sessionEpoch`` is never sent."""
+        return self._subject_context(principal, "LOGIN", None, request_id)
+
+    def subject_context_session(
+        self,
+        principal: Principal | None,
+        session_epoch: int,
+        request_id: str | None = None,
+    ) -> SubjectContext:
+        """Validate a live business session (purpose SESSION) against the durable epoch."""
+        caller_request_id = self._validated_request_id(request_id)
+        if (
+            isinstance(session_epoch, bool)
+            or not isinstance(session_epoch, int)
+            or session_epoch < 0
+        ):
+            raise _bad_protocol(caller_request_id)
+        return self._subject_context(principal, "SESSION", session_epoch, caller_request_id)
+
+    def _subject_context(
+        self,
+        principal: Principal | None,
+        purpose: str,
+        session_epoch: int | None,
+        request_id: str | None,
+    ) -> SubjectContext:
+        caller_request_id = self._validated_request_id(request_id)
+        principal = self._require_principal(principal, caller_request_id)
+        payload: dict[str, Any] = {
+            "subject": principal.subject_wire(),
+            "application": self._config.application,
+            "environment": self._config.environment,
+            "purpose": purpose,
+        }
+        if purpose == "SESSION":
+            payload["sessionEpoch"] = session_epoch
+        if caller_request_id is not None:
+            payload["requestId"] = caller_request_id
+        response = self._post(SUBJECT_CONTEXT_PATH, payload, caller_request_id)
+        if response.status != 200:
+            raise _map_context_error_status(response, caller_request_id)
+        try:
+            parsed = json.loads(response.body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            raise _bad_protocol(caller_request_id) from None
+        return _subject_context_from_parsed(parsed, self._config, principal, caller_request_id)
 
     @staticmethod
     def _validate_items(

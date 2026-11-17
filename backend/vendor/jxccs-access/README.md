@@ -8,11 +8,11 @@
 
 | 层 | 包 | 职责 |
 |---|---|---|
-| 窄授权客户端 | `jxccs-authz-client`（`jxccs_authz`） | check / batch-check wire 层、错误映射 |
+| 窄授权客户端 | `jxccs-authz-client` ≥ 0.2（`jxccs_authz`） | check / batch-check / subject-context wire 层、错误映射 |
 | **一步接入包** | `jxccs-access`（本仓库） | 登录、会话、CSRF、logout、subject-context、当前主体、mock |
 | 业务 | 各应用 | 资源 PEP、数据范围（按 `department_ids`）、业务角色 |
 
-subject-context 由本包的 `subject_context.py` 单点适配，等窄客户端 0.2 提供后再切换。
+subject-context 的 wire 层（请求、严格解码、错误映射、传输）由窄客户端 `jxccs-authz-client` 0.2 提供；本包的 `subject_context.py` 只做单点适配：绑定配置的 OIDC issuer（校验返回的 `issuerUrl`），并把错误映射为 401 / 403 / 503。check / batch-check 与 subject-context 共用同一个窄客户端实例（同一连接池与超时预算）。
 
 ## 安装
 

@@ -1,6 +1,6 @@
 [project]
 name = "jxccs-authz-client"
-version = "0.1.0"
+version = "0.2.0"
 description = "Internal synchronous authorization client for the JXCCS authorization center M6 decision API"
 readme = "README.md"
 license = { file = "LICENSE.internal.md" }
