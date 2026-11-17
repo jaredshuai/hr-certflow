@@ -479,5 +479,102 @@
         "evaluatedAt": "2026-10-21T02:00:00Z"
       }
     }
+  ],
+  "contextScenarios": [
+    {
+      "id": "ctx-member-a-login",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "purpose": "LOGIN",
+        "sessionEpoch": null
+      },
+      "outcome": {
+        "kind": "subjectContext",
+        "context": {
+          "issuerUrl": "http://127.0.0.1:19091",
+          "departmentIds": ["dept-alpha"],
+          "employeeId": null,
+          "displayName": "Synthetic Member A",
+          "sessionEpoch": 7,
+          "directoryGeneration": 42
+        }
+      }
+    },
+    {
+      "id": "ctx-member-a-session-epoch-7",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "purpose": "SESSION",
+        "sessionEpoch": 7
+      },
+      "outcome": {
+        "kind": "subjectContext",
+        "context": {
+          "issuerUrl": "http://127.0.0.1:19091",
+          "departmentIds": ["dept-alpha"],
+          "employeeId": null,
+          "displayName": "Synthetic Member A",
+          "sessionEpoch": 7,
+          "directoryGeneration": 42
+        }
+      }
+    },
+    {
+      "id": "ctx-member-a-session-stale-epoch",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0001"},
+        "application": "demo-app",
+        "environment": "dev",
+        "purpose": "SESSION",
+        "sessionEpoch": 6
+      },
+      "outcome": {
+        "kind": "httpStatus",
+        "status": 401,
+        "code": "SESSION_EXPIRED",
+        "message": "synthetic stale session epoch"
+      }
+    },
+    {
+      "id": "ctx-disabled-d-login",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0004"},
+        "application": "demo-app",
+        "environment": "dev",
+        "purpose": "LOGIN",
+        "sessionEpoch": null
+      },
+      "outcome": {
+        "kind": "httpStatus",
+        "status": 403,
+        "code": "IDENTITY_NOT_ELIGIBLE",
+        "message": "synthetic ineligible subject"
+      }
+    },
+    {
+      "id": "ctx-member-c-login",
+      "match": {
+        "subject": {"issuer": "http://127.0.0.1:19091", "sub": "synth-member-0003"},
+        "application": "demo-app",
+        "environment": "dev",
+        "purpose": "LOGIN",
+        "sessionEpoch": null
+      },
+      "outcome": {
+        "kind": "subjectContext",
+        "context": {
+          "issuerUrl": "http://127.0.0.1:19091",
+          "departmentIds": ["dept-beta"],
+          "employeeId": null,
+          "displayName": "Synthetic Member C",
+          "sessionEpoch": 3,
+          "directoryGeneration": 42
+        }
+      }
+    }
   ]
 }

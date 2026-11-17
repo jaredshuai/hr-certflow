@@ -22,6 +22,8 @@ class FailureCategory(StrEnum):
     """Internal failure classes; these are not M6 reason codes."""
 
     NO_TRUSTED_PRINCIPAL = "NO_TRUSTED_PRINCIPAL"
+    SESSION_EXPIRED = "SESSION_EXPIRED"
+    IDENTITY_NOT_ELIGIBLE = "IDENTITY_NOT_ELIGIBLE"
     SERVICE_CREDENTIAL = "SERVICE_CREDENTIAL"
     REQUEST_REJECTED = "REQUEST_REJECTED"
     RATE_LIMITED = "RATE_LIMITED"
@@ -55,6 +57,28 @@ class ItemDecision:
 
     item_id: str
     decision: Decision
+
+
+@dataclass(frozen=True)
+class SubjectContext:
+    """One trusted identity-context fact from ``POST /api/v1/subject-context``.
+
+    It is an eligibility/display fact only, never an authorization allow.
+    ``department_ids`` is the confirmed membership set (empty means confirmed
+    none); ``request_id`` is the echoed caller correlation id or the upstream
+    null when the caller sent none.
+    """
+
+    issuer_key: str
+    sub: str
+    issuer_url: str
+    account_status: str
+    department_ids: tuple[str, ...]
+    employee_id: str | None
+    display_name: str | None
+    session_epoch: int
+    directory_generation: int
+    request_id: str | None
 
 
 @dataclass(frozen=True)
@@ -94,12 +118,31 @@ class NoTrustedPrincipalError(AuthorizationClientError):
     """
 
 
+class SessionExpiredError(AuthorizationClientError):
+    """The presented business-session epoch is stale: business-level 401.
+
+    Raised only by the subject-context SESSION path on upstream
+    ``401 SESSION_EXPIRED``; the caller must re-authenticate the user.
+    """
+
+
+class NotEligibleError(AuthorizationClientError):
+    """The subject exists but is not eligible for this purpose: business 403.
+
+    Raised only by the subject-context endpoint on upstream
+    ``403 IDENTITY_NOT_ELIGIBLE``; it is a trusted eligibility deny, not a
+    dependency failure.
+    """
+
+
 class ClientFailureError(AuthorizationClientError):
     """Dependency/protocol/credential failure: fail closed, business-level 503."""
 
 
 _BUSINESS_STATUS = {
     FailureCategory.NO_TRUSTED_PRINCIPAL: 401,
+    FailureCategory.SESSION_EXPIRED: 401,
+    FailureCategory.IDENTITY_NOT_ELIGIBLE: 403,
     FailureCategory.SERVICE_CREDENTIAL: 503,
     FailureCategory.REQUEST_REJECTED: 503,
     FailureCategory.RATE_LIMITED: 503,

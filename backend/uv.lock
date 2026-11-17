@@ -623,7 +623,7 @@ dev = [
 
 [[package]]
 name = "jxccs-authz-client"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "vendor/authorization-client-python" }
 dependencies = [
     { name = "httpx" },

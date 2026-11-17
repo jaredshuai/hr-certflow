@@ -1,9 +1,10 @@
 """Internal authorization client for the M6 decision API.
 
-This is an internal package (``0.1.0``), not a public SDK. It only carries the
-typed M6 models, synchronous check/batch-check calls, fixed error mapping and a
-local recorded-fixture testkit. It never performs OIDC, session, CSRF, logout or
-Casdoor management, and it contains no business resource model.
+This is an internal package (``0.2.0``), not a public SDK. It only carries the
+typed M6 models, synchronous check/batch-check/subject-context calls, fixed
+error mapping and a local recorded-fixture testkit. It never performs OIDC,
+session, CSRF, logout or Casdoor management, and it contains no business
+resource model.
 """
 
 from .client import AuthorizationClient, BatchItem, ResourceRef, build_client
@@ -15,14 +16,17 @@ from .errors import (
     Decision,
     FailureCategory,
     ItemDecision,
+    NotEligibleError,
     NoTrustedPrincipalError,
+    SessionExpiredError,
+    SubjectContext,
     business_status_for,
     business_status_for_decision,
 )
 from .principal import AccountStatus, Principal
 from .testkit import FixtureTransport, ScenarioLoadError
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "AccountStatus",
@@ -38,9 +42,12 @@ __all__ = [
     "FixtureTransport",
     "ItemDecision",
     "NoTrustedPrincipalError",
+    "NotEligibleError",
     "Principal",
     "ResourceRef",
     "ScenarioLoadError",
+    "SessionExpiredError",
+    "SubjectContext",
     "__version__",
     "build_client",
     "business_status_for",
