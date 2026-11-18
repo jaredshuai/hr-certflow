@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.api.access import certificate_document_item, require_permission
 from app.api.deps import (
     RequestContext,
     audit_context_kwargs,
@@ -331,7 +332,11 @@ def _document_read_with_duplicates(db: Session, document: CertificateDocument) -
     )
 
 
-@router.post("/{document_id}/confirm-upload", response_model=CertificateDocumentRead)
+@router.post(
+    "/{document_id}/confirm-upload",
+    response_model=CertificateDocumentRead,
+    dependencies=[Depends(require_permission("certificate.manage", certificate_document_item))],
+)
 def confirm_document_upload(
     document_id: UUID,
     db: Session = Depends(get_db),
