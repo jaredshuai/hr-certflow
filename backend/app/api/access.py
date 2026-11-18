@@ -79,3 +79,11 @@ def certificate_collection() -> ResourceRef:
 
 def certificate_item(certificate_id: UUID) -> ResourceRef:
     return ResourceRef(CERTIFICATE_RESOURCE_TYPE, str(certificate_id))
+
+
+def certificate_document_item(document_id: UUID) -> ResourceRef:
+    return ResourceRef(CERTIFICATE_RESOURCE_TYPE, str(document_id))
+
+
+def certificate_review_item(review_task_id: UUID) -> ResourceRef:
+    return ResourceRef(CERTIFICATE_RESOURCE_TYPE, str(review_task_id))

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.access import certificate_review_item, require_permission
 from app.api.deps import RequestContext, audit_context_kwargs, get_current_operator, get_request_context
 from app.core.config import get_settings
 from app.db.session import get_db
@@ -197,6 +198,7 @@ def get_review_task_trace(
     "/{review_task_id}/approve",
     response_model=ReviewDecisionRead,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission("certificate.manage", certificate_review_item))],
 )
 def approve_review_task(
     review_task_id: UUID,

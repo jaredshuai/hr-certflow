@@ -11,6 +11,7 @@ import time
 import uuid
 from collections.abc import Generator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -20,10 +21,12 @@ from jxccs_access.session import SessionRecord
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.api.routes import documents
 from app.core.config import get_settings
 from app.db.session import SessionLocal, get_db, get_engine
 from app.domain.enums import DocumentStatus, ReviewStatus
 from app.models import AuditLog, CertificateDocument, CertificateType, Employee, EmployeeCertificate, ReviewTask
+from app.services.storage import ObjectMetadata
 
 ISSUER_KEY = "casdoor-jiaxing-company"
 ORIGIN = {"Origin": "http://testserver"}
@@ -290,6 +293,7 @@ def test_certificate_list_allowed_with_view(sdk: Sdk, no_db: MagicMock) -> None:
     [
         ("POST", "/api/v1/certificates", "collection"),
         ("PATCH", f"/api/v1/certificates/{uuid.UUID(int=9)}", str(uuid.UUID(int=9))),
+        ("POST", f"/api/v1/reviews/{uuid.UUID(int=10)}/approve", str(uuid.UUID(int=10))),
     ],
 )
 def test_certificate_writes_require_manage(
@@ -299,9 +303,53 @@ def test_certificate_writes_require_manage(
     response = sdk.client.request(method, path, json={}, headers=sdk.headers(record, write=True))
 
     assert response.status_code == 403
+    assert response.json() == {"detail": {"code": "FORBIDDEN", "requestId": "req-1"}}
     sub, permission, resource = sdk.authorizer.calls[-1]
-    assert (sub, permission, resource.resource_id) == (SUN.sub, "certificate.manage", resource_id)
+    assert (sub, permission, resource) == (SUN.sub, "certificate.manage", ResourceRef("certificate", resource_id))
+    no_db.scalar.assert_not_called()
     no_db.add.assert_not_called()
+
+
+@pytest.mark.parametrize("can_manage", [False, True], ids=["viewer", "manager"])
+def test_confirm_upload_requires_manage(sdk: Sdk, no_db: MagicMock, monkeypatch, can_manage: bool) -> None:
+    principal = Principal(ISSUER_KEY, "synthetic-confirmation-subject", None, None, (), "ACTIVE", "casdoor")
+    sdk.authorizer.allow.add((principal.sub, "certificate.view", "certificate"))
+    if can_manage:
+        sdk.authorizer.allow.add((principal.sub, "certificate.manage", "certificate"))
+    document = CertificateDocument(
+        id=uuid.UUID(int=11),
+        status=DocumentStatus.PENDING_UPLOAD,
+        storage_bucket="test-bucket",
+        storage_key="test-certificate.pdf",
+        original_filename="test-certificate.pdf",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    no_db.get.return_value = document
+    no_db.scalars.return_value.all.return_value = []
+    storage = MagicMock()
+    storage.head_object.return_value = ObjectMetadata(content_length=123, content_type="application/pdf", etag=None)
+    storage.calculate_sha256.return_value = "a" * 64
+    storage_factory = MagicMock(return_value=storage)
+    monkeypatch.setattr(documents, "ObjectStorage", storage_factory)
+
+    response = sdk.client.post(
+        f"/api/v1/documents/{document.id}/confirm-upload",
+        headers=sdk.headers(sdk.login(principal), write=True),
+    )
+
+    if can_manage:
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == DocumentStatus.UPLOADED.value
+        storage.head_object.assert_called_once_with(bucket=document.storage_bucket, key=document.storage_key)
+        no_db.commit.assert_called_once()
+    else:
+        assert response.status_code == 403
+        assert response.json() == {"detail": {"code": "FORBIDDEN", "requestId": "req-1"}}
+        no_db.get.assert_not_called()
+        storage_factory.assert_not_called()
+        no_db.commit.assert_not_called()
+    assert sdk.authorizer.calls == [(principal.sub, "certificate.manage", ResourceRef("certificate", str(document.id)))]
 
 
 def test_write_requires_csrf_token_even_with_session(sdk: Sdk, no_db: MagicMock) -> None:
@@ -405,7 +453,7 @@ def test_certificate_create_records_session_actor(sdk: Sdk, db_session: Session)
     assert (audit.actor_name, audit.actor_source) == (PAN.sub, ISSUER_KEY)
 
 
-def test_review_approve_outside_pep_slice_records_session_actor(sdk: Sdk, db_session: Session) -> None:
+def test_review_approve_with_manage_records_session_actor(sdk: Sdk, db_session: Session) -> None:
     employee, certificate_type = _master_data(db_session)
     document = CertificateDocument(
         employee_id=employee.id,
@@ -422,7 +470,7 @@ def test_review_approve_outside_pep_slice_records_session_actor(sdk: Sdk, db_ses
     db_session.commit()
     db_session.refresh(review_task)
 
-    record = sdk.login(SUN)  # 无业务授权：本步 reviews 不加 PEP，但操作人仍取会话主体
+    record = sdk.login(PAN)
     response = sdk.client.post(
         f"/api/v1/reviews/{review_task.id}/approve",
         json={
@@ -441,9 +489,10 @@ def test_review_approve_outside_pep_slice_records_session_actor(sdk: Sdk, db_ses
     )
 
     assert response.status_code == 200, response.text
+    assert sdk.authorizer.calls == [(PAN.sub, "certificate.manage", ResourceRef("certificate", str(review_task.id)))]
     db_session.expire_all()
     refreshed = db_session.get(ReviewTask, review_task.id)
     assert refreshed is not None
-    assert refreshed.reviewed_by == SUN.sub
+    assert refreshed.reviewed_by == PAN.sub
     audit = _latest_audit(db_session, "review_task.approve")
-    assert (audit.actor_name, audit.actor_source) == (SUN.sub, ISSUER_KEY)
+    assert (audit.actor_name, audit.actor_source) == (PAN.sub, ISSUER_KEY)
