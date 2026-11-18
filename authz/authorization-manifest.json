@@ -9,7 +9,7 @@
     {"id":"certificate.manage","resourceTypes":["certificate"],"actions":["create","update","confirm"],"risk":"normal","supportedScopes":["ALL"]}
   ],
   "roles": [
-    {"id":"certificate-viewer","permissions":["app.enter","app.view","certificate.view"]},
-    {"id":"certificate-admin","permissions":["app.enter","app.view","certificate.view","certificate.manage"]}
+    {"id":"certificate-viewer","permissions":["certificate.view"]},
+    {"id":"certificate-admin","permissions":["certificate.view","certificate.manage"]}
   ]
 }
