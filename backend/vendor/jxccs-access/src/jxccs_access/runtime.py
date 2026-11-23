@@ -281,7 +281,7 @@ def _revalidate(access: RequestAccess, record: SessionRecord, principal: Princip
         employee_id=context.employee_id,
         department_ids=context.department_ids,
         account_status="ACTIVE",
-        source="casdoor",
+        source=principal.issuer_key,
     )
     record.principal = refreshed
     record.session_checked_at = now

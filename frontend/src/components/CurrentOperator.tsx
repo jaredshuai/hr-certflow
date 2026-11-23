@@ -1,5 +1,5 @@
-import { UserOutlined } from '@ant-design/icons';
-import { Tag, Tooltip } from 'antd';
+import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
+import { Button, Space, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { actorProvider } from '@/utils/actorProvider';
@@ -16,9 +16,14 @@ export function CurrentOperator() {
       return null;
     case 'authenticated':
       return (
-        <Tag icon={<UserOutlined />} color="blue">
-          {state.name}
-        </Tag>
+        <Space size={4}>
+          <Tag icon={<UserOutlined />} color="blue">
+            {state.name}
+          </Tag>
+          <Button size="small" type="text" icon={<LogoutOutlined />} onClick={() => void actorProvider.logout()}>
+            退出
+          </Button>
+        </Space>
       );
     case 'dev-operator':
       return (

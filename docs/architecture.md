@@ -48,6 +48,21 @@ FastAPI is the system brain. It owns:
 
 It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
 
+### Identity And Access (jxccs-access)
+
+启用 `APP_ID` 时（local/dev），后端挂载 `jxccs-access` SDK 的 `/auth/*` BFF
+（登录、回调、登出、`/auth/me`）与会话/CSRF 中间件；release 过渡期仍走网关身份头。
+
+- **业务 PEP**：证书域写操作统一挂 `certificate.manage` 判定（approve 与 reject
+  对称，均以 `certificate_review_item` 作为资源）；读取挂 `certificate.view`。
+  授权中心显式 deny、撤权和资源 scope 由 SDK 每次请求实时判定。
+- **退出**：`POST /auth/logout` 只销毁本应用业务会话（服务端 session 记录删除 +
+  清 Cookie），不调用 Casdoor/省平台的 end_session，不影响上游会话与其他应用。
+  前端在右上角提供「退出」入口，退出后回到应用首页并展示「未登录 + 登录」。
+- **Principal.source 口径**：真实会话的 `source` 为中性真实 issuer key（等于
+  `issuer_key`），`mock` 仅表示模拟身份会话；历史存量里的 `casdoor` 值仍按真实
+  来源读回，不强制改写。
+
 ### Dify
 
 Dify is the shared AI workflow center for the MVP and near-term platform

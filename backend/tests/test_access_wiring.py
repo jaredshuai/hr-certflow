@@ -78,7 +78,7 @@ PAN = Principal(
     employee_id="33027947",
     department_ids=("dept-hr",),
     account_status="ACTIVE",
-    source="casdoor",
+    source=ISSUER_KEY,
 )
 SUN = Principal(
     issuer_key=ISSUER_KEY,
@@ -87,7 +87,7 @@ SUN = Principal(
     employee_id="33032525",
     department_ids=("dept-ops",),
     account_status="ACTIVE",
-    source="casdoor",
+    source=ISSUER_KEY,
 )
 
 
@@ -240,7 +240,7 @@ def test_me_returns_session_principal(sdk: Sdk) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "name": "潘水天",
-        "source": "casdoor",
+        "source": ISSUER_KEY,
         "authenticated": True,
         "issuer_key": ISSUER_KEY,
         "sub": PAN.sub,
@@ -253,7 +253,7 @@ def test_me_returns_session_principal(sdk: Sdk) -> None:
 
 
 def test_me_name_falls_back_to_sub_without_display_name(sdk: Sdk) -> None:
-    anonymous = Principal(ISSUER_KEY, "sub-without-name", None, None, (), "ACTIVE", "casdoor")
+    anonymous = Principal(ISSUER_KEY, "sub-without-name", None, None, (), "ACTIVE", ISSUER_KEY)
     response = sdk.client.get("/api/v1/me", headers=sdk.headers(sdk.login(anonymous)))
     assert response.json()["name"] == "sub-without-name"
 
@@ -294,6 +294,7 @@ def test_certificate_list_allowed_with_view(sdk: Sdk, no_db: MagicMock) -> None:
         ("POST", "/api/v1/certificates", "collection"),
         ("PATCH", f"/api/v1/certificates/{uuid.UUID(int=9)}", str(uuid.UUID(int=9))),
         ("POST", f"/api/v1/reviews/{uuid.UUID(int=10)}/approve", str(uuid.UUID(int=10))),
+        ("POST", f"/api/v1/reviews/{uuid.UUID(int=10)}/reject", str(uuid.UUID(int=10))),
     ],
 )
 def test_certificate_writes_require_manage(
@@ -312,7 +313,7 @@ def test_certificate_writes_require_manage(
 
 @pytest.mark.parametrize("can_manage", [False, True], ids=["viewer", "manager"])
 def test_confirm_upload_requires_manage(sdk: Sdk, no_db: MagicMock, monkeypatch, can_manage: bool) -> None:
-    principal = Principal(ISSUER_KEY, "synthetic-confirmation-subject", None, None, (), "ACTIVE", "casdoor")
+    principal = Principal(ISSUER_KEY, "synthetic-confirmation-subject", None, None, (), "ACTIVE", ISSUER_KEY)
     sdk.authorizer.allow.add((principal.sub, "certificate.view", "certificate"))
     if can_manage:
         sdk.authorizer.allow.add((principal.sub, "certificate.manage", "certificate"))
@@ -496,3 +497,80 @@ def test_review_approve_with_manage_records_session_actor(sdk: Sdk, db_session: 
     assert refreshed.reviewed_by == PAN.sub
     audit = _latest_audit(db_session, "review_task.approve")
     assert (audit.actor_name, audit.actor_source) == (PAN.sub, ISSUER_KEY)
+
+
+def _reject_task(db_session: Session) -> ReviewTask:
+    document = CertificateDocument(
+        status=DocumentStatus.PENDING_REVIEW,
+        storage_bucket="bucket",
+        storage_key=f"hr-certflow/test/{uuid.uuid4().hex}.pdf",
+        original_filename="cert.pdf",
+        sha256="1" * 64,
+    )
+    db_session.add(document)
+    db_session.flush()
+    review_task = ReviewTask(document_id=document.id, status=ReviewStatus.PENDING)
+    db_session.add(review_task)
+    db_session.commit()
+    db_session.refresh(review_task)
+    return review_task
+
+
+def test_review_reject_requires_manage_and_revocation_is_honoured(sdk: Sdk, db_session: Session) -> None:
+    """与 approve 对称：无 manage 授权 403 且不触库；撤权后同样 403；重新授权后才放行。"""
+    review_task = _reject_task(db_session)
+    record = sdk.login(PAN)
+    payload = {"status": "REJECTED", "expected_updated_at": review_task.updated_at.isoformat()}
+    headers = sdk.headers(record, write=True)
+
+    # 撤权（从授权集里移除 manage）：PEP 拒绝且业务层完全不执行。
+    sdk.authorizer.allow.discard((PAN.sub, "certificate.manage", "certificate"))
+    revoked = sdk.client.post(f"/api/v1/reviews/{review_task.id}/reject", json=payload, headers=headers)
+    assert revoked.status_code == 403
+    assert revoked.json() == {"detail": {"code": "FORBIDDEN", "requestId": "req-1"}}
+    assert sdk.authorizer.calls[-1] == (PAN.sub, "certificate.manage", ResourceRef("certificate", str(review_task.id)))
+    db_session.expire_all()
+    assert db_session.get(ReviewTask, review_task.id).status == ReviewStatus.PENDING
+
+    # 重新授权：放行并记录审计。
+    sdk.authorizer.allow.add((PAN.sub, "certificate.manage", "certificate"))
+    allowed = sdk.client.post(f"/api/v1/reviews/{review_task.id}/reject", json=payload, headers=headers)
+    assert allowed.status_code == 200, allowed.text
+    assert sdk.authorizer.calls[-1] == (PAN.sub, "certificate.manage", ResourceRef("certificate", str(review_task.id)))
+    db_session.expire_all()
+    refreshed = db_session.get(ReviewTask, review_task.id)
+    assert refreshed is not None
+    assert refreshed.status == ReviewStatus.REJECTED
+    audit = _latest_audit(db_session, "review_task.reject")
+    assert (audit.actor_name, audit.actor_source) == (PAN.sub, ISSUER_KEY)
+
+
+def test_logout_is_local_only_and_invalidates_app_session(sdk: Sdk) -> None:
+    """G-HR-05：/auth/logout 只销毁本应用业务会话，不跳转/调用上游 end_session。"""
+    record = sdk.login(PAN)
+    response = sdk.client.post("/auth/logout", headers=sdk.headers(record, write=True))
+
+    assert response.status_code == 204
+    assert "location" not in response.headers
+    assert "set-cookie" in response.headers  # 清除会话 Cookie
+    # 服务端会话记录已删除：旧 Cookie 不能复活会话。
+    assert sdk.runtime.store.get(record.sid) is None
+    me = sdk.client.get("/api/v1/me", headers=sdk.headers(record))
+    assert me.status_code == 401
+
+
+def test_stored_principal_legacy_casdoor_source_still_authenticates() -> None:
+    """G-HR-06 兼容：旧会话里存的 source="casdoor" 仍按真实（非 mock）来源读回，不强制改写历史。"""
+    legacy = Principal.from_dict(
+        {
+            "issuer_key": ISSUER_KEY,
+            "sub": PAN.sub,
+            "display_name": "潘水天",
+            "employee_id": "33027947",
+            "department_ids": ["dept-hr"],
+            "account_status": "ACTIVE",
+            "source": "casdoor",
+        }
+    )
+    assert legacy.source == "casdoor"
+    assert legacy.issuer_key == ISSUER_KEY

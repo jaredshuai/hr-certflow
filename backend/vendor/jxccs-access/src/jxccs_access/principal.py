@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from jxccs_authz import Principal as AuthzPrincipal
 
-Source = Literal["casdoor", "mock"]
+Source = str
 AccountStatus = Literal["ACTIVE", "DISABLED", "LOCKED"]
 
 
@@ -18,6 +18,10 @@ class Principal:
     ``issuer_key`` is the registered directory issuer key (never derived from a
     token); ``sub`` is the opaque OIDC subject. Directory attributes come from
     subject-context (or the mock fixture) and are display/data-scope facts only.
+    ``source`` is ``"mock"`` for mock sessions; real sessions carry the neutral
+    real issuer key (equal to ``issuer_key``). Stored sessions from older
+    versions may still carry the legacy ``"casdoor"`` value: it is read back as
+    a real (non-mock) source and refreshed to the issuer key on revalidation.
     """
 
     issuer_key: str
@@ -54,7 +58,7 @@ class Principal:
     def from_dict(cls, data: dict[str, Any]) -> Principal:
         source = data["source"]
         status = data["account_status"]
-        if source not in ("casdoor", "mock") or status not in ("ACTIVE", "DISABLED", "LOCKED"):
+        if (not isinstance(source, str) or not source) or status not in ("ACTIVE", "DISABLED", "LOCKED"):
             raise ValueError("invalid stored principal")
         return cls(
             issuer_key=str(data["issuer_key"]),

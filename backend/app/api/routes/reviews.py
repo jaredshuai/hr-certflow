@@ -235,6 +235,7 @@ def approve_review_task(
     "/{review_task_id}/reject",
     response_model=ReviewTaskRead,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_permission("certificate.manage", certificate_review_item))],
 )
 def reject_review_task(
     review_task_id: UUID,
