@@ -74,11 +74,12 @@ def test_checked_in_onboarding_contract_matches_step3_identity_and_probe() -> No
     validate_deploy_artifacts.validate_onboarding_request(path, repo_root=REPO_ROOT)
 
 
-def test_onboarding_contract_rejects_authenticated_health_as_smoke_path(tmp_path: Path) -> None:
+@pytest.mark.parametrize("env_name", ["dev", "release"])
+def test_onboarding_contract_rejects_authenticated_health_as_smoke_path(tmp_path: Path, env_name: str) -> None:
     path = _write_onboarding_request(tmp_path)
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-    payload["smoke"]["dev"]["apiProbe"]["path"] = "/api/v1/health"
+    payload["smoke"][env_name]["apiProbe"]["path"] = "/api/v1/health"
     path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match="apiProbe"):
+    with pytest.raises(RuntimeError, match="cluster-internal"):
         validate_deploy_artifacts.validate_onboarding_request(path, repo_root=REPO_ROOT)

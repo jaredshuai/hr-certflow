@@ -100,7 +100,7 @@ Build and push API/Web images
 Update deploy/gitops/<env>/values.yaml
 Wait until API/Web/Worker/Beat deployments use the promoted image tag
 Wait for Kubernetes rollout status
-Run HTTP web/API smoke
+Run HTTP web smoke and the cluster-internal /_internal/healthz API probe
 Run Celery/Redis smoke in temporary Kubernetes Jobs
 Delete temporary smoke Jobs
 ```
