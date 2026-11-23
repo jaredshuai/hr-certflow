@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.access import certificate_review_item, require_permission
+from app.api.access import certificate_collection, certificate_review_item, require_permission
 from app.api.deps import RequestContext, audit_context_kwargs, get_current_operator, get_request_context
 from app.core.config import get_settings
 from app.db.session import get_db
@@ -139,7 +139,11 @@ def _load_review_trace_audit_logs(
     return load_audit_logs_for_resources(db, resource_ids)
 
 
-@router.get("", response_model=list[ReviewTaskRead])
+@router.get(
+    "",
+    response_model=list[ReviewTaskRead],
+    dependencies=[Depends(require_permission("certificate.manage", certificate_collection))],
+)
 def list_review_tasks(
     status: ReviewStatus | None = None,
     db: Session = Depends(get_db),
@@ -157,7 +161,11 @@ def list_review_tasks(
     return [_review_task_to_read(task, include_read_url=True) for task in tasks]
 
 
-@router.get("/{review_task_id}/trace", response_model=ReviewTaskTraceRead)
+@router.get(
+    "/{review_task_id}/trace",
+    response_model=ReviewTaskTraceRead,
+    dependencies=[Depends(require_permission("certificate.manage", certificate_review_item))],
+)
 def get_review_task_trace(
     review_task_id: UUID,
     db: Session = Depends(get_db),

@@ -398,6 +398,178 @@ def test_routes_outside_slice_need_session_but_no_pep(sdk: Sdk, no_db: MagicMock
     assert sdk.authorizer.calls == []
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "resource_id", "json_body"),
+    [
+        ("GET", "/api/v1/reviews", "collection", None),
+        ("GET", f"/api/v1/reviews/{uuid.UUID(int=19)}/trace", str(uuid.UUID(int=19)), None),
+        ("GET", "/api/v1/documents", "collection", None),
+        ("GET", "/api/v1/documents/page", "collection", None),
+        ("GET", "/api/v1/documents/export.csv", "collection", None),
+        ("GET", f"/api/v1/documents/{uuid.UUID(int=20)}/trace", str(uuid.UUID(int=20)), None),
+        (
+            "POST",
+            "/api/v1/documents/upload-intents",
+            "collection",
+            {"original_filename": "certificate.pdf", "content_type": "application/pdf", "file_size": 123},
+        ),
+        ("POST", f"/api/v1/documents/{uuid.UUID(int=20)}/confirm-upload", str(uuid.UUID(int=20)), None),
+        ("POST", f"/api/v1/documents/{uuid.UUID(int=20)}/recognize-async", str(uuid.UUID(int=20)), None),
+        ("GET", f"/api/v1/documents/{uuid.UUID(int=20)}/recognition-status", str(uuid.UUID(int=20)), None),
+    ],
+)
+def test_reviews_and_documents_require_manage_before_business_logic(
+    sdk: Sdk,
+    no_db: MagicMock,
+    method: str,
+    path: str,
+    resource_id: str,
+    json_body: dict[str, object] | None,
+) -> None:
+    """仅持有 view 也不能读取复核/材料详情，PEP 必须先于业务查询执行。"""
+    sdk.authorizer.allow.add((SUN.sub, "certificate.view", "certificate"))
+    record = sdk.login(SUN)
+    request_kwargs: dict[str, object] = {"headers": sdk.headers(record, write=method != "GET")}
+    if json_body is not None:
+        request_kwargs["json"] = json_body
+
+    response = sdk.client.request(method, path, **request_kwargs)
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": {"code": "FORBIDDEN", "requestId": "req-1"}}
+    assert sdk.authorizer.calls[-1] == (
+        SUN.sub,
+        "certificate.manage",
+        ResourceRef("certificate", resource_id),
+    )
+    assert no_db.mock_calls == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/reviews",
+        "/api/v1/documents",
+        "/api/v1/documents/page",
+        "/api/v1/documents/export.csv",
+    ],
+)
+def test_reviews_and_documents_collections_allow_manage(sdk: Sdk, no_db: MagicMock, path: str) -> None:
+    no_db.scalar.return_value = 0
+    no_db.scalars.return_value.all.return_value = []
+
+    response = sdk.client.get(path, headers=sdk.headers(sdk.login(PAN)))
+
+    assert response.status_code == 200, response.text
+    assert sdk.authorizer.calls[-1] == (
+        PAN.sub,
+        "certificate.manage",
+        ResourceRef("certificate", "collection"),
+    )
+
+
+def _detail_access_resources(db: Session) -> tuple[CertificateDocument, ReviewTask]:
+    document = CertificateDocument(
+        status=DocumentStatus.PENDING_REVIEW,
+        storage_bucket="bucket",
+        storage_key=f"hr-certflow/test/{uuid.uuid4().hex}.pdf",
+        original_filename="access-detail.pdf",
+        sha256="2" * 64,
+    )
+    db.add(document)
+    db.flush()
+    review_task = ReviewTask(document_id=document.id, status=ReviewStatus.PENDING)
+    db.add(review_task)
+    db.commit()
+    db.refresh(document)
+    db.refresh(review_task)
+    return document, review_task
+
+
+def test_review_and_document_details_follow_manage_revocation(
+    sdk: Sdk, db_session: Session
+) -> None:
+    document, review_task = _detail_access_resources(db_session)
+    record = sdk.login(PAN)
+
+    allowed_paths = [
+        (f"/api/v1/reviews/{review_task.id}/trace", str(review_task.id)),
+        (f"/api/v1/documents/{document.id}/trace", str(document.id)),
+    ]
+    for path, resource_id in allowed_paths:
+        allowed = sdk.client.get(path, headers=sdk.headers(record))
+        assert allowed.status_code == 200, allowed.text
+        assert sdk.authorizer.calls[-1] == (
+            PAN.sub,
+            "certificate.manage",
+            ResourceRef("certificate", resource_id),
+        )
+
+    sdk.authorizer.allow.discard((PAN.sub, "certificate.manage", "certificate"))
+    for path, resource_id in allowed_paths:
+        denied = sdk.client.get(path, headers=sdk.headers(record))
+        assert denied.status_code == 403
+        assert denied.json() == {"detail": {"code": "FORBIDDEN", "requestId": "req-1"}}
+        assert "review_task" not in denied.text
+        assert "source_document" not in denied.text
+        assert sdk.authorizer.calls[-1] == (
+            PAN.sub,
+            "certificate.manage",
+            ResourceRef("certificate", resource_id),
+        )
+
+    sdk.authorizer.allow.add((PAN.sub, "certificate.manage", "certificate"))
+    for path, _ in allowed_paths:
+        restored = sdk.client.get(path, headers=sdk.headers(record))
+        assert restored.status_code == 200, restored.text
+
+
+def test_document_mutations_allow_manage(sdk: Sdk, db_session: Session, monkeypatch) -> None:
+    intent = MagicMock()
+    intent.bucket = "bucket"
+    intent.key = "hr-certflow/test/upload-intent.pdf"
+    intent.upload_url = "https://storage.test/upload"
+    intent.read_url = None
+    storage = MagicMock()
+    storage.create_upload_intent.return_value = intent
+    monkeypatch.setattr(documents, "ObjectStorage", MagicMock(return_value=storage))
+    recognition_delay = MagicMock(return_value=MagicMock(id="task-1"))
+    monkeypatch.setattr("app.tasks.documents.run_certificate_recognition.delay", recognition_delay)
+
+    record = sdk.login(PAN)
+    headers = sdk.headers(record, write=True)
+    created = sdk.client.post(
+        "/api/v1/documents/upload-intents",
+        json={"original_filename": "certificate.pdf", "content_type": "application/pdf", "file_size": 123},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    assert sdk.authorizer.calls[-1] == (
+        PAN.sub,
+        "certificate.manage",
+        ResourceRef("certificate", "collection"),
+    )
+
+    document = CertificateDocument(
+        status=DocumentStatus.UPLOADED,
+        storage_bucket="bucket",
+        storage_key=f"hr-certflow/test/{uuid.uuid4().hex}.pdf",
+        original_filename="recognize.pdf",
+        sha256="3" * 64,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+    recognized = sdk.client.post(f"/api/v1/documents/{document.id}/recognize-async", headers=headers)
+    assert recognized.status_code == 202, recognized.text
+    assert recognized.json()["task_id"] == "task-1"
+    recognition_delay.assert_called_once_with(str(document.id), PAN.sub, ISSUER_KEY)
+    assert sdk.authorizer.calls[-1] == (
+        PAN.sub,
+        "certificate.manage",
+        ResourceRef("certificate", str(document.id)),
+    )
+
 # --- 写操作 actor（需要 PostgreSQL） -------------------------------------------
 
 

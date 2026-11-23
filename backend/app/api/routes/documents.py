@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.access import certificate_document_item, require_permission
+from app.api.access import certificate_collection, certificate_document_item, require_permission
 from app.api.deps import (
     RequestContext,
     audit_context_kwargs,
@@ -141,7 +141,11 @@ def _load_document_trace_audit_logs(
     return load_audit_logs_for_resources(db, resource_ids)
 
 
-@router.get("", response_model=list[CertificateDocumentRead])
+@router.get(
+    "",
+    response_model=list[CertificateDocumentRead],
+    dependencies=[Depends(require_permission("certificate.manage", certificate_collection))],
+)
 def list_documents(
     db: Session = Depends(get_db),
     limit: int = 100,
@@ -156,7 +160,11 @@ def list_documents(
     return list(db.scalars(statement).all())
 
 
-@router.get("/page", response_model=CertificateDocumentPageRead)
+@router.get(
+    "/page",
+    response_model=CertificateDocumentPageRead,
+    dependencies=[Depends(require_permission("certificate.manage", certificate_collection))],
+)
 def page_documents(
     db: Session = Depends(get_db),
     current: int = 1,
@@ -183,7 +191,10 @@ def page_documents(
     return CertificateDocumentPageRead(data=[CertificateDocumentRead.model_validate(row) for row in rows], total=total)
 
 
-@router.get("/export.csv")
+@router.get(
+    "/export.csv",
+    dependencies=[Depends(require_permission("certificate.manage", certificate_collection))],
+)
 def export_documents_csv(
     db: Session = Depends(get_db),
     keyword: str | None = None,
@@ -210,7 +221,11 @@ def export_documents_csv(
     )
 
 
-@router.get("/{document_id}/trace", response_model=CertificateDocumentTraceRead)
+@router.get(
+    "/{document_id}/trace",
+    response_model=CertificateDocumentTraceRead,
+    dependencies=[Depends(require_permission("certificate.manage", certificate_document_item))],
+)
 def get_certificate_document_trace(
     document_id: UUID,
     db: Session = Depends(get_db),
@@ -269,7 +284,12 @@ def get_certificate_document_trace(
     )
 
 
-@router.post("/upload-intents", response_model=UploadIntentRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/upload-intents",
+    response_model=UploadIntentRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("certificate.manage", certificate_collection))],
+)
 def create_upload_intent(
     payload: UploadIntentCreate,
     db: Session = Depends(get_db),
@@ -409,6 +429,7 @@ def confirm_document_upload(
     "/{document_id}/recognize-async",
     response_model=RecognitionDispatchRead,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_permission("certificate.manage", certificate_document_item))],
 )
 def recognize_document_async(
     document_id: UUID,
@@ -453,7 +474,11 @@ def recognize_document_async(
     )
 
 
-@router.get("/{document_id}/recognition-status", response_model=RecognitionStatusRead)
+@router.get(
+    "/{document_id}/recognition-status",
+    response_model=RecognitionStatusRead,
+    dependencies=[Depends(require_permission("certificate.manage", certificate_document_item))],
+)
 def get_recognition_status(
     document_id: UUID,
     db: Session = Depends(get_db),
