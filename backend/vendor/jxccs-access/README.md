@@ -23,6 +23,12 @@ uv add 'jxccs-access[redis]'   # 需要 Redis 会话存储时
 
 本地开发时，`pyproject.toml` 以 path 依赖引用 `../authorization-client-python`。
 
+## 仓库与发布
+
+- 受管远端为 `gitlab`，对应 [GitLab `jxccs/jxccs-access`（项目 14）](http://10.34.200.198/jxccs/jxccs-access)。通过 MR 提交改动。
+- MR、默认分支和 tag 流水线运行 Ruff、mypy strict 和 pytest。CI 的类型检查与测试使用 `CI_JOB_TOKEN` 将 [`authorization-client-python`（项目 11）](http://10.34.200.198/jxccs/authorization-client-python) 的 `b1346c4` 检出到相邻目录，并用 `uv.lock` 安装。项目 11 的 Job Token allowlist 需包含项目 14。本地继续使用同一相对路径。
+- Tag 流水线通过检查后，`publish` 使用 `pyproject.toml` 中的版本构建 wheel 和 sdist，并用 `CI_JOB_TOKEN` 上传到[项目 14 的 PyPI Package Registry](http://10.34.200.198/jxccs/jxccs-access/-/packages)。制品依赖 `jxccs-authz-client>=0.2,<0.3`，从 Registry 安装时，消费端的包源需要提供兼容版本。项目 11 的 PyPI 尚未提供 0.2 系列，CI 检出的源码用于仓库检查。
+
 ## 最小接入
 
 ```python

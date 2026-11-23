@@ -15,6 +15,12 @@ from typing import Any, Protocol
 
 from .principal import Principal
 
+_MAX_LOGIN_TRANSACTIONS = 4096
+
+
+class LoginTransactionCapacityError(Exception):
+    """The memory store already holds its maximum number of live transactions."""
+
 
 def new_token() -> str:
     return secrets.token_urlsafe(32)
@@ -113,7 +119,15 @@ class MemorySessionStore:
 
     def put_transaction(self, tx: LoginTransaction, ttl_seconds: int) -> None:
         with self._lock:
-            self._transactions[tx.state] = (self._clock() + ttl_seconds, tx.dumps())
+            now = self._clock()
+            expired = [
+                state for state, (expires_at, _) in self._transactions.items() if expires_at <= now
+            ]
+            for state in expired:
+                del self._transactions[state]
+            if len(self._transactions) >= _MAX_LOGIN_TRANSACTIONS:
+                raise LoginTransactionCapacityError
+            self._transactions[tx.state] = (now + ttl_seconds, tx.dumps())
 
     def pop_transaction(self, state: str) -> LoginTransaction | None:
         with self._lock:
