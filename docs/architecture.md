@@ -60,7 +60,8 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
   实时判定；reviews 列表/trace 与文档路由暂未挂 PEP（后续切片补齐）。
 - **退出**：`POST /auth/logout` 只销毁本应用业务会话（服务端 session 记录删除 +
   清 Cookie），不调用 Casdoor/省平台的 end_session，不影响上游会话与其他应用。
-  前端在右上角提供「退出」入口，退出后回到应用首页并展示「未登录 + 登录」。
+  前端在右上角提供「退出」入口（dev 会话前缀与本地直连根路径；release 网关前缀
+  没有该端点，不展示退出），退出后回到应用首页并展示「未登录 + 登录」。
 - **Principal.source 口径**：真实会话的 `source` 为中性真实 issuer key（等于
   `issuer_key`），`mock` 仅表示模拟身份会话；历史存量里的 `casdoor` 值仍按真实
   来源读回，不强制改写。

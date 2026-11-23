@@ -58,7 +58,9 @@ export function loginUrlForLocation(location: LoginRedirectLocation): string | u
 /** 唯一挂了后端 jxccs-access `/auth/logout` 的前缀（dev）。 */
 export const ACCESS_LOGOUT_BASE = ACCESS_BASE;
 
-/** 当前页面是否处于可调用 `/auth/logout` 的 jxccs-access 会话前缀下。 */
+/** 当前页面是否可调用 `/auth/logout`：dev 会话前缀（`ACCESS_LOGOUT_BASE`）或本地直连根路径
+ * （无网关前缀，后端 APP_ENV=local/dev 且 APP_ID 设置时同样挂了 `/auth/logout`）。 */
 export function hasAccessLogout(pathname: string): boolean {
-  return resolveAppBase(pathname) === ACCESS_LOGOUT_BASE;
+  const appBase = resolveAppBase(pathname);
+  return appBase === undefined || appBase === ACCESS_LOGOUT_BASE;
 }

@@ -176,6 +176,21 @@ def test_sdk_rejected_outside_dev(monkeypatch) -> None:
         get_settings.cache_clear()
 
 
+def test_sdk_rejects_issuer_key_longer_than_actor_source_column(monkeypatch) -> None:
+    """Codex review：真实会话的 actor_source 即 issuer_key，超过 VARCHAR(32) 必须启动即失败。"""
+    for key, value in SDK_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("OIDC_ISSUER_KEY", "casdoor-jiaxing-company-with-an-overlong-suffix")
+    get_settings.cache_clear()
+    from app.main import create_app
+
+    try:
+        with pytest.raises(RuntimeError, match="must be 1..32 characters"):
+            create_app()
+    finally:
+        get_settings.cache_clear()
+
+
 def test_release_without_app_id_keeps_gateway_identity(monkeypatch) -> None:
     monkeypatch.setenv("APP_ENV", "release")
     monkeypatch.setenv("AUTH_REQUIRED", "true")
