@@ -180,8 +180,10 @@ def validate_onboarding_request(path: Path, *, repo_root: Path | None = None) ->
         f"{path}: dev identity dependencies must include the Hydra relay issuer",
     )
     require(
-        "Redis-backed" in dev_identity_text
-        and "SESSION_STORE_URL" in dev_identity_text,
+        any(
+            "Redis-backed" in str(item) and "SESSION_STORE_URL" in str(item)
+            for item in dev_identity
+        ),
         f"{path}: dev identity dependencies must document the Redis-backed session store",
     )
 

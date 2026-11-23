@@ -113,7 +113,7 @@ def test_onboarding_contract_requires_redis_backed_dev_session(tmp_path: Path) -
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     payload["dependencies"]["identity"]["dev"] = [
         item for item in payload["dependencies"]["identity"]["dev"] if "Redis-backed" not in item
-    ]
+    ] + ["Redis-backed sessions", "SESSION_STORE_URL from runtime secret"]
     path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="Redis-backed"):
