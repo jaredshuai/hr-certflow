@@ -427,10 +427,7 @@ def test_reviews_and_documents_require_manage_before_business_logic(
         "certificate.manage",
         ResourceRef("certificate", resource_id),
     )
-    no_db.scalar.assert_not_called()
-    no_db.scalars.assert_not_called()
-    no_db.get.assert_not_called()
-    no_db.add.assert_not_called()
+    assert no_db.mock_calls == []
 
 
 @pytest.mark.parametrize(
