@@ -4,12 +4,16 @@ import { useEffect, useState } from 'react';
 
 import { actorProvider } from '@/utils/actorProvider';
 import type { ActorState } from '@/utils/actorState';
+import { hasAccessLogout } from '@/utils/loginRedirect';
 
 /** 右上角当前操作人指示器，只展示 GET /me 的结果。 */
 export function CurrentOperator() {
   const [state, setState] = useState<ActorState>(() => actorProvider.getState());
 
   useEffect(() => actorProvider.subscribe(setState), []);
+
+  // 「退出」只在 dev 会话前缀下提供：release 网关模式没有本应用 /auth/logout 端点。
+  const canLogout = typeof window !== 'undefined' && hasAccessLogout(window.location.pathname);
 
   switch (state.status) {
     case 'loading':
@@ -20,9 +24,11 @@ export function CurrentOperator() {
           <Tag icon={<UserOutlined />} color="blue">
             {state.name}
           </Tag>
-          <Button size="small" type="text" icon={<LogoutOutlined />} onClick={() => void actorProvider.logout()}>
-            退出
-          </Button>
+          {canLogout ? (
+            <Button size="small" type="text" icon={<LogoutOutlined />} onClick={() => void actorProvider.logout()}>
+              退出
+            </Button>
+          ) : null}
         </Space>
       );
     case 'dev-operator':

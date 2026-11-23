@@ -58,7 +58,9 @@ class Principal:
     def from_dict(cls, data: dict[str, Any]) -> Principal:
         source = data["source"]
         status = data["account_status"]
-        if (not isinstance(source, str) or not source) or status not in ("ACTIVE", "DISABLED", "LOCKED"):
+        if (
+            not isinstance(source, str) or not source
+        ) or status not in ("ACTIVE", "DISABLED", "LOCKED"):
             raise ValueError("invalid stored principal")
         return cls(
             issuer_key=str(data["issuer_key"]),

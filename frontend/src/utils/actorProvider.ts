@@ -1,7 +1,13 @@
 import { getResource, postResource } from '@/services/api';
 import { apiErrorStatus } from '@/utils/apiErrors';
 import { actorStateFromErrorStatus, actorStateFromMe, type ActorState, type MeResponse } from '@/utils/actorState';
-import { LOGIN_REDIRECT_MARKER_KEY, loginUrlForLocation, resolveAppBase } from '@/utils/loginRedirect';
+import {
+  ACCESS_LOGOUT_BASE,
+  LOGIN_REDIRECT_MARKER_KEY,
+  loginUrlForLocation,
+  resolveAppBase,
+} from '@/utils/loginRedirect';
+import { message } from '@/utils/messageApi';
 import { setCsrfToken } from '@/utils/requestHeaders';
 
 type Listener = (state: ActorState) => void;
@@ -94,22 +100,25 @@ class MeActorProvider {
   /**
    * 仅本地退出（G-HR-05）：POST /auth/logout 只销毁本应用业务会话，
    * 不调用 Casdoor/省平台的 end_session，不影响上游和其他应用。
-   * 仅 jxccs-access 会话（authenticated + 会话前缀）提供；退出后回到应用首页并展示「未登录」。
+   * 仅 dev 会话前缀（`/hr-certflow-dev`）提供；release 网关模式没有该端点，不做退出。
+   * 成功后回到应用首页并展示「未登录」；失败时保持登录态并提示，返回 false。
    */
-  async logout(): Promise<void> {
-    if (this.state.status !== 'authenticated' || typeof window === 'undefined') return;
+  async logout(): Promise<boolean> {
+    if (this.state.status !== 'authenticated' || typeof window === 'undefined') return false;
     const appBase = resolveAppBase(window.location.pathname);
-    if (!appBase) return;
+    if (appBase !== ACCESS_LOGOUT_BASE) return false;
     try {
       // axios 会给相对路径拼 baseURL（/api/v1），这里用绝对 URL 直达 `${appBase}/auth/logout`。
       await postResource(`${window.location.origin}${appBase}/auth/logout`);
     } catch {
-      // 已尽力销毁：无论如何清空本地登录态。
+      message.error('退出失败，请稍后重试');
+      return false;
     }
     setCsrfToken(null);
     // 写防循环标记：回到首页后 401 不自动跳登录，让用户看到「未登录 + 登录」。
     setRedirectMarker();
     window.location.assign(`${appBase}/`);
+    return true;
   }
 }
 

@@ -37,7 +37,8 @@ class SessionMeResponse(MeResponse):
     """jxccs-access 模式下的当前主体（业务会话，#33 第 3 步）。
 
     ``name`` 为展示用姓名（``display_name``，缺失时退回 ``sub``）；``source`` 为中性真实
-    issuer 口径（等于 ``issuer_key``；mock 会话为 ``mock``）。
+    issuer 口径（等于 ``issuer_key``；mock 会话为 ``mock``）。旧版存量会话在下次
+    subject-context 复核前仍可能返回遗留值 ``casdoor``。
     ``csrf_token`` 供前端写请求放进 ``X-CSRF-Token`` 头。
     """
 

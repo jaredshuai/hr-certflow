@@ -546,31 +546,79 @@ def test_review_reject_requires_manage_and_revocation_is_honoured(sdk: Sdk, db_s
 
 
 def test_logout_is_local_only_and_invalidates_app_session(sdk: Sdk) -> None:
-    """G-HR-05：/auth/logout 只销毁本应用业务会话，不跳转/调用上游 end_session。"""
+    """G-HR-05：/auth/logout 只销毁本应用业务会话，不触发任何上游 OIDC / subject-context 调用。"""
+
+    # 记录所有对上游客户端的调用：logout 期间必须为零。
+    upstream_calls: list[str] = []
+
+    class SpyClient:
+        def __getattr__(self, name: str):
+            def record(*args: object, **kwargs: object) -> None:
+                upstream_calls.append(name)
+
+            return record
+
+    sdk.runtime.oidc = SpyClient()  # type: ignore[assignment]
+    sdk.runtime.subject_context = SpyClient()  # type: ignore[assignment]
+
     record = sdk.login(PAN)
     response = sdk.client.post("/auth/logout", headers=sdk.headers(record, write=True))
 
     assert response.status_code == 204
     assert "location" not in response.headers
     assert "set-cookie" in response.headers  # 清除会话 Cookie
+    assert upstream_calls == []
     # 服务端会话记录已删除：旧 Cookie 不能复活会话。
     assert sdk.runtime.store.get(record.sid) is None
     me = sdk.client.get("/api/v1/me", headers=sdk.headers(record))
     assert me.status_code == 401
 
 
-def test_stored_principal_legacy_casdoor_source_still_authenticates() -> None:
-    """G-HR-06 兼容：旧会话里存的 source="casdoor" 仍按真实（非 mock）来源读回，不强制改写历史。"""
-    legacy = Principal.from_dict(
-        {
-            "issuer_key": ISSUER_KEY,
-            "sub": PAN.sub,
-            "display_name": "潘水天",
-            "employee_id": "33027947",
-            "department_ids": ["dept-hr"],
-            "account_status": "ACTIVE",
-            "source": "casdoor",
-        }
+def test_stored_principal_legacy_casdoor_source_still_authenticates(sdk: Sdk) -> None:
+    """G-HR-06 兼容：旧会话里存的 source="casdoor" 仍按真实（非 mock）来源通过认证，
+    并在 subject-context 复核时刷新为 issuer_key 口径——不强制改写历史。"""
+    record = sdk.login(PAN)
+    # 手工把会话里的主体改成旧口径存量值（模拟升级前的存储）。
+    record.principal = Principal(
+        issuer_key=ISSUER_KEY,
+        sub=PAN.sub,
+        display_name="潘水天",
+        employee_id="33027947",
+        department_ids=("dept-hr",),
+        account_status="ACTIVE",
+        source="casdoor",
     )
-    assert legacy.source == "casdoor"
-    assert legacy.issuer_key == ISSUER_KEY
+    sdk.runtime.save(record)
+
+    # 复核窗口内：遗留 source 原样返回，但会话有效、认证通过。
+    me = sdk.client.get("/api/v1/me", headers=sdk.headers(record))
+    assert me.status_code == 200
+    assert me.json()["source"] == "casdoor"
+    assert me.json()["authenticated"] is True
+
+    # 复核窗口过期：经 subject-context 重新复核后刷新为 issuer_key 口径。
+    record.session_checked_at = sdk.runtime.clock() - 3601
+    sdk.runtime.save(record)
+    context_calls: list[tuple[str, int]] = []
+
+    class FakeSubjectContext:
+        def session(self, sub: str, session_epoch: int):
+            context_calls.append((sub, session_epoch))
+            return SubjectContext(
+                issuer_key=ISSUER_KEY,
+                sub=sub,
+                issuer_url="http://10.34.200.223:8000",
+                account_status="ACTIVE",
+                department_ids=("dept-hr",),
+                employee_id="33027947",
+                display_name="潘水天",
+                session_epoch=session_epoch,
+                directory_generation=1,
+                request_id="req-sc-1",
+            )
+
+    sdk.runtime.subject_context = FakeSubjectContext()  # type: ignore[assignment]
+    me_refreshed = sdk.client.get("/api/v1/me", headers=sdk.headers(record))
+    assert me_refreshed.status_code == 200
+    assert me_refreshed.json()["source"] == ISSUER_KEY
+    assert context_calls == [(PAN.sub, 1)]

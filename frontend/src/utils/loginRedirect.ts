@@ -51,3 +51,11 @@ export function loginUrlForLocation(location: LoginRedirectLocation): string | u
   if (!appBase || !entry) return undefined;
   return entry(appBase, `${location.pathname}${location.search}${location.hash}`);
 }
+
+/** 唯一挂了后端 jxccs-access `/auth/logout` 的前缀（dev）；release 网关模式没有本应用退出端点。 */
+export const ACCESS_LOGOUT_BASE = '/hr-certflow-dev';
+
+/** 当前页面是否处于可调用 `/auth/logout` 的 jxccs-access 会话前缀下。 */
+export function hasAccessLogout(pathname: string): boolean {
+  return resolveAppBase(pathname) === ACCESS_LOGOUT_BASE;
+}
