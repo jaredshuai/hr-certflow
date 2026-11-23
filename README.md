@@ -82,10 +82,14 @@ Expected shared-k3s URLs:
 - Dev: http://10.34.200.180/hr-certflow-dev/
 - Release: http://10.34.200.180/hr-certflow/
 
-Smoke endpoints:
+Smoke targets:
 
 - Web: `GET /hr-certflow-dev/` or `GET /hr-certflow/`
-- API: `GET /hr-certflow-dev/api/v1/health` or `GET /hr-certflow/api/v1/health`
+- API probe: `python scripts/smoke_api_probe.py --namespace <namespace>`, which
+  checks the cluster-internal `/_internal/healthz` path through the Kubernetes
+  API proxy and falls back to Deployment readiness when proxy access is absent
+- `/api/v1/health` remains session-protected in dev and is not an unauthenticated
+  smoke endpoint.
 
 The chart assumes infra has already provisioned:
 

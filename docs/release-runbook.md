@@ -51,7 +51,8 @@ The GitHub Actions smoke job verifies:
 - API, web, worker, and beat deployments reach the promoted image tag.
 - Kubernetes rollout status succeeds.
 - `GET http://10.34.200.180/hr-certflow-dev/` returns success.
-- `GET http://10.34.200.180/hr-certflow-dev/api/v1/health` returns success.
+- `python scripts/smoke_api_probe.py --namespace hr-certflow-dev` succeeds
+  against the cluster-internal `/_internal/healthz` path.
 - Celery/Redis smoke succeeds through temporary Kubernetes Jobs.
 - Celery keys stay under the environment prefix and do not use naked `celery` keys.
 
@@ -139,7 +140,7 @@ This is the normal one-command automated release path: the workflow writes the r
 Release smoke expects:
 
 - `GET http://10.34.200.180/hr-certflow/`
-- `GET http://10.34.200.180/hr-certflow/api/v1/health`
+- `python scripts/smoke_api_probe.py --namespace hr-certflow-release`
 - Celery probe `actual_env=release`
 - Worker hostname and routing key containing `hr-certflow-release`
 - Redis keys only under `hr-certflow-release:`

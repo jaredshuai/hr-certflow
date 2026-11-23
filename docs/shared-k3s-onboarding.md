@@ -17,15 +17,40 @@
 - Data dependencies: PostgreSQL, Redis, Alibaba Cloud OSS through the S3-compatible API
 - External dependencies: shared Dify workflow center, WeCom/Feishu/DingTalk/email
 
+## Identity And Authorization
+
+Dev already uses the application-owned `jxccs-access` stack for step 3:
+
+- OIDC issuer: `http://10.34.200.180/hydra-dev`
+- Issuer key: `hydra-jiaxing-company`
+- OIDC client ID: `hr-certflow-dev`
+- Authorization Center decision API: `authorization-center-dev` runtime pods, TCP `8080`
+- Manifest source: `authz/authorization-manifest.json`
+- Session store: Redis-backed through `SESSION_STORE_URL` from
+  `hr-certflow-runtime-secrets` (Redis database 1). `jxccs-access` selects
+  `RedisSessionStore` when this URL is present; dev does not use the in-memory
+  fallback
+
+The API pod needs egress to Authorization Center and, through the Traefik pod,
+to the Hydra issuer. The corresponding NetworkPolicy remains infra-owned. The
+release namespace still uses the transitional gateway actor-header path until
+the release identity-chain work replaces it.
+
 ## Smoke
 
-- API health: `GET /api/v1/health`
+- Backend probe: `GET /_internal/healthz`, cluster-internal and the exact path
+  used by the Kubernetes readiness/liveness probes
 - Dev web: `GET /hr-certflow-dev/`
-- Dev API: `GET /hr-certflow-dev/api/v1/health`
 - Release web: `GET /hr-certflow/`
-- Release API: `GET /hr-certflow/api/v1/health`
 
-The Helm chart uses a namespaced Traefik `Middleware` to strip only the project path prefix. The API request `/hr-certflow-dev/api/v1/health` or `/hr-certflow/api/v1/health` becomes `/api/v1/health` before it reaches FastAPI.
+`/api/v1/health` remains an application endpoint, but dev requests require a
+valid `jxccs-access` business session. It must not be used as the unauthenticated
+smoke path. The deployed API smoke therefore runs
+`scripts/smoke_api_probe.py` through the Kubernetes API proxy and falls back to
+Deployment readiness when `services/proxy` is unavailable.
+
+The Helm chart uses a namespaced Traefik `Middleware` to strip only the project
+path prefix before requests reach FastAPI.
 
 ## Project-Owned Artifacts
 
@@ -77,7 +102,7 @@ Build and push API/Web images
 Update deploy/gitops/<env>/values.yaml
 Wait until API/Web/Worker/Beat deployments use the promoted image tag
 Wait for Kubernetes rollout status
-Run HTTP web/API smoke
+Run HTTP web smoke and the cluster-internal /_internal/healthz API probe
 Run Celery/Redis smoke in temporary Kubernetes Jobs
 Delete temporary smoke Jobs
 ```

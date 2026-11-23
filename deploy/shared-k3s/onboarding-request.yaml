@@ -14,7 +14,9 @@ runtime:
   backend:
     framework: FastAPI
     port: 8000
-    healthPath: /api/v1/health
+    # jxccs-access protects /api/v1/health with a business session.
+    # Probes and cluster-internal smoke use the exact kubelet bypass endpoint.
+    healthPath: /_internal/healthz
   frontend:
     framework: Umi Max / Ant Design Pro
     port: 80
@@ -30,11 +32,13 @@ dependencies:
     - Shared Dify workflow-center endpoint and API key
     - WeCom/Feishu/DingTalk webhook or SMTP
   identity:
-    # dev only (jxccs-access). Egress is infra-owned NetworkPolicy
+    # dev only (jxccs-access step 3). Egress is infra-owned NetworkPolicy
     # hr-certflow-dev/allow-authorization-center-dev; this repo declares the need only.
+    manifest: authz/authorization-manifest.json
     dev:
       - Authorization Center runtime decision API (authorization-center-dev runtime pods, TCP 8080)
       - Hydra OIDC issuer http://10.34.200.180/hydra-dev, reached via the Traefik ingress address (api pod egress to the Traefik pod, TCP 8000, because kube-proxy DNATs the external IP)
+      - Redis-backed jxccs-access sessions via SESSION_STORE_URL from hr-certflow-runtime-secrets (Redis database 1)
 
 infraToProvision:
   secrets:
@@ -72,6 +76,8 @@ runtimeSecretKeys:
   # #33 第 3 步（jxccs-access）：目前仅 dev 需要；值由 infra 写入，仓库不存值。
   - AUTHZ_SERVICE_TOKEN
   - OIDC_CLIENT_SECRET
+  # Credential-bearing session-store URL; declare it here, never in configMapKeys.
+  - SESSION_STORE_URL
 
 configMapKeys:
   - APP_NAME
@@ -104,7 +110,6 @@ configMapKeys:
   - OIDC_ISSUER_KEY
   - OIDC_CLIENT_ID
   - AUTHZ_BASE_URL
-  - SESSION_STORE_URL
   - SESSION_IDLE_SECONDS
   - SESSION_ABSOLUTE_SECONDS
   - SESSION_CHECK_INTERVAL_SECONDS
@@ -114,7 +119,11 @@ configMapKeys:
 smoke:
   dev:
     web: http://10.34.200.180/hr-certflow-dev/
-    api: http://10.34.200.180/hr-certflow-dev/api/v1/health
+    # /api/v1/health requires a business session when jxccs-access is enabled.
+    # The deployed workflow probes this path through the Kubernetes API proxy.
+    apiProbe:
+      path: /_internal/healthz
+      mode: cluster-internal
     celeryRedis:
       envFrom:
         - secret: hr-certflow-runtime-secrets
@@ -125,7 +134,9 @@ smoke:
         - python -m app.smoke.celery_redis_isolation assert-keys
   release:
     web: http://10.34.200.180/hr-certflow/
-    api: http://10.34.200.180/hr-certflow/api/v1/health
+    apiProbe:
+      path: /_internal/healthz
+      mode: cluster-internal
     celeryRedis:
       envFrom:
         - secret: hr-certflow-runtime-secrets
