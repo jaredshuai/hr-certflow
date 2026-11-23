@@ -182,10 +182,10 @@ def test_sdk_rejects_issuer_key_longer_than_actor_source_column(monkeypatch) -> 
         monkeypatch.setenv(key, value)
     monkeypatch.setenv("OIDC_ISSUER_KEY", "casdoor-jiaxing-company-with-an-overlong-suffix")
     get_settings.cache_clear()
-    from app.main import create_app
-
     try:
         with pytest.raises(RuntimeError, match="must be 1..32 characters"):
+            from app.main import create_app
+
             create_app()
     finally:
         get_settings.cache_clear()

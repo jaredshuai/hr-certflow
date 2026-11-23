@@ -43,13 +43,15 @@ def install_access(app: FastAPI, settings: Settings) -> AccessRuntime:
             f"({config.app_id!r}); configure jxccs-access via environment variables, not .env only"
         )
     # 登录后只允许回到本应用前缀下的同源路径（如 /hr-certflow-dev/...）。
-    issuer_key = config.oidc_issuer_key
-    if not issuer_key or len(issuer_key) > MAX_ACTOR_SOURCE_LENGTH:
-        raise RuntimeError(
-            f"OIDC_ISSUER_KEY {issuer_key!r} must be 1..{MAX_ACTOR_SOURCE_LENGTH} characters: "
-            "real sessions persist it as audit_log.actor_source (VARCHAR(32)); "
-            "register a shorter issuer key with the directory instead of widening the column"
-        )
+    # mock 会话不需要 OIDC_ISSUER_KEY（fixture 自带 dir-test-mock），仅在真实会话模式校验。
+    if not config.mock_enabled:
+        issuer_key = config.oidc_issuer_key
+        if not issuer_key or len(issuer_key) > MAX_ACTOR_SOURCE_LENGTH:
+            raise RuntimeError(
+                f"OIDC_ISSUER_KEY {issuer_key!r} must be 1..{MAX_ACTOR_SOURCE_LENGTH} characters: "
+                "real sessions persist it as audit_log.actor_source (VARCHAR(32)); "
+                "register a shorter issuer key with the directory instead of widening the column"
+            )
     return jxccs_access.install(app, config, return_path_prefix=f"{config.public_path}/")
 
 
