@@ -16,7 +16,7 @@ from .errors import AccessError, Forbidden, Unauthenticated, Unavailable
 from .oidc import OidcError
 from .principal import Principal
 from .runtime import AccessRuntime, current_principal, new_state, request_access
-from .session import LoginTransaction
+from .session import LoginTransaction, LoginTransactionCapacityError
 from .subject_context import ContextUnavailable, NotEligible
 
 
@@ -95,9 +95,9 @@ def build_router(runtime: AccessRuntime, return_prefix: str) -> APIRouter:
             url = oidc.authorization_url(
                 state=tx.state, nonce=tx.nonce, code_verifier=tx.code_verifier
             )
-        except OidcError:
+            runtime.store.put_transaction(tx, config.login_transaction_seconds)
+        except (OidcError, LoginTransactionCapacityError):
             return _error(503, "DEPENDENCY_UNAVAILABLE")
-        runtime.store.put_transaction(tx, config.login_transaction_seconds)
         response = RedirectResponse(url, status_code=302)
         response.headers.append(
             "set-cookie",

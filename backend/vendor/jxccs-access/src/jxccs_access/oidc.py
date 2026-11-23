@@ -13,6 +13,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from math import isfinite
 from typing import Any
 
 import httpx
@@ -24,6 +25,7 @@ from joserfc.jwk import KeySet
 from joserfc.jws import extract_compact
 
 ALLOWED_ALGS = ("RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512")
+_CODE_REJECTION_ERRORS = ("invalid_grant", "invalid_code")
 
 
 class OidcError(Exception):
@@ -159,17 +161,19 @@ class OidcClient:
                 )
         except httpx.HTTPError:
             raise OidcError("TOKEN_ENDPOINT_UNAVAILABLE", dependency=True) from None
-        if response.status_code >= 500:
+        if response.status_code not in (200, 400):
             raise OidcError("TOKEN_ENDPOINT_UNAVAILABLE", dependency=True)
-        if response.status_code != 200:
-            raise OidcError("TOKEN_EXCHANGE_REJECTED")
         try:
             token = response.json()
         except ValueError:
-            raise OidcError("TOKEN_RESPONSE_MALFORMED") from None
+            raise OidcError("TOKEN_RESPONSE_MALFORMED", dependency=True) from None
+        if response.status_code == 400:
+            if isinstance(token, dict) and token.get("error") in _CODE_REJECTION_ERRORS:
+                raise OidcError("TOKEN_EXCHANGE_REJECTED")
+            raise OidcError("TOKEN_ENDPOINT_UNAVAILABLE", dependency=True)
         id_token = token.get("id_token") if isinstance(token, dict) else None
         if not isinstance(id_token, str):
-            raise OidcError("ID_TOKEN_MISSING")
+            raise OidcError("ID_TOKEN_MISSING", dependency=True)
         return self.verify_id_token(id_token, nonce=nonce)
 
     def verify_id_token(self, id_token: str, *, nonce: str) -> dict[str, Any]:
@@ -184,11 +188,13 @@ class OidcClient:
         try:
             decoded = jwt.decode(id_token, keyset, algorithms=[alg])
             registry = jwt.JWTClaimsRegistry(
+                now=int(self._clock()),
                 leeway=60,
                 iss={"essential": True, "value": self._issuer},
                 aud={"essential": True, "value": self._client_id},
                 sub={"essential": True},
                 exp={"essential": True},
+                iat={"essential": True},
                 nonce={"essential": True, "value": nonce},
             )
             registry.validate(decoded.claims)
@@ -196,5 +202,15 @@ class OidcClient:
             raise OidcError("ID_TOKEN_INVALID") from None
         claims = dict(decoded.claims)
         if not isinstance(claims.get("sub"), str) or not claims["sub"]:
+            raise OidcError("ID_TOKEN_INVALID")
+        issued_at = claims["iat"]
+        # Older joserfc versions treat bool and non-finite floats as NumericDate values.
+        if isinstance(issued_at, bool) or (
+            isinstance(issued_at, float) and not isfinite(issued_at)
+        ):
+            raise OidcError("ID_TOKEN_INVALID")
+        audience = claims["aud"]
+        multiple_audiences = isinstance(audience, list) and len(audience) > 1
+        if ("azp" in claims or multiple_audiences) and claims.get("azp") != self._client_id:
             raise OidcError("ID_TOKEN_INVALID")
         return claims
