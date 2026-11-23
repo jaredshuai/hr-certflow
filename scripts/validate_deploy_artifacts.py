@@ -2,11 +2,28 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import json
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+
+STEP3_CONFIG_KEYS = {
+    "APP_ID",
+    "PUBLIC_BASE_URL",
+    "OIDC_ISSUER_URL",
+    "OIDC_ISSUER_KEY",
+    "OIDC_CLIENT_ID",
+    "AUTHZ_BASE_URL",
+    "SESSION_IDLE_SECONDS",
+    "SESSION_ABSOLUTE_SECONDS",
+    "SESSION_CHECK_INTERVAL_SECONDS",
+    "POD_NAMESPACE",
+}
+STEP3_SECRET_KEYS = {"AUTHZ_SERVICE_TOKEN", "OIDC_CLIENT_SECRET"}
+AUTHORIZATION_MANIFEST = "authz/authorization-manifest.json"
+CLUSTER_PROBE_PATH = "/_internal/healthz"
 
 EXPECTED = {
     "dev": {
@@ -81,10 +98,85 @@ def validate_values(env_name: str, path: Path) -> None:
                 f"{path}: TRUSTED_PROXY_CIDRS must not contain zero-prefix network {cidr!r}",
             )
 
+    if env_name == "dev":
+        missing_keys = sorted(STEP3_CONFIG_KEYS.difference(config))
+        require(not missing_keys, f"{path}: missing jxccs-access step-3 keys {missing_keys}")
+        require(
+            config.get("OIDC_ISSUER_KEY") == "hydra-jiaxing-company",
+            f"{path}: dev OIDC_ISSUER_KEY must be hydra-jiaxing-company",
+        )
+        require(
+            "hydra-dev" in str(config.get("OIDC_ISSUER_URL")),
+            f"{path}: dev OIDC_ISSUER_URL must target the Hydra relay issuer",
+        )
+
     for image_name in ("api", "web"):
         image = images.get(image_name) or {}
         require(image.get("repository"), f"{path}: images.{image_name}.repository is required")
         require(image.get("tag"), f"{path}: images.{image_name}.tag is required")
+
+
+def validate_onboarding_request(path: Path, *, repo_root: Path | None = None) -> None:
+    payload = load_yaml(path)
+    runtime = payload.get("runtime") or {}
+    backend = runtime.get("backend") or {}
+    require(
+        backend.get("healthPath") == CLUSTER_PROBE_PATH,
+        f"{path}: runtime.backend.healthPath must be {CLUSTER_PROBE_PATH}",
+    )
+
+    smoke = payload.get("smoke") or {}
+    for env_name in ("dev", "release"):
+        probe = smoke.get(env_name, {}).get("apiProbe") or {}
+        require(
+            probe == {"path": CLUSTER_PROBE_PATH, "mode": "cluster-internal"},
+            f"{path}: smoke.{env_name}.apiProbe must use the cluster-internal {CLUSTER_PROBE_PATH}",
+        )
+
+    dependencies = payload.get("dependencies") or {}
+    identity = dependencies.get("identity") or {}
+    require(
+        identity.get("manifest") == AUTHORIZATION_MANIFEST,
+        f"{path}: dependencies.identity.manifest must be {AUTHORIZATION_MANIFEST}",
+    )
+    dev_identity = identity.get("dev") or []
+    dev_identity_text = "\n".join(str(item) for item in dev_identity)
+    require(
+        "authorization-center-dev" in dev_identity_text,
+        f"{path}: dev identity dependencies must include authorization-center-dev",
+    )
+    require(
+        "hydra-dev" in dev_identity_text,
+        f"{path}: dev identity dependencies must include the Hydra relay issuer",
+    )
+
+    config_keys = set(payload.get("configMapKeys") or [])
+    require(
+        STEP3_CONFIG_KEYS.issubset(config_keys),
+        f"{path}: configMapKeys do not declare all jxccs-access step-3 keys",
+    )
+    secret_keys = set(payload.get("runtimeSecretKeys") or [])
+    require(
+        STEP3_SECRET_KEYS.issubset(secret_keys),
+        f"{path}: runtimeSecretKeys do not declare all jxccs-access step-3 secrets",
+    )
+
+    root = repo_root or path.parents[2]
+    manifest_path = root / AUTHORIZATION_MANIFEST
+    require(manifest_path.exists(), f"{manifest_path}: authorization manifest is missing")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"{manifest_path}: invalid JSON: {exc}") from exc
+    permissions = {
+        item.get("id")
+        for item in manifest.get("permissions", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    require(
+        {"certificate.view", "certificate.manage"}.issubset(permissions),
+        f"{manifest_path}: certificate.view and certificate.manage must be declared",
+    )
 
 
 def validate_helm_templates(chart_dir: Path) -> None:
@@ -114,11 +206,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Validate hr-certflow deploy values")
     parser.add_argument("--dev-values", type=Path, default=Path("deploy/gitops/dev/values.yaml"))
     parser.add_argument("--release-values", type=Path, default=Path("deploy/gitops/release/values.yaml"))
+    parser.add_argument(
+        "--onboarding-request",
+        type=Path,
+        default=Path("deploy/shared-k3s/onboarding-request.yaml"),
+    )
     parser.add_argument("--chart-dir", type=Path, default=Path("deploy/helm/hr-certflow"))
     args = parser.parse_args()
 
     validate_values("dev", args.dev_values)
     validate_values("release", args.release_values)
+    validate_onboarding_request(args.onboarding_request)
     validate_helm_templates(args.chart_dir)
     print("deploy artifacts ok")
     return 0
