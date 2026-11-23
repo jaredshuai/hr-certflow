@@ -106,3 +106,24 @@ def test_onboarding_contract_rejects_authenticated_health_as_smoke_path(tmp_path
 
     with pytest.raises(RuntimeError, match="cluster-internal"):
         validate_deploy_artifacts.validate_onboarding_request(path, repo_root=REPO_ROOT)
+
+
+def test_onboarding_contract_requires_redis_backed_dev_session(tmp_path: Path) -> None:
+    path = _write_onboarding_request(tmp_path)
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    payload["dependencies"]["identity"]["dev"] = [
+        item for item in payload["dependencies"]["identity"]["dev"] if "Redis-backed" not in item
+    ]
+    path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Redis-backed"):
+        validate_deploy_artifacts.validate_onboarding_request(path, repo_root=REPO_ROOT)
+
+
+def test_onboarding_docs_describe_redis_backed_dev_session() -> None:
+    path = REPO_ROOT / "docs" / "shared-k3s-onboarding.md"
+    text = " ".join(path.read_text(encoding="utf-8").split())
+
+    assert "Session store: Redis-backed through `SESSION_STORE_URL`" in text
+    assert "dev does not use the in-memory fallback" in text
+    assert "Session store: in-memory" not in text

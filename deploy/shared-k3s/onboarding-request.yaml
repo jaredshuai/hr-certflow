@@ -38,6 +38,7 @@ dependencies:
     dev:
       - Authorization Center runtime decision API (authorization-center-dev runtime pods, TCP 8080)
       - Hydra OIDC issuer http://10.34.200.180/hydra-dev, reached via the Traefik ingress address (api pod egress to the Traefik pod, TCP 8000, because kube-proxy DNATs the external IP)
+      - Redis-backed jxccs-access sessions via SESSION_STORE_URL from hr-certflow-runtime-secrets (Redis database 1)
 
 infraToProvision:
   secrets:

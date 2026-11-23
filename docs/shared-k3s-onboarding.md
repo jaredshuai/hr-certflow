@@ -26,8 +26,10 @@ Dev already uses the application-owned `jxccs-access` stack for step 3:
 - OIDC client ID: `hr-certflow-dev`
 - Authorization Center decision API: `authorization-center-dev` runtime pods, TCP `8080`
 - Manifest source: `authz/authorization-manifest.json`
-- Session store: in-memory for the current single-replica dev deployment; release
-  must use a Redis-backed store when the SDK is enabled there
+- Session store: Redis-backed through `SESSION_STORE_URL` from
+  `hr-certflow-runtime-secrets` (Redis database 1). `jxccs-access` selects
+  `RedisSessionStore` when this URL is present; dev does not use the in-memory
+  fallback
 
 The API pod needs egress to Authorization Center and, through the Traefik pod,
 to the Hydra issuer. The corresponding NetworkPolicy remains infra-owned. The

@@ -179,6 +179,11 @@ def validate_onboarding_request(path: Path, *, repo_root: Path | None = None) ->
         "hydra-dev" in dev_identity_text,
         f"{path}: dev identity dependencies must include the Hydra relay issuer",
     )
+    require(
+        "Redis-backed" in dev_identity_text
+        and "SESSION_STORE_URL" in dev_identity_text,
+        f"{path}: dev identity dependencies must document the Redis-backed session store",
+    )
 
     config_keys = set(payload.get("configMapKeys") or [])
     require(
