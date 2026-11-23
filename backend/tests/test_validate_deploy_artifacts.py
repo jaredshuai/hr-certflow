@@ -70,6 +70,19 @@ def test_values_reject_credential_bearing_session_store_url(tmp_path: Path) -> N
         validate_deploy_artifacts.validate_values("release", path)
 
 
+def test_chart_defaults_reject_credential_bearing_session_store_url(
+    tmp_path: Path,
+) -> None:
+    source = REPO_ROOT / "deploy" / "helm" / "hr-certflow" / "values.yaml"
+    payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+    payload["config"]["SESSION_STORE_URL"] = "redis://example.invalid/0"
+    path = tmp_path / "chart-values.yaml"
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="SESSION_STORE_URL"):
+        validate_deploy_artifacts.validate_chart_defaults(path)
+
+
 def _write_onboarding_request(tmp_path: Path) -> Path:
     source = REPO_ROOT / "deploy" / "shared-k3s" / "onboarding-request.yaml"
     payload = yaml.safe_load(source.read_text(encoding="utf-8"))

@@ -215,6 +215,15 @@ def validate_onboarding_request(path: Path, *, repo_root: Path | None = None) ->
     )
 
 
+def validate_chart_defaults(path: Path) -> None:
+    payload = load_yaml(path)
+    config = payload.get("config") or {}
+    require(
+        "SESSION_STORE_URL" not in config,
+        f"{path}: SESSION_STORE_URL is credential-bearing and must use a Secret",
+    )
+
+
 def validate_helm_templates(chart_dir: Path) -> None:
     helper_path = chart_dir / "templates" / "_helpers.tpl"
     require(helper_path.exists(), f"{helper_path}: missing Helm helper template")
@@ -256,6 +265,11 @@ def main() -> int:
         default=Path("deploy/shared-k3s/onboarding-request.yaml"),
     )
     parser.add_argument(
+        "--chart-values",
+        type=Path,
+        default=Path("deploy/helm/hr-certflow/values.yaml"),
+    )
+    parser.add_argument(
         "--chart-dir", type=Path, default=Path("deploy/helm/hr-certflow")
     )
     args = parser.parse_args()
@@ -263,6 +277,7 @@ def main() -> int:
     validate_values("dev", args.dev_values)
     validate_values("release", args.release_values)
     validate_onboarding_request(args.onboarding_request)
+    validate_chart_defaults(args.chart_values)
     validate_helm_templates(args.chart_dir)
     print("deploy artifacts ok")
     return 0
