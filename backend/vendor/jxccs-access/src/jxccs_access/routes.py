@@ -152,7 +152,7 @@ def build_router(runtime: AccessRuntime, return_prefix: str) -> APIRouter:
             employee_id=context.employee_id,
             department_ids=context.department_ids,
             account_status="ACTIVE",
-            source="casdoor",
+            source=config.oidc_issuer_key,
         )
         record = access.start_session(principal)
         record.session_epoch = context.session_epoch

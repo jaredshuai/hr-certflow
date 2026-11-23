@@ -23,6 +23,10 @@ ACCESS_PRINCIPAL_STATE_KEY = "access_principal"
 COLLECTION_RESOURCE_ID = "collection"
 CERTIFICATE_RESOURCE_TYPE = "certificate"
 
+# audit_log.actor_source 是 VARCHAR(32)（models/hr.py）；真实会话的 actor_source 即
+# issuer_key，超长会在每次审计写入时炸库，必须在启动时拒绝而不是上线后才发现。
+MAX_ACTOR_SOURCE_LENGTH = 32
+
 
 def install_access(app: FastAPI, settings: Settings) -> AccessRuntime:
     """按环境变量构造 SDK 配置并挂载 /auth/* 路由与会话/CSRF 中间件；配置非法直接抛错拒绝启动。"""
@@ -39,6 +43,15 @@ def install_access(app: FastAPI, settings: Settings) -> AccessRuntime:
             f"({config.app_id!r}); configure jxccs-access via environment variables, not .env only"
         )
     # 登录后只允许回到本应用前缀下的同源路径（如 /hr-certflow-dev/...）。
+    # mock 会话不需要 OIDC_ISSUER_KEY（fixture 自带 dir-test-mock），仅在真实会话模式校验。
+    if not config.mock_enabled:
+        issuer_key = config.oidc_issuer_key
+        if not issuer_key or len(issuer_key) > MAX_ACTOR_SOURCE_LENGTH:
+            raise RuntimeError(
+                f"OIDC_ISSUER_KEY {issuer_key!r} must be 1..{MAX_ACTOR_SOURCE_LENGTH} characters: "
+                "real sessions persist it as audit_log.actor_source (VARCHAR(32)); "
+                "register a shorter issuer key with the directory instead of widening the column"
+            )
     return jxccs_access.install(app, config, return_path_prefix=f"{config.public_path}/")
 
 

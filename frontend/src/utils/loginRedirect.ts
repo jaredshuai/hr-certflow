@@ -35,13 +35,16 @@ export function buildAccessLoginUrl(appBase: string, returnPath: string): string
   return `${appBase}/auth/login?return_to=${encodeURIComponent(safeReturnPath(appBase, returnPath))}`;
 }
 
+/** jxccs-access BFF 登录/退出的唯一会话前缀（dev）；release 网关模式没有这些本应用端点。 */
+const ACCESS_BASE = '/hr-certflow-dev';
+
 /**
  * 各前缀的登录入口：release 前缀走 oauth2-proxy 网关登录；dev 前缀走后端 jxccs-access 登录。
  * 其它前缀（含已退役的 -release）没有登录入口，永不跳转。
  */
 const LOGIN_ENTRIES: Record<string, (appBase: string, returnPath: string) => string> = {
   '/hr-certflow': buildLoginUrl,
-  '/hr-certflow-dev': buildAccessLoginUrl,
+  [ACCESS_BASE]: buildAccessLoginUrl,
 };
 
 /** 当前页面对应的登录入口；不在有登录入口的前缀下（本地/直连）时返回 undefined，不跳转。 */
@@ -50,4 +53,14 @@ export function loginUrlForLocation(location: LoginRedirectLocation): string | u
   const entry = appBase ? LOGIN_ENTRIES[appBase] : undefined;
   if (!appBase || !entry) return undefined;
   return entry(appBase, `${location.pathname}${location.search}${location.hash}`);
+}
+
+/** 唯一挂了后端 jxccs-access `/auth/logout` 的前缀（dev）。 */
+export const ACCESS_LOGOUT_BASE = ACCESS_BASE;
+
+/** 当前页面是否可调用 `/auth/logout`：dev 会话前缀（`ACCESS_LOGOUT_BASE`）或本地直连根路径
+ * （无网关前缀，后端 APP_ENV=local/dev 且 APP_ID 设置时同样挂了 `/auth/logout`）。 */
+export function hasAccessLogout(pathname: string): boolean {
+  const appBase = resolveAppBase(pathname);
+  return appBase === undefined || appBase === ACCESS_LOGOUT_BASE;
 }

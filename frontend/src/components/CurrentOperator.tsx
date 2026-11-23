@@ -1,9 +1,10 @@
-import { UserOutlined } from '@ant-design/icons';
-import { Tag, Tooltip } from 'antd';
+import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
+import { Button, Space, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { actorProvider } from '@/utils/actorProvider';
 import type { ActorState } from '@/utils/actorState';
+import { hasAccessLogout } from '@/utils/loginRedirect';
 
 /** 右上角当前操作人指示器，只展示 GET /me 的结果。 */
 export function CurrentOperator() {
@@ -11,14 +12,24 @@ export function CurrentOperator() {
 
   useEffect(() => actorProvider.subscribe(setState), []);
 
+  // 「退出」只在 dev 会话前缀下提供：release 网关模式没有本应用 /auth/logout 端点。
+  const canLogout = typeof window !== 'undefined' && hasAccessLogout(window.location.pathname);
+
   switch (state.status) {
     case 'loading':
       return null;
     case 'authenticated':
       return (
-        <Tag icon={<UserOutlined />} color="blue">
-          {state.name}
-        </Tag>
+        <Space size={4}>
+          <Tag icon={<UserOutlined />} color="blue">
+            {state.name}
+          </Tag>
+          {canLogout ? (
+            <Button size="small" type="text" icon={<LogoutOutlined />} onClick={() => void actorProvider.logout()}>
+              退出
+            </Button>
+          ) : null}
+        </Space>
       );
     case 'dev-operator':
       return (

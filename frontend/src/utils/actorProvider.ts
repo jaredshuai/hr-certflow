@@ -1,7 +1,13 @@
-import { getResource } from '@/services/api';
+import { getResource, postResource } from '@/services/api';
 import { apiErrorStatus } from '@/utils/apiErrors';
 import { actorStateFromErrorStatus, actorStateFromMe, type ActorState, type MeResponse } from '@/utils/actorState';
-import { LOGIN_REDIRECT_MARKER_KEY, loginUrlForLocation } from '@/utils/loginRedirect';
+import {
+  ACCESS_LOGOUT_BASE,
+  LOGIN_REDIRECT_MARKER_KEY,
+  loginUrlForLocation,
+  resolveAppBase,
+} from '@/utils/loginRedirect';
+import { message } from '@/utils/messageApi';
 import { setCsrfToken } from '@/utils/requestHeaders';
 
 type Listener = (state: ActorState) => void;
@@ -89,6 +95,32 @@ class MeActorProvider {
     }
     this.state = { status: 'unauthenticated', loginUrl };
     return false;
+  }
+
+  /**
+   * 仅本地退出（G-HR-05）：POST /auth/logout 只销毁本应用业务会话，
+   * 不调用 Casdoor/省平台的 end_session，不影响上游和其他应用。
+   * 仅 dev 会话前缀（`/hr-certflow-dev`）或本地直连根路径（无网关前缀）提供；
+   * release 网关前缀没有该端点，不做退出。
+   * 成功后回到应用首页并展示「未登录」；失败时保持登录态并提示，返回 false。
+   */
+  async logout(): Promise<boolean> {
+    if (this.state.status !== 'authenticated' || typeof window === 'undefined') return false;
+    // 本地直连没有网关前缀，resolveAppBase 为 undefined，按空字符串直达根下 /auth/logout。
+    const appBase = resolveAppBase(window.location.pathname) ?? '';
+    if (appBase && appBase !== ACCESS_LOGOUT_BASE) return false;
+    try {
+      // axios 会给相对路径拼 baseURL（/api/v1），这里用绝对 URL 直达 `${appBase}/auth/logout`。
+      await postResource(`${window.location.origin}${appBase}/auth/logout`);
+    } catch {
+      message.error('退出失败，请稍后重试');
+      return false;
+    }
+    setCsrfToken(null);
+    // 写防循环标记：回到首页后 401 不自动跳登录，让用户看到「未登录 + 登录」。
+    setRedirectMarker();
+    window.location.assign(`${appBase}/`);
+    return true;
   }
 }
 
