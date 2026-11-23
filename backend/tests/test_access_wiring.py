@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 from jxccs_access import AccessDecision, AccessRuntime, Principal, ResourceRef
 from jxccs_access.session import SessionRecord
+from jxccs_authz import SubjectContext
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
