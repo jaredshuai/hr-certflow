@@ -60,6 +60,16 @@ def test_release_values_accept_scoped_trusted_cidrs(tmp_path: Path) -> None:
     validate_deploy_artifacts.validate_values("release", path)
 
 
+def test_values_reject_credential_bearing_session_store_url(tmp_path: Path) -> None:
+    path = _write_release_values(tmp_path, cidrs="10.42.0.0/16")
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    payload["config"]["SESSION_STORE_URL"] = "redis://example.invalid/0"
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="SESSION_STORE_URL"):
+        validate_deploy_artifacts.validate_values("release", path)
+
+
 def _write_onboarding_request(tmp_path: Path) -> Path:
     source = REPO_ROOT / "deploy" / "shared-k3s" / "onboarding-request.yaml"
     payload = yaml.safe_load(source.read_text(encoding="utf-8"))

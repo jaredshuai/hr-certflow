@@ -93,6 +93,10 @@ def validate_values(env_name: str, path: Path) -> None:
         ingress.get("pathPrefix") == expected["path_prefix"],
         f"{path}: unexpected ingress path prefix",
     )
+    require(
+        "SESSION_STORE_URL" not in config,
+        f"{path}: SESSION_STORE_URL is credential-bearing and must use a Secret",
+    )
     # 与 API 启动校验一致：release 必须开启认证并给出合法可信网段，否则新镜像会拒绝启动。
     require(
         str(config.get("AUTH_REQUIRED")).lower() == expected["auth_required"],
