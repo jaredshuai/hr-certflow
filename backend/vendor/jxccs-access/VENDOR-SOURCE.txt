@@ -1,1 +1,24 @@
-GitLab jxccs/jxccs-access c762fceac513e9af41b5238be026b12f436761fa
+GitLab jxccs/jxccs-access 0e71b867a19f835dc86b9445c0c0d34242b5c30c
+
+来源：远端 gitlab（http://10.34.200.198/jxccs/jxccs-access.git）master，MR !6 的合并提交。
+快照范围：README.md、pyproject.toml、src/jxccs_access/，逐文件与上游提交的 blob 一致，不含本地补丁；
+上游的 tests/、examples/、scripts/、uv.lock、CI 配置不随快照引入。
+配套依赖：jxccs-authz-client 0.2.0，见 ../authorization-client-python/VENDOR-SOURCE.txt（b1346c4，
+与上游 CI 检出的提交相同）。
+
+自 c762fceac513e9af41b5238be026b12f436761fa 起引入的变更：
+- session-cap（fbb6b4c，G-JA-02/03）：内存会话存储上限 4096 条，写入新会话时惰性清扫过期条目，
+  满时抛 SessionCapacityError、登录回调返回 503；release 环境拒绝安装 mock runtime。
+- issuer-neutral-source（7f4bdb8）：真实登录的主体 source 由 "casdoor" 改为中性的 "oidc"，
+  issuer 身份只保留在 issuer_key；存量会话里的 "casdoor" 读回时按 "oidc" 解析，升级后无需重新登录。
+- 0.1.0 发布准备（cb901e6）：版本 0.1.0.dev0 -> 0.1.0，发布流水线加版本、顺序、构建三道门。
+- request_id 透传（b3a62c7，G-HR-07）：authorize / batch_authorize 新增仅关键字参数 request_id，
+  require 新增 request_id_factory，Authorizer.check / batch_check 新增可选的 request_id；
+  不安全的值按未传处理，不参与判定。
+
+对本仓的影响：
+- 本仓不再保留 #42 加在 vendor 上的 source=issuer_key 补丁，/me 的 source 随上游改为 "oidc"。
+- 自定义 Authorizer 实现必须接受可选的 request_id 形参。
+- 存量会话的 principal.source 若不是 oidc / mock / casdoor（如 #42 口径的 issuer_key），SDK 读回时抛
+  ValueError。本仓在接线处（app/api/access.py 的 _TolerantSessionStore）把这类会话按不存在处理：
+  删除记录、清 Cookie、用户重新登录，不影响升级顺序。

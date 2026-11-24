@@ -224,9 +224,9 @@ class AccessMiddleware:
 def current_principal() -> Principal:
     """The verified current principal; 401 when there is no valid business session.
 
-    For a real (Casdoor) session, validity is decided only by subject-context
+    For a real (OIDC) session, validity is decided only by subject-context
     ``SESSION`` (re-checked at most every ``session_check_interval_seconds``),
-    never by Casdoor token validity.
+    never by the identity provider's token validity.
     """
     access = request_access()
     if access.resolved is not None:
@@ -281,7 +281,7 @@ def _revalidate(access: RequestAccess, record: SessionRecord, principal: Princip
         employee_id=context.employee_id,
         department_ids=context.department_ids,
         account_status="ACTIVE",
-        source=principal.issuer_key,
+        source="oidc",
     )
     record.principal = refreshed
     record.session_checked_at = now
@@ -289,32 +289,64 @@ def _revalidate(access: RequestAccess, record: SessionRecord, principal: Princip
     return refreshed
 
 
-def authorize(principal: Principal, permission: str, resource: ResourceRef) -> AccessDecision:
-    """Allowed decision, or raise Forbidden (403) / Unavailable (503) / Unauthenticated (401)."""
-    decision = request_access().runtime.authorizer.check(principal, permission, resource)
+def authorize(
+    principal: Principal,
+    permission: str,
+    resource: ResourceRef,
+    *,
+    request_id: str | None = None,
+) -> AccessDecision:
+    """Allowed decision, or raise Forbidden (403) / Unavailable (503) / Unauthenticated (401).
+
+    ``request_id`` is the caller's own correlation id: it is sent as the
+    Authorization Center ``requestId`` and comes back on the decision and on the
+    raised error. It never takes part in the decision, and an unsafe value is
+    treated as not provided. This package does not read an inbound
+    ``X-Request-ID`` itself; the application decides what to pass.
+    """
+    decision = request_access().runtime.authorizer.check(
+        principal, permission, resource, request_id
+    )
     if not decision.allowed:
         raise Forbidden(request_id=decision.request_id)
     return decision
 
 
-def batch_authorize(principal: Principal, items: list[BatchItem]) -> list[ItemAccessDecision]:
-    """Per-item decisions (denials are returned, not raised); failures raise Unavailable."""
-    return request_access().runtime.authorizer.batch_check(principal, items)
+def batch_authorize(
+    principal: Principal, items: list[BatchItem], *, request_id: str | None = None
+) -> list[ItemAccessDecision]:
+    """Per-item decisions (denials are returned, not raised); failures raise Unavailable.
+
+    ``request_id`` is forwarded for the whole batch, exactly as in :func:`authorize`.
+    """
+    return request_access().runtime.authorizer.batch_check(principal, items, request_id)
 
 
-def require(permission: str, resource_factory: Callable[..., ResourceRef]) -> Callable[..., Any]:
+def _no_request_id() -> None:
+    return None
+
+
+def require(
+    permission: str,
+    resource_factory: Callable[..., ResourceRef],
+    *,
+    request_id_factory: Callable[..., str | None] | None = None,
+) -> Callable[..., Any]:
     """FastAPI dependency: ``Depends(require("x.read", load_resource))``.
 
     ``resource_factory`` is itself resolved by FastAPI (it may take path params
     or other dependencies) and must load resource facts from trusted records.
+    ``request_id_factory``, when given, is resolved the same way; its result is
+    forwarded as the ``request_id`` of :func:`authorize`.
     """
     from fastapi import Depends
 
     def dependency(
         principal: Principal = Depends(current_principal),  # noqa: B008
         resource: ResourceRef = Depends(resource_factory),  # noqa: B008
+        request_id: str | None = Depends(request_id_factory or _no_request_id),  # noqa: B008
     ) -> AccessDecision:
-        return authorize(principal, permission, resource)
+        return authorize(principal, permission, resource, request_id=request_id)
 
     return dependency
 

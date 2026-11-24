@@ -15,6 +15,10 @@ REQUEST_ID_HEADER = "X-Request-ID"
 HR_ACTOR_HEADER = "X-HR-Actor"
 HR_ACTOR_SOURCE_HEADER = "X-HR-Actor-Source"
 MAX_ACTOR_NAME_LENGTH = 128
+# audit_log.request_id 是 VARCHAR(128)（models/hr.py）；授权中心的 requestId 上限同为 128
+# （jxccs_access.authorization.REQUEST_ID_MAX_LENGTH）。超长值写不进审计列，控制字符会污染日志，
+# 入站值不合法时按未提供处理，三处（响应头、审计、授权中心）改用同一个服务端生成的 ID。
+MAX_REQUEST_ID_LENGTH = 128
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,17 @@ def _clean_header(value: str | None) -> str | None:
     return cleaned or None
 
 
+def _clean_request_id(value: str | None) -> str | None:
+    """入站请求 ID 只在能安全落库、回显、转发时沿用，否则按未提供处理。
+
+    超长值写不进 audit_log.request_id（带审计的写请求会 500），控制 / 格式字符会污染日志行。
+    """
+    cleaned = _clean_header(value)
+    if cleaned is None or len(cleaned) > MAX_REQUEST_ID_LENGTH or not cleaned.isprintable():
+        return None
+    return cleaned
+
+
 def _clean_actor_header(value: str | None) -> str | None:
     cleaned = _clean_header(value)
     if not cleaned:
@@ -97,7 +112,7 @@ def build_request_context(request: Request) -> RequestContext:
     from app.core.config import get_settings
 
     settings = get_settings()
-    request_id = _clean_header(request.headers.get(REQUEST_ID_HEADER)) or str(uuid.uuid4())
+    request_id = _clean_request_id(request.headers.get(REQUEST_ID_HEADER)) or str(uuid.uuid4())
 
     # 信任与否只看直连对端（网关）；X-Forwarded-For 可被客户端自填，不能作为信任依据。
     peer_ip = request.client.host if request.client else None

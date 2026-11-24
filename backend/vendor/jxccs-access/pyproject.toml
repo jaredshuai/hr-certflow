@@ -1,6 +1,6 @@
 [project]
 name = "jxccs-access"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "One-step FastAPI access integration: OIDC BFF login, server-side session, CSRF, subject-context and dev mock"
 readme = "README.md"
 requires-python = ">=3.11"

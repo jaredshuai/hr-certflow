@@ -6,22 +6,28 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 from jxccs_access import AccessDecision, AccessRuntime, Principal, ResourceRef
+from jxccs_access.authorization import REQUEST_ID_MAX_LENGTH, RealAuthorizer
 from jxccs_access.session import SessionRecord
-from jxccs_authz import SubjectContext
+from jxccs_authz import AuthorizationClient, ClientConfig, SubjectContext
+from jxccs_authz.client import RawResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.api.access import _TolerantSessionStore
+from app.api.deps import MAX_REQUEST_ID_LENGTH
 from app.api.routes import documents
 from app.core.config import get_settings
 from app.db.session import SessionLocal, get_db, get_engine
@@ -54,7 +60,13 @@ class FakeAuthorizer:
     allow: set[tuple[str, str, str]] = field(default_factory=set)  # (sub, permission, resource_type)
     calls: list[tuple[str, str, ResourceRef]] = field(default_factory=list)
 
-    def check(self, principal: Principal, permission: str, resource: ResourceRef) -> AccessDecision:
+    def check(
+        self,
+        principal: Principal,
+        permission: str,
+        resource: ResourceRef,
+        request_id: str | None = None,  # SDK 恒以第 4 个位置参数传入，自定义 Authorizer 必须接受
+    ) -> AccessDecision:
         self.calls.append((principal.sub, permission, resource))
         allowed = (principal.sub, permission, resource.resource_type) in self.allow
         return AccessDecision(
@@ -65,7 +77,7 @@ class FakeAuthorizer:
             source="authorization-center",
         )
 
-    def batch_check(self, principal, items):  # pragma: no cover - 本步未使用
+    def batch_check(self, principal, items, request_id=None):  # pragma: no cover - 本步未使用
         raise NotImplementedError
 
     def close(self) -> None:  # pragma: no cover
@@ -79,7 +91,7 @@ PAN = Principal(
     employee_id="33027947",
     department_ids=("dept-hr",),
     account_status="ACTIVE",
-    source=ISSUER_KEY,
+    source="oidc",
 )
 SUN = Principal(
     issuer_key=ISSUER_KEY,
@@ -88,7 +100,7 @@ SUN = Principal(
     employee_id="33032525",
     department_ids=("dept-ops",),
     account_status="ACTIVE",
-    source=ISSUER_KEY,
+    source="oidc",
 )
 
 
@@ -256,7 +268,7 @@ def test_me_returns_session_principal(sdk: Sdk) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "name": "潘水天",
-        "source": ISSUER_KEY,
+        "source": "oidc",
         "authenticated": True,
         "issuer_key": ISSUER_KEY,
         "sub": PAN.sub,
@@ -269,7 +281,7 @@ def test_me_returns_session_principal(sdk: Sdk) -> None:
 
 
 def test_me_name_falls_back_to_sub_without_display_name(sdk: Sdk) -> None:
-    anonymous = Principal(ISSUER_KEY, "sub-without-name", None, None, (), "ACTIVE", ISSUER_KEY)
+    anonymous = Principal(ISSUER_KEY, "sub-without-name", None, None, (), "ACTIVE", "oidc")
     response = sdk.client.get("/api/v1/me", headers=sdk.headers(sdk.login(anonymous)))
     assert response.json()["name"] == "sub-without-name"
 
@@ -329,7 +341,7 @@ def test_certificate_writes_require_manage(
 
 @pytest.mark.parametrize("can_manage", [False, True], ids=["viewer", "manager"])
 def test_confirm_upload_requires_manage(sdk: Sdk, no_db: MagicMock, monkeypatch, can_manage: bool) -> None:
-    principal = Principal(ISSUER_KEY, "synthetic-confirmation-subject", None, None, (), "ACTIVE", ISSUER_KEY)
+    principal = Principal(ISSUER_KEY, "synthetic-confirmation-subject", None, None, (), "ACTIVE", "oidc")
     sdk.authorizer.allow.add((principal.sub, "certificate.view", "certificate"))
     if can_manage:
         sdk.authorizer.allow.add((principal.sub, "certificate.manage", "certificate"))
@@ -389,6 +401,121 @@ def test_authz_unavailable_fails_closed(sdk: Sdk, no_db: MagicMock, monkeypatch)
     response = sdk.client.get("/api/v1/certificates", headers=sdk.headers(sdk.login(PAN)))
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "DEPENDENCY_UNAVAILABLE"
+
+
+# --- request_id 透传（G-HR-07） -------------------------------------------------
+
+
+@dataclass
+class RecordingAuthzTransport:
+    """授权中心传输层替身：记录到达窄客户端的请求体，并回显 requestId。"""
+
+    denied: frozenset[str] = frozenset()  # 被拒绝的 permission
+    bodies: list[dict[str, Any]] = field(default_factory=list)
+
+    def post_json(self, path: str, payload: dict[str, Any]) -> RawResponse:
+        self.bodies.append(payload)
+        allowed = payload["permission"] not in self.denied
+        return RawResponse(
+            200,
+            json.dumps(
+                {
+                    "allowed": allowed,
+                    "decisionId": "d-wire",
+                    "entitlementVersion": 1,
+                    "reasonCodes": ["SUBJECT_GRANT"] if allowed else ["MISSING_GRANT"],
+                    "evaluatedAt": "2026-11-24T00:00:00Z",
+                    "requestId": payload.get("requestId") or "req-generated",
+                }
+            ).encode(),
+        )
+
+
+def use_real_authorizer(sdk: Sdk, *, denied: frozenset[str] = frozenset()) -> RecordingAuthzTransport:
+    """换成 SDK 自带的 RealAuthorizer 与真实窄客户端，只把 HTTP 传输换成记录器。"""
+    transport = RecordingAuthzTransport(denied=denied)
+    sdk.runtime.authorizer = RealAuthorizer(
+        AuthorizationClient(
+            ClientConfig(
+                mode="integration",
+                provider="http",
+                application="hr-certflow",
+                environment="dev",
+                base_url="http://authz.test",
+            ),
+            transport,  # type: ignore[arg-type]
+        )
+    )
+    return transport
+
+
+def test_pep_forwards_the_request_context_id_to_authorization_center(sdk: Sdk, no_db: MagicMock) -> None:
+    """读、写两条 PEP 路径都把请求上下文认定的请求 ID（响应头同值）作为授权中心 requestId 发出。"""
+    transport = use_real_authorizer(sdk, denied=frozenset({"certificate.manage"}))
+
+    read = sdk.client.get(
+        "/api/v1/certificates", headers={**sdk.headers(sdk.login(PAN)), "X-Request-ID": "hr-req-42"}
+    )
+    write = sdk.client.post(
+        "/api/v1/certificates",
+        json={},
+        headers={**sdk.headers(sdk.login(SUN), write=True), "X-Request-ID": "hr-req-43"},
+    )
+
+    assert read.status_code == 200
+    assert write.status_code == 403
+    assert read.headers["x-request-id"] == "hr-req-42"
+    assert [body["permission"] for body in transport.bodies] == ["certificate.view", "certificate.manage"]
+    assert [body.get("requestId") for body in transport.bodies] == ["hr-req-42", "hr-req-43"]
+
+
+@pytest.mark.parametrize("inbound", [None, "   "], ids=["missing", "blank"])
+def test_pep_uses_one_generated_id_when_no_usable_header(
+    sdk: Sdk, no_db: MagicMock, inbound: str | None
+) -> None:
+    """缺失/空白 X-Request-ID：服务端生成的请求 ID 同时用于响应头与授权中心，不各生成一个。"""
+    transport = use_real_authorizer(sdk)
+    headers = sdk.headers(sdk.login(PAN))
+    if inbound is not None:
+        headers["X-Request-ID"] = inbound
+
+    response = sdk.client.get("/api/v1/certificates", headers=headers)
+
+    assert response.status_code == 200
+    (sent,) = [body.get("requestId") for body in transport.bodies]
+    assert sent and uuid.UUID(sent).version == 4  # 服务端生成的 UUID
+    assert response.headers["x-request-id"] == sent
+
+
+@pytest.mark.parametrize(
+    "inbound",
+    [
+        pytest.param("x" * 129, id="over-128-bound"),
+        pytest.param("req-1\x7fdel", id="control-character"),
+        pytest.param("req-1\x00nul", id="nul"),
+    ],
+)
+@pytest.mark.parametrize("denied", [False, True], ids=["allowed", "denied"])
+def test_pep_unsafe_request_id_is_replaced_not_failed(
+    sdk: Sdk, no_db: MagicMock, inbound: str, denied: bool
+) -> None:
+    """非法入站请求 ID：换成服务端生成的 UUID，响应头与授权中心仍同值，判定照常 200 / 403。"""
+    transport = use_real_authorizer(sdk, denied=frozenset({"certificate.view"}) if denied else frozenset())
+
+    response = sdk.client.get(
+        "/api/v1/certificates", headers={**sdk.headers(sdk.login(PAN)), "X-Request-ID": inbound}
+    )
+
+    (sent,) = [body.get("requestId") for body in transport.bodies]
+    assert response.status_code == (403 if denied else 200)
+    assert sent != inbound
+    assert uuid.UUID(sent).version == 4
+    assert response.headers["x-request-id"] == sent
+
+
+def test_request_id_bound_never_exceeds_what_the_sdk_forwards() -> None:
+    """本仓沿用的请求 ID 必须是 SDK 愿意转发的长度，否则授权中心拿到的就不是应用记录的那个。"""
+    assert MAX_REQUEST_ID_LENGTH <= REQUEST_ID_MAX_LENGTH
 
 
 def test_routes_outside_slice_need_session_but_no_pep(sdk: Sdk, no_db: MagicMock) -> None:
@@ -642,6 +769,25 @@ def test_certificate_create_records_session_actor(sdk: Sdk, db_session: Session)
     assert (audit.actor_name, audit.actor_source) == (PAN.sub, ISSUER_KEY)
 
 
+def test_certificate_create_with_unsafe_request_id_is_audited(sdk: Sdk, db_session: Session) -> None:
+    """超长入站请求 ID 曾写不进 audit_log.request_id（VARCHAR(128)），带审计的写请求因此 500。"""
+    employee, certificate_type = _master_data(db_session)
+    response = sdk.client.post(
+        "/api/v1/certificates",
+        json={
+            "employee_id": str(employee.id),
+            "certificate_type_id": str(certificate_type.id),
+            "holder_name": employee.name,
+            "valid_to": "2028-06-01",
+        },
+        headers={**sdk.headers(sdk.login(PAN), write=True), "X-Request-ID": "x" * 129},
+    )
+
+    assert response.status_code == 201, response.text
+    audit = _latest_audit(db_session, "employee_certificate.create")
+    assert audit.request_id == response.headers["x-request-id"]
+
+
 def test_review_approve_with_manage_records_session_actor(sdk: Sdk, db_session: Session) -> None:
     employee, certificate_type = _master_data(db_session)
     document = CertificateDocument(
@@ -763,8 +909,10 @@ def test_logout_is_local_only_and_invalidates_app_session(sdk: Sdk) -> None:
 
 
 def test_stored_principal_legacy_casdoor_source_still_authenticates(sdk: Sdk) -> None:
-    """G-HR-06 兼容：旧会话里存的 source="casdoor" 仍按真实（非 mock）来源通过认证，
-    并在 subject-context 复核时刷新为 issuer_key 口径——不强制改写历史。"""
+    """G-HR-06 兼容：旧会话里存的 source="casdoor" 仍按真实（非 mock）来源通过认证。
+
+    上游 issuer-neutral-source 口径：遗留值读回时即解析为 "oidc"，subject-context 复核之后同样是 "oidc"。
+    """
     record = sdk.login(PAN)
     # 手工把会话里的主体改成旧口径存量值（模拟升级前的存储）。
     record.principal = Principal(
@@ -778,13 +926,14 @@ def test_stored_principal_legacy_casdoor_source_still_authenticates(sdk: Sdk) ->
     )
     sdk.runtime.save(record)
 
-    # 复核窗口内：遗留 source 原样返回，但会话有效、认证通过。
+    # 复核窗口内：遗留值读回即解析为 "oidc"，会话有效、认证通过。
     me = sdk.client.get("/api/v1/me", headers=sdk.headers(record))
     assert me.status_code == 200
-    assert me.json()["source"] == "casdoor"
+    assert me.json()["source"] == "oidc"
+    assert me.json()["issuer_key"] == ISSUER_KEY
     assert me.json()["authenticated"] is True
 
-    # 复核窗口过期：经 subject-context 重新复核后刷新为 issuer_key 口径。
+    # 复核窗口过期：经 subject-context 重新复核后仍是 "oidc"。
     record.session_checked_at = sdk.runtime.clock() - 3601
     sdk.runtime.save(record)
     context_calls: list[tuple[str, int]] = []
@@ -808,5 +957,82 @@ def test_stored_principal_legacy_casdoor_source_still_authenticates(sdk: Sdk) ->
     sdk.runtime.subject_context = FakeSubjectContext()  # type: ignore[assignment]
     me_refreshed = sdk.client.get("/api/v1/me", headers=sdk.headers(record))
     assert me_refreshed.status_code == 200
-    assert me_refreshed.json()["source"] == ISSUER_KEY
+    assert me_refreshed.json()["source"] == "oidc"
     assert context_calls == [(PAN.sub, 1)]
+
+
+def test_unreadable_stored_session_means_sign_in_again_not_500(sdk: Sdk, monkeypatch) -> None:
+    """vendor 刷新前由 #42 口径（source=issuer_key）写入的存量会话 SDK 读不回来：
+    按未登录处理（401 + loginUrl、清 Cookie），登录入口照常可用，重新登录后恢复。"""
+    monkeypatch.setattr(sdk.runtime.oidc, "authorization_url", lambda **_: "http://10.34.200.223:8000/authorize")
+    stale_principal = Principal(ISSUER_KEY, "stale-subject", None, None, (), "ACTIVE", ISSUER_KEY)  # type: ignore[arg-type]
+    stale = sdk.login(stale_principal)
+
+    me = sdk.client.get("/api/v1/me", headers=sdk.headers(stale))
+    login = sdk.client.get("/auth/login", headers=sdk.headers(stale), follow_redirects=False)
+
+    assert me.status_code == 401
+    assert me.json()["detail"]["loginUrl"] == "/hr-certflow-dev/auth/login"
+    assert "set-cookie" in me.headers  # 清除读不出来的会话 Cookie
+    assert login.status_code == 302
+    assert sdk.runtime.store.get(stale.sid) is None
+    assert sdk.client.get("/api/v1/me", headers=sdk.headers(sdk.login(PAN))).status_code == 200
+
+
+@dataclass
+class RawJsonSessionStore:
+    """只保存原始 JSON 文本的会话存储：用来放入 SDK 自己不会再写出的畸形或旧格式记录。"""
+
+    records: dict[str, str]
+
+    def get(self, sid: str) -> SessionRecord | None:
+        return SessionRecord.loads(self.records[sid]) if sid in self.records else None
+
+    def delete(self, sid: str) -> None:
+        self.records.pop(sid, None)
+
+
+def _stored_session_json(source: str) -> str:
+    data = json.loads(SessionRecord.new(0.0, PAN).dumps())
+    data["principal"]["source"] = source
+    return json.dumps(data)
+
+
+_BASE_RECORD = '{"sid": "s", "csrf_token": "c", "created_at": 0, "last_seen_at": 0'
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        pytest.param('{"sid": "s"}', TypeError, id="missing-record-fields"),
+        pytest.param(_BASE_RECORD + ', "unexpected": 1}', TypeError, id="unknown-record-field"),
+        pytest.param(_BASE_RECORD + ', "principal": {"issuer_key": "i"}}', KeyError, id="missing-principal-fields"),
+        pytest.param("null", AttributeError, id="not-an-object"),
+        pytest.param("not json", ValueError, id="invalid-json"),
+        pytest.param(_stored_session_json("some-other-idp"), ValueError, id="unknown-source-label"),
+    ],
+)
+def test_tolerant_store_treats_every_deserialisation_failure_as_absent(
+    payload: str, error: type[Exception]
+) -> None:
+    """存量记录只要是 SDK 解析 / 校验不了的，就按不存在处理并删除，不论它抛的是哪一种异常。"""
+    store = RawJsonSessionStore({"sid": payload})
+    with pytest.raises(error):
+        store.get("sid")  # 没有包装时，SDK 对这种记录确实抛该异常
+
+    assert _TolerantSessionStore(store).get("sid") is None  # type: ignore[arg-type]
+    assert store.records == {}
+
+
+def test_tolerant_store_does_not_swallow_a_store_failure() -> None:
+    """存储后端自身的故障不是“会话读不出来”：必须照常抛出，也不能顺手删记录。"""
+
+    class DownStore:
+        def get(self, sid: str) -> SessionRecord | None:
+            raise ConnectionError("store down")
+
+        def delete(self, sid: str) -> None:
+            raise AssertionError("a store failure must not delete anything")
+
+    with pytest.raises(ConnectionError):
+        _TolerantSessionStore(DownStore()).get("sid")  # type: ignore[arg-type]

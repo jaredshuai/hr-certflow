@@ -583,7 +583,7 @@ wheels = [
 
 [[package]]
 name = "jxccs-access"
-version = "0.1.0.dev0"
+version = "0.1.0"
 source = { directory = "vendor/jxccs-access" }
 dependencies = [
     { name = "authlib" },

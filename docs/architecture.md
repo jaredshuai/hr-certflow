@@ -60,13 +60,24 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
   上传确认、识别派发/状态也统一挂 `certificate.manage`：集合操作使用
   `certificate/collection`，详情和变更使用对应 review/document UUID。授权中心
   显式 deny、撤权和资源 scope 由 SDK 每次请求实时判定。
+- **请求关联 ID（G-HR-07）**：PEP 调用授权中心时，把本次请求认定的请求 ID 作为
+  授权中心 `requestId` 透传，用来把应用日志、审计与授权中心的判定记录、403/503
+  里的 `requestId` 对上。请求 ID 只做关联、不参与判定；响应头 `X-Request-ID`、
+  审计日志 `request_id` 与授权中心 `requestId` 始终是同一个值。
+  - 入站 `X-Request-ID` 去掉首尾空白后为 1..128 个可打印字符时沿用；缺失、空白、
+    超长或含控制字符时换成服务端生成的 UUID。`audit_log.request_id` 是
+    VARCHAR(128)，原样落库会让带审计的写请求失败，所以非法值不回显、不落库、不转发。
 - **退出**：`POST /auth/logout` 只销毁本应用业务会话（服务端 session 记录删除 +
   清 Cookie），不调用 Casdoor/省平台的 end_session，不影响上游会话与其他应用。
   前端在右上角提供「退出」入口（dev 会话前缀与本地直连根路径；release 网关前缀
   没有该端点，不展示退出），退出后回到应用首页并展示「未登录 + 登录」。
-- **Principal.source 口径**：真实会话的 `source` 为中性真实 issuer key（等于
-  `issuer_key`），`mock` 仅表示模拟身份会话；历史存量里的 `casdoor` 值仍按真实
-  来源读回，不强制改写。
+- **Principal.source 口径**：随上游 `issuer-neutral-source`，真实会话的 `source` 为
+  中性标签 `oidc`（issuer 身份在 `issuer_key` 里），`mock` 仅表示模拟身份会话。
+  历史存量里的 `casdoor` 值读回时按 `oidc` 解析，无需重新登录；#42 曾临时打在
+  vendor 上的 `source=issuer_key` 补丁已随 vendor 刷新移除。
+- **读不出来的存量会话**：SDK 严格校验存量会话里的主体，格式不再被识别（例如上面
+  那份补丁写入的会话）时读回会抛错。接线处把这类会话按未登录处理：删除记录、清
+  Cookie、用户重新登录，不会让带该 Cookie 的每个请求（含登录）都 500。
 
 ### Dify
 

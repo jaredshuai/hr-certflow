@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID
@@ -13,7 +14,9 @@ from uuid import UUID
 import jxccs_access
 from fastapi import Depends, FastAPI, Request
 from jxccs_access import AccessConfig, AccessRuntime, ResourceRef
+from jxccs_access.session import LoginTransaction, SessionRecord, SessionStore
 
+from app.api.deps import get_request_context
 from app.core.config import DEV_OPERATOR_ENVS, Settings
 
 # RequestContextMiddleware 把 SDK 认定的当前主体放在 scope["state"] 的这个键下。
@@ -26,6 +29,42 @@ CERTIFICATE_RESOURCE_TYPE = "certificate"
 # audit_log.actor_source 是 VARCHAR(32)（models/hr.py）；真实会话的 actor_source 即
 # issuer_key，超长会在每次审计写入时炸库，必须在启动时拒绝而不是上线后才发现。
 MAX_ACTOR_SOURCE_LENGTH = 32
+
+logger = logging.getLogger(__name__)
+
+
+class _TolerantSessionStore:
+    """SDK 会话存储的容错读端：读不出来的存量会话按不存在处理。
+
+    SDK 严格校验存量会话里的主体，格式对不上（如 vendor 刷新前写入的旧 ``Principal.source``）
+    时 ``get`` 抛 ``ValueError``。会话本可丢弃重建：删除该记录并返回 ``None``，中间件随即清
+    Cookie，用户重新登录。只兜记录解析 / 校验失败的异常，存储后端自身的故障照常抛出。
+    """
+
+    def __init__(self, store: SessionStore) -> None:
+        self._store = store
+
+    def get(self, sid: str) -> SessionRecord | None:
+        try:
+            return self._store.get(sid)
+        # 记录不合 schema 时，SessionRecord.loads / Principal.from_dict 按情况抛这四类异常；
+        # 存储后端自身的故障不在其中。
+        except (TypeError, KeyError, ValueError, AttributeError):
+            logger.warning("Dropped an unreadable stored session; the user has to sign in again")
+            self._store.delete(sid)
+            return None
+
+    def put(self, record: SessionRecord, ttl_seconds: int) -> None:
+        self._store.put(record, ttl_seconds)
+
+    def delete(self, sid: str) -> None:
+        self._store.delete(sid)
+
+    def put_transaction(self, tx: LoginTransaction, ttl_seconds: int) -> None:
+        self._store.put_transaction(tx, ttl_seconds)
+
+    def pop_transaction(self, state: str) -> LoginTransaction | None:
+        return self._store.pop_transaction(state)
 
 
 def install_access(app: FastAPI, settings: Settings) -> AccessRuntime:
@@ -52,7 +91,10 @@ def install_access(app: FastAPI, settings: Settings) -> AccessRuntime:
                 "real sessions persist it as audit_log.actor_source (VARCHAR(32)); "
                 "register a shorter issuer key with the directory instead of widening the column"
             )
-    return jxccs_access.install(app, config, return_path_prefix=f"{config.public_path}/")
+    runtime = jxccs_access.install(app, config, return_path_prefix=f"{config.public_path}/")
+    # SDK 对读不出来的存量会话没有兜底：不包一层，带该 Cookie 的每个请求（含登录）都是 500。
+    runtime.store = _TolerantSessionStore(runtime.store)
+    return runtime
 
 
 def access_runtime(app: Any) -> AccessRuntime | None:
@@ -76,12 +118,19 @@ def require_permission(
     """业务 PEP：SDK 启用时调用 ``jxccs_access.authorize``，拒绝 403、依赖故障 503。
 
     ``resource_factory`` 由 FastAPI 解析（可取路径参数）。SDK 未启用时为空操作。
+    请求级 ``request_id`` 随判定透传给授权中心（G-HR-07）：只用于关联、不参与判定，
+    与响应头 ``X-Request-ID``、审计 ``request_id`` 是同一个值（``build_request_context`` 保证它合法）。
     """
 
     def dependency(request: Request, resource: ResourceRef = Depends(resource_factory)) -> None:
         if access_runtime(request.app) is None:
             return
-        jxccs_access.authorize(jxccs_access.current_principal(), permission, resource)
+        jxccs_access.authorize(
+            jxccs_access.current_principal(),
+            permission,
+            resource,
+            request_id=get_request_context(request).request_id,
+        )
 
     return dependency
 

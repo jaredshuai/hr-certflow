@@ -108,6 +108,13 @@ def install(
     """
     if runtime is None:
         runtime = build_runtime(config or AccessConfig.from_env())
+    if runtime.mock and runtime.config.env == "release":
+        # config.validate() already refuses mock config in release; this also
+        # blocks hand-built mock runtimes passed via ``runtime=``.
+        raise ConfigError(
+            "a mock runtime cannot be installed in release "
+            "(APP_ENV missing or not local/dev)"
+        )
     app.add_middleware(AccessMiddleware, runtime=runtime)
     app.include_router(build_router(runtime, return_path_prefix))
     app.state.jxccs_access = runtime
