@@ -6,19 +6,23 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 from jxccs_access import AccessDecision, AccessRuntime, Principal, ResourceRef
+from jxccs_access.authorization import RealAuthorizer
 from jxccs_access.session import SessionRecord
-from jxccs_authz import SubjectContext
+from jxccs_authz import AuthorizationClient, ClientConfig, SubjectContext
+from jxccs_authz.client import RawResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
@@ -395,6 +399,113 @@ def test_authz_unavailable_fails_closed(sdk: Sdk, no_db: MagicMock, monkeypatch)
     response = sdk.client.get("/api/v1/certificates", headers=sdk.headers(sdk.login(PAN)))
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "DEPENDENCY_UNAVAILABLE"
+
+
+# --- request_id 透传（G-HR-07） -------------------------------------------------
+
+
+@dataclass
+class RecordingAuthzTransport:
+    """授权中心传输层替身：记录到达窄客户端的请求体，并回显 requestId。"""
+
+    denied: frozenset[str] = frozenset()  # 被拒绝的 permission
+    bodies: list[dict[str, Any]] = field(default_factory=list)
+
+    def post_json(self, path: str, payload: dict[str, Any]) -> RawResponse:
+        self.bodies.append(payload)
+        allowed = payload["permission"] not in self.denied
+        return RawResponse(
+            200,
+            json.dumps(
+                {
+                    "allowed": allowed,
+                    "decisionId": "d-wire",
+                    "entitlementVersion": 1,
+                    "reasonCodes": ["SUBJECT_GRANT"] if allowed else ["MISSING_GRANT"],
+                    "evaluatedAt": "2026-11-24T00:00:00Z",
+                    "requestId": payload.get("requestId") or "req-generated",
+                }
+            ).encode(),
+        )
+
+
+def use_real_authorizer(sdk: Sdk, *, denied: frozenset[str] = frozenset()) -> RecordingAuthzTransport:
+    """换成 SDK 自带的 RealAuthorizer 与真实窄客户端，只把 HTTP 传输换成记录器。"""
+    transport = RecordingAuthzTransport(denied=denied)
+    sdk.runtime.authorizer = RealAuthorizer(
+        AuthorizationClient(
+            ClientConfig(
+                mode="integration",
+                provider="http",
+                application="hr-certflow",
+                environment="dev",
+                base_url="http://authz.test",
+            ),
+            transport,  # type: ignore[arg-type]
+        )
+    )
+    return transport
+
+
+def test_pep_forwards_the_request_context_id_to_authorization_center(sdk: Sdk, no_db: MagicMock) -> None:
+    """读、写两条 PEP 路径都把请求上下文认定的请求 ID（响应头同值）作为授权中心 requestId 发出。"""
+    transport = use_real_authorizer(sdk, denied=frozenset({"certificate.manage"}))
+
+    read = sdk.client.get(
+        "/api/v1/certificates", headers={**sdk.headers(sdk.login(PAN)), "X-Request-ID": "hr-req-42"}
+    )
+    write = sdk.client.post(
+        "/api/v1/certificates",
+        json={},
+        headers={**sdk.headers(sdk.login(SUN), write=True), "X-Request-ID": "hr-req-43"},
+    )
+
+    assert read.status_code == 200
+    assert write.status_code == 403
+    assert read.headers["x-request-id"] == "hr-req-42"
+    assert [body["permission"] for body in transport.bodies] == ["certificate.view", "certificate.manage"]
+    assert [body.get("requestId") for body in transport.bodies] == ["hr-req-42", "hr-req-43"]
+
+
+@pytest.mark.parametrize("inbound", [None, "   "], ids=["missing", "blank"])
+def test_pep_uses_one_generated_id_when_no_usable_header(
+    sdk: Sdk, no_db: MagicMock, inbound: str | None
+) -> None:
+    """缺失/空白 X-Request-ID：服务端生成的请求 ID 同时用于响应头与授权中心，不各生成一个。"""
+    transport = use_real_authorizer(sdk)
+    headers = sdk.headers(sdk.login(PAN))
+    if inbound is not None:
+        headers["X-Request-ID"] = inbound
+
+    response = sdk.client.get("/api/v1/certificates", headers=headers)
+
+    assert response.status_code == 200
+    (sent,) = [body.get("requestId") for body in transport.bodies]
+    assert sent and uuid.UUID(sent).version == 4  # 服务端生成的 UUID
+    assert response.headers["x-request-id"] == sent
+
+
+@pytest.mark.parametrize(
+    "inbound",
+    [
+        pytest.param("x" * 129, id="over-128-bound"),
+        pytest.param("req-1\x7fdel", id="control-character"),
+        pytest.param("req-1\x00nul", id="nul"),
+    ],
+)
+@pytest.mark.parametrize("denied", [False, True], ids=["allowed", "denied"])
+def test_pep_unsafe_request_id_is_dropped_not_failed(
+    sdk: Sdk, no_db: MagicMock, inbound: str, denied: bool
+) -> None:
+    """非法请求 ID：按未传处理（请求体不带 requestId），判定照常 200 / 403，不会变成 500 / 503。"""
+    transport = use_real_authorizer(sdk, denied=frozenset({"certificate.view"}) if denied else frozenset())
+
+    response = sdk.client.get(
+        "/api/v1/certificates", headers={**sdk.headers(sdk.login(PAN)), "X-Request-ID": inbound}
+    )
+
+    assert response.status_code == (403 if denied else 200)
+    assert "requestId" not in transport.bodies[-1]
 
 
 def test_routes_outside_slice_need_session_but_no_pep(sdk: Sdk, no_db: MagicMock) -> None:

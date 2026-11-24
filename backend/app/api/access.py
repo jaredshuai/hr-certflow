@@ -14,6 +14,7 @@ import jxccs_access
 from fastapi import Depends, FastAPI, Request
 from jxccs_access import AccessConfig, AccessRuntime, ResourceRef
 
+from app.api.deps import get_request_context
 from app.core.config import DEV_OPERATOR_ENVS, Settings
 
 # RequestContextMiddleware 把 SDK 认定的当前主体放在 scope["state"] 的这个键下。
@@ -76,12 +77,19 @@ def require_permission(
     """业务 PEP：SDK 启用时调用 ``jxccs_access.authorize``，拒绝 403、依赖故障 503。
 
     ``resource_factory`` 由 FastAPI 解析（可取路径参数）。SDK 未启用时为空操作。
+    请求级 ``request_id`` 随判定透传给授权中心（G-HR-07）：只用于关联、不参与判定；
+    缺失时由 ``build_request_context`` 生成，非法值由 SDK 丢弃，都不会把判定变成 503。
     """
 
     def dependency(request: Request, resource: ResourceRef = Depends(resource_factory)) -> None:
         if access_runtime(request.app) is None:
             return
-        jxccs_access.authorize(jxccs_access.current_principal(), permission, resource)
+        jxccs_access.authorize(
+            jxccs_access.current_principal(),
+            permission,
+            resource,
+            request_id=get_request_context(request).request_id,
+        )
 
     return dependency
 

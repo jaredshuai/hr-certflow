@@ -60,6 +60,12 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
   上传确认、识别派发/状态也统一挂 `certificate.manage`：集合操作使用
   `certificate/collection`，详情和变更使用对应 review/document UUID。授权中心
   显式 deny、撤权和资源 scope 由 SDK 每次请求实时判定。
+- **请求关联 ID（G-HR-07）**：PEP 调用授权中心时，把本次请求认定的请求 ID 作为
+  授权中心 `requestId` 透传，与响应头 `X-Request-ID`、审计日志 `request_id` 是
+  同一个值（请求头带 `X-Request-ID` 时沿用，否则服务端生成），用来把应用日志、
+  审计与授权中心的判定记录、403/503 里的 `requestId` 对上。请求 ID 只做关联、
+  不参与判定；空值、超长（>128）或含控制字符的值由 SDK 丢弃（按未传处理），
+  不会让判定变成 503。
 - **退出**：`POST /auth/logout` 只销毁本应用业务会话（服务端 session 记录删除 +
   清 Cookie），不调用 Casdoor/省平台的 end_session，不影响上游会话与其他应用。
   前端在右上角提供「退出」入口（dev 会话前缀与本地直连根路径；release 网关前缀
