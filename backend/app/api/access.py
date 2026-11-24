@@ -77,8 +77,8 @@ def require_permission(
     """业务 PEP：SDK 启用时调用 ``jxccs_access.authorize``，拒绝 403、依赖故障 503。
 
     ``resource_factory`` 由 FastAPI 解析（可取路径参数）。SDK 未启用时为空操作。
-    请求级 ``request_id`` 随判定透传给授权中心（G-HR-07）：只用于关联、不参与判定；
-    缺失时由 ``build_request_context`` 生成，非法值由 SDK 丢弃，都不会把判定变成 503。
+    请求级 ``request_id`` 随判定透传给授权中心（G-HR-07）：只用于关联、不参与判定，
+    与响应头 ``X-Request-ID``、审计 ``request_id`` 是同一个值（``build_request_context`` 保证它合法）。
     """
 
     def dependency(request: Request, resource: ResourceRef = Depends(resource_factory)) -> None:

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
 
-from app.api.deps import build_request_context, get_request_context
+from app.api.deps import MAX_REQUEST_ID_LENGTH, build_request_context, get_request_context
 from app.core.config import get_settings
 from app.services.audit import record_audit
 
@@ -68,6 +69,32 @@ def test_get_request_context_reuses_state_context(release_settings) -> None:
     assert reused is context
     assert reused.actor_name == "Alice HR"
     assert reused.request_id == "req-1"
+
+
+@pytest.mark.parametrize(
+    "inbound",
+    [
+        pytest.param("x" * 129, id="over-audit-column"),
+        pytest.param("req-1\x7fdel", id="control-character"),
+        pytest.param("\u202ereq-1", id="bidi-override"),
+    ],
+)
+def test_unsafe_inbound_request_id_is_replaced_by_a_generated_one(release_settings, inbound: str) -> None:
+    """超长值写不进 audit_log.request_id，控制 / 格式字符会污染日志：按未提供处理，不沿用。"""
+    request = SimpleNamespace(headers={"X-Request-ID": inbound}, client=SimpleNamespace(host="127.0.0.1"))
+
+    context = build_request_context(request)  # type: ignore[arg-type]
+
+    assert uuid.UUID(context.request_id).version == 4
+
+
+def test_request_id_at_the_audit_column_bound_is_kept(release_settings) -> None:
+    request_id = "r" * MAX_REQUEST_ID_LENGTH
+    request = SimpleNamespace(headers={"X-Request-ID": request_id}, client=SimpleNamespace(host="127.0.0.1"))
+
+    context = build_request_context(request)  # type: ignore[arg-type]
+
+    assert context.request_id == request_id
 
 
 def test_record_audit_persists_actor_and_request_context() -> None:

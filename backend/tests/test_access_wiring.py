@@ -19,13 +19,14 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 from jxccs_access import AccessDecision, AccessRuntime, Principal, ResourceRef
-from jxccs_access.authorization import RealAuthorizer
+from jxccs_access.authorization import REQUEST_ID_MAX_LENGTH, RealAuthorizer
 from jxccs_access.session import SessionRecord
 from jxccs_authz import AuthorizationClient, ClientConfig, SubjectContext
 from jxccs_authz.client import RawResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.api.deps import MAX_REQUEST_ID_LENGTH
 from app.api.routes import documents
 from app.core.config import get_settings
 from app.db.session import SessionLocal, get_db, get_engine
@@ -494,18 +495,26 @@ def test_pep_uses_one_generated_id_when_no_usable_header(
     ],
 )
 @pytest.mark.parametrize("denied", [False, True], ids=["allowed", "denied"])
-def test_pep_unsafe_request_id_is_dropped_not_failed(
+def test_pep_unsafe_request_id_is_replaced_not_failed(
     sdk: Sdk, no_db: MagicMock, inbound: str, denied: bool
 ) -> None:
-    """非法请求 ID：按未传处理（请求体不带 requestId），判定照常 200 / 403，不会变成 500 / 503。"""
+    """非法入站请求 ID：换成服务端生成的 UUID，响应头与授权中心仍同值，判定照常 200 / 403。"""
     transport = use_real_authorizer(sdk, denied=frozenset({"certificate.view"}) if denied else frozenset())
 
     response = sdk.client.get(
         "/api/v1/certificates", headers={**sdk.headers(sdk.login(PAN)), "X-Request-ID": inbound}
     )
 
+    (sent,) = [body.get("requestId") for body in transport.bodies]
     assert response.status_code == (403 if denied else 200)
-    assert "requestId" not in transport.bodies[-1]
+    assert sent != inbound
+    assert uuid.UUID(sent).version == 4
+    assert response.headers["x-request-id"] == sent
+
+
+def test_request_id_bound_never_exceeds_what_the_sdk_forwards() -> None:
+    """本仓沿用的请求 ID 必须是 SDK 愿意转发的长度，否则授权中心拿到的就不是应用记录的那个。"""
+    assert MAX_REQUEST_ID_LENGTH <= REQUEST_ID_MAX_LENGTH
 
 
 def test_routes_outside_slice_need_session_but_no_pep(sdk: Sdk, no_db: MagicMock) -> None:
@@ -757,6 +766,25 @@ def test_certificate_create_records_session_actor(sdk: Sdk, db_session: Session)
     assert certificate.confirmed_by == PAN.sub
     audit = _latest_audit(db_session, "employee_certificate.create")
     assert (audit.actor_name, audit.actor_source) == (PAN.sub, ISSUER_KEY)
+
+
+def test_certificate_create_with_unsafe_request_id_is_audited(sdk: Sdk, db_session: Session) -> None:
+    """超长入站请求 ID 曾写不进 audit_log.request_id（VARCHAR(128)），带审计的写请求因此 500。"""
+    employee, certificate_type = _master_data(db_session)
+    response = sdk.client.post(
+        "/api/v1/certificates",
+        json={
+            "employee_id": str(employee.id),
+            "certificate_type_id": str(certificate_type.id),
+            "holder_name": employee.name,
+            "valid_to": "2028-06-01",
+        },
+        headers={**sdk.headers(sdk.login(PAN), write=True), "X-Request-ID": "x" * 129},
+    )
+
+    assert response.status_code == 201, response.text
+    audit = _latest_audit(db_session, "employee_certificate.create")
+    assert audit.request_id == response.headers["x-request-id"]
 
 
 def test_review_approve_with_manage_records_session_actor(sdk: Sdk, db_session: Session) -> None:
