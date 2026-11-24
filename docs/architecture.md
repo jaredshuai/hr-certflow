@@ -61,20 +61,24 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
   `certificate/collection`，详情和变更使用对应 review/document UUID。授权中心
   显式 deny、撤权和资源 scope 由 SDK 每次请求实时判定。
 - **请求关联 ID（G-HR-07）**：PEP 调用授权中心时，把本次请求认定的请求 ID 作为
-  授权中心 `requestId` 透传，与响应头 `X-Request-ID`、审计日志 `request_id` 是
-  同一个值（请求头带 `X-Request-ID` 时沿用，否则服务端生成），用来把应用日志、
-  审计与授权中心的判定记录、403/503 里的 `requestId` 对上。请求 ID 只做关联、
-  不参与判定；空值、超长（>128）或含控制字符的值由 SDK 丢弃（按未传处理），
-  不会让判定变成 503。
+  授权中心 `requestId` 透传，用来把应用日志、审计与授权中心的判定记录、403/503
+  里的 `requestId` 对上。请求 ID 只做关联、不参与判定。
+  - 请求头带合法的 `X-Request-ID` 时沿用，与响应头 `X-Request-ID`、审计日志
+    `request_id` 是同一个值；请求头缺失或为空白时，三处都是服务端生成的 UUID。
+  - 超长（>128）或含控制字符、格式字符的值发不到授权中心：SDK 按未传处理，
+    授权中心自行生成，判定不受影响（不会变成 503）。此时响应头与审计记录的
+    仍是原始值，与授权中心的 `requestId` 不对应。
 - **退出**：`POST /auth/logout` 只销毁本应用业务会话（服务端 session 记录删除 +
   清 Cookie），不调用 Casdoor/省平台的 end_session，不影响上游会话与其他应用。
   前端在右上角提供「退出」入口（dev 会话前缀与本地直连根路径；release 网关前缀
   没有该端点，不展示退出），退出后回到应用首页并展示「未登录 + 登录」。
 - **Principal.source 口径**：随上游 `issuer-neutral-source`，真实会话的 `source` 为
-  中性标签 `oidc`（issuer 身份在 `issuer_key` 里），`mock` 仅表示模拟身份会话；
-  历史存量里的 `casdoor` 值读回时按 `oidc` 解析，升级后无需重新登录。#42 临时
-  加在 vendor 上的 `source=issuer_key` 补丁已随 vendor 刷新移除（见
-  `backend/vendor/jxccs-access/VENDOR-SOURCE.txt`）。
+  中性标签 `oidc`（issuer 身份在 `issuer_key` 里），`mock` 仅表示模拟身份会话。
+  历史存量里的 `casdoor` 值读回时按 `oidc` 解析，无需重新登录；但 #42 构建写入的
+  `source=issuer_key` 存量会话读回会失败（请求 500），已部署过 #42 的环境要等
+  这类会话过期或清理后再升级（当前 dev 镜像早于 #42，不受影响）。#42 临时加在
+  vendor 上的补丁已随 vendor 刷新移除，升级注意见
+  `backend/vendor/jxccs-access/VENDOR-SOURCE.txt`。
 
 ### Dify
 

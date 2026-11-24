@@ -20,4 +20,6 @@ GitLab jxccs/jxccs-access 0e71b867a19f835dc86b9445c0c0d34242b5c30c
 - 本仓不再保留 #42 加在 vendor 上的 source=issuer_key 补丁，/me 的 source 随上游改为 "oidc"。
 - 自定义 Authorizer 实现必须接受可选的 request_id 形参。
 - 存量会话的 principal.source 若不是 oidc / mock / casdoor（如 #42 口径的 issuer_key），SDK 读回时抛
-  ValueError；dev 现网镜像 ba2fd89c3114 早于 #42，从它直接升级不受影响。
+  未捕获的 ValueError，带该 Cookie 的请求全部 500，直到会话过期（空闲 TTL 30 分钟）或清 Cookie。
+  已部署过 #42 的环境要等这类会话过期或清理后再升级；dev 现网镜像 ba2fd89c3114 早于 #42，
+  从它直接升级不受影响。
