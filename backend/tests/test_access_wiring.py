@@ -54,7 +54,13 @@ class FakeAuthorizer:
     allow: set[tuple[str, str, str]] = field(default_factory=set)  # (sub, permission, resource_type)
     calls: list[tuple[str, str, ResourceRef]] = field(default_factory=list)
 
-    def check(self, principal: Principal, permission: str, resource: ResourceRef) -> AccessDecision:
+    def check(
+        self,
+        principal: Principal,
+        permission: str,
+        resource: ResourceRef,
+        request_id: str | None = None,  # SDK 恒以第 4 个位置参数传入，自定义 Authorizer 必须接受
+    ) -> AccessDecision:
         self.calls.append((principal.sub, permission, resource))
         allowed = (principal.sub, permission, resource.resource_type) in self.allow
         return AccessDecision(
@@ -65,7 +71,7 @@ class FakeAuthorizer:
             source="authorization-center",
         )
 
-    def batch_check(self, principal, items):  # pragma: no cover - 本步未使用
+    def batch_check(self, principal, items, request_id=None):  # pragma: no cover - 本步未使用
         raise NotImplementedError
 
     def close(self) -> None:  # pragma: no cover
@@ -79,7 +85,7 @@ PAN = Principal(
     employee_id="33027947",
     department_ids=("dept-hr",),
     account_status="ACTIVE",
-    source=ISSUER_KEY,
+    source="oidc",
 )
 SUN = Principal(
     issuer_key=ISSUER_KEY,
@@ -88,7 +94,7 @@ SUN = Principal(
     employee_id="33032525",
     department_ids=("dept-ops",),
     account_status="ACTIVE",
-    source=ISSUER_KEY,
+    source="oidc",
 )
 
 
@@ -256,7 +262,7 @@ def test_me_returns_session_principal(sdk: Sdk) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "name": "潘水天",
-        "source": ISSUER_KEY,
+        "source": "oidc",
         "authenticated": True,
         "issuer_key": ISSUER_KEY,
         "sub": PAN.sub,
@@ -269,7 +275,7 @@ def test_me_returns_session_principal(sdk: Sdk) -> None:
 
 
 def test_me_name_falls_back_to_sub_without_display_name(sdk: Sdk) -> None:
-    anonymous = Principal(ISSUER_KEY, "sub-without-name", None, None, (), "ACTIVE", ISSUER_KEY)
+    anonymous = Principal(ISSUER_KEY, "sub-without-name", None, None, (), "ACTIVE", "oidc")
     response = sdk.client.get("/api/v1/me", headers=sdk.headers(sdk.login(anonymous)))
     assert response.json()["name"] == "sub-without-name"
 
@@ -329,7 +335,7 @@ def test_certificate_writes_require_manage(
 
 @pytest.mark.parametrize("can_manage", [False, True], ids=["viewer", "manager"])
 def test_confirm_upload_requires_manage(sdk: Sdk, no_db: MagicMock, monkeypatch, can_manage: bool) -> None:
-    principal = Principal(ISSUER_KEY, "synthetic-confirmation-subject", None, None, (), "ACTIVE", ISSUER_KEY)
+    principal = Principal(ISSUER_KEY, "synthetic-confirmation-subject", None, None, (), "ACTIVE", "oidc")
     sdk.authorizer.allow.add((principal.sub, "certificate.view", "certificate"))
     if can_manage:
         sdk.authorizer.allow.add((principal.sub, "certificate.manage", "certificate"))
@@ -763,8 +769,10 @@ def test_logout_is_local_only_and_invalidates_app_session(sdk: Sdk) -> None:
 
 
 def test_stored_principal_legacy_casdoor_source_still_authenticates(sdk: Sdk) -> None:
-    """G-HR-06 兼容：旧会话里存的 source="casdoor" 仍按真实（非 mock）来源通过认证，
-    并在 subject-context 复核时刷新为 issuer_key 口径——不强制改写历史。"""
+    """G-HR-06 兼容：旧会话里存的 source="casdoor" 仍按真实（非 mock）来源通过认证。
+
+    上游 issuer-neutral-source 口径：遗留值读回时即解析为 "oidc"，subject-context 复核之后同样是 "oidc"。
+    """
     record = sdk.login(PAN)
     # 手工把会话里的主体改成旧口径存量值（模拟升级前的存储）。
     record.principal = Principal(
@@ -778,13 +786,14 @@ def test_stored_principal_legacy_casdoor_source_still_authenticates(sdk: Sdk) ->
     )
     sdk.runtime.save(record)
 
-    # 复核窗口内：遗留 source 原样返回，但会话有效、认证通过。
+    # 复核窗口内：遗留值读回即解析为 "oidc"，会话有效、认证通过。
     me = sdk.client.get("/api/v1/me", headers=sdk.headers(record))
     assert me.status_code == 200
-    assert me.json()["source"] == "casdoor"
+    assert me.json()["source"] == "oidc"
+    assert me.json()["issuer_key"] == ISSUER_KEY
     assert me.json()["authenticated"] is True
 
-    # 复核窗口过期：经 subject-context 重新复核后刷新为 issuer_key 口径。
+    # 复核窗口过期：经 subject-context 重新复核后仍是 "oidc"。
     record.session_checked_at = sdk.runtime.clock() - 3601
     sdk.runtime.save(record)
     context_calls: list[tuple[str, int]] = []
@@ -808,5 +817,5 @@ def test_stored_principal_legacy_casdoor_source_still_authenticates(sdk: Sdk) ->
     sdk.runtime.subject_context = FakeSubjectContext()  # type: ignore[assignment]
     me_refreshed = sdk.client.get("/api/v1/me", headers=sdk.headers(record))
     assert me_refreshed.status_code == 200
-    assert me_refreshed.json()["source"] == ISSUER_KEY
+    assert me_refreshed.json()["source"] == "oidc"
     assert context_calls == [(PAN.sub, 1)]

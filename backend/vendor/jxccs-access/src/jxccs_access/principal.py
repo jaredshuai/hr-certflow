@@ -7,8 +7,13 @@ from typing import Any, Literal
 
 from jxccs_authz import Principal as AuthzPrincipal
 
-Source = str
+Source = Literal["oidc", "mock"]
 AccountStatus = Literal["ACTIVE", "DISABLED", "LOCKED"]
+
+#: Source label written by 0.1.x sessions before the label was made
+#: provider-neutral. Still accepted when reading a stored session so that
+#: sessions created by an earlier release keep working; never written again.
+LEGACY_SOURCE_CASDOOR = "casdoor"
 
 
 @dataclass(frozen=True)
@@ -18,10 +23,6 @@ class Principal:
     ``issuer_key`` is the registered directory issuer key (never derived from a
     token); ``sub`` is the opaque OIDC subject. Directory attributes come from
     subject-context (or the mock fixture) and are display/data-scope facts only.
-    ``source`` is ``"mock"`` for mock sessions; real sessions carry the neutral
-    real issuer key (equal to ``issuer_key``). Stored sessions from older
-    versions may still carry the legacy ``"casdoor"`` value: it is read back as
-    a real (non-mock) source and refreshed to the issuer key on revalidation.
     """
 
     issuer_key: str
@@ -58,9 +59,12 @@ class Principal:
     def from_dict(cls, data: dict[str, Any]) -> Principal:
         source = data["source"]
         status = data["account_status"]
-        if (
-            not isinstance(source, str) or not source
-        ) or status not in ("ACTIVE", "DISABLED", "LOCKED"):
+        if source == LEGACY_SOURCE_CASDOOR:
+            # A session stored before the label was made provider-neutral. It is
+            # still a real (non-mock) OIDC login, so it maps onto the current
+            # label; the stored bytes are left untouched.
+            source = "oidc"
+        if source not in ("oidc", "mock") or status not in ("ACTIVE", "DISABLED", "LOCKED"):
             raise ValueError("invalid stored principal")
         return cls(
             issuer_key=str(data["issuer_key"]),

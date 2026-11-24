@@ -2,7 +2,7 @@
 
 一步接入包（FastAPI）：`install(app)` 完成 OIDC 登录（BFF，直连 Casdoor）、服务端业务会话、CSRF、Authorization Center subject-context（LOGIN / SESSION）与 check / batch-check 接入，以及 dev M-A mock。
 
-> 状态：`0.1.0.dev0`，本地开发版，未发布。合同依据 `sdk-and-mock-contract.md`（草案）与决议 0002。
+> 状态：`0.1.0`，发布准备中，尚未发布到 Registry。合同依据 `sdk-and-mock-contract.md`（草案）与决议 0002。
 
 ## 分层
 
@@ -27,7 +27,12 @@ uv add 'jxccs-access[redis]'   # 需要 Redis 会话存储时
 
 - 受管远端为 `gitlab`，对应 [GitLab `jxccs/jxccs-access`（项目 14）](http://10.34.200.198/jxccs/jxccs-access)。通过 MR 提交改动。
 - MR、默认分支和 tag 流水线运行 Ruff、mypy strict 和 pytest。CI 的类型检查与测试使用 `CI_JOB_TOKEN` 将 [`authorization-client-python`（项目 11）](http://10.34.200.198/jxccs/authorization-client-python) 的 `b1346c4` 检出到相邻目录，并用 `uv.lock` 安装。项目 11 的 Job Token allowlist 需包含项目 14。本地继续使用同一相对路径。
-- Tag 流水线通过检查后，`publish` 使用 `pyproject.toml` 中的版本构建 wheel 和 sdist，并用 `CI_JOB_TOKEN` 上传到[项目 14 的 PyPI Package Registry](http://10.34.200.198/jxccs/jxccs-access/-/packages)。制品依赖 `jxccs-authz-client>=0.2,<0.3`，从 Registry 安装时，消费端的包源需要提供兼容版本。项目 11 的 PyPI 尚未提供 0.2 系列，CI 检出的源码用于仓库检查。
+- **发布顺序：先项目 11，后本包。** 本包依赖 `jxccs-authz-client>=0.2,<0.3`，项目 11 的 PyPI Registry 必须先有 0.2 系列，否则打出来的 tag 装不了。
+  1. 项目 11：合并 0.2.x 的发布准备，打 `v0.2.x` tag，在 tag pipeline 里人工触发 `publish`，确认项目 11 的 Registry 里出现该版本。
+  2. 本包：合并发布准备后打 `v<版本>` tag。项目 14 的 `publish` job 会先读 `pyproject.toml` 的 `project.version`，要求 tag 恰好等于 `v<该版本>`；再用项目 11 的 Registry 解析 `jxccs-authz-client>=0.2,<0.3`，解析不出来就在上传前中止，不产出装不了的制品。
+  3. 制品由 `scripts/build_release_artifacts.py` 构建：构建前去掉 `pyproject.toml` 里的 `[tool.uv.sources]`（本地开发用的 `../authorization-client-python` 路径依赖不进入发布物），并在构建后检查 wheel 元数据与 sdist 里没有残留路径引用。发布物只保留 `Requires-Dist: jxccs-authz-client>=0.2,<0.3`。
+  4. 上传使用 `CI_JOB_TOKEN`，仓库、镜像和日志中都不保存 personal token 或 deploy token。
+- 消费端从 Registry 安装时，包源需要同时提供 `jxccs-access` 与 `jxccs-authz-client`；项目 11 的 PyPI 目前只有 0.1.0 与 0.1.0rc1，没有 0.2 系列。
 
 ## 最小接入
 
@@ -39,7 +44,7 @@ from jxccs_access import (
 )
 
 app = FastAPI()
-install(app)   # 配置全部来自环境变量；release 下发现 mock 配置会直接抛 ConfigError
+install(app)   # 配置全部来自环境变量；release 下 mock 配置或 mock runtime 会直接抛 ConfigError
 
 def load_record(record_id: str) -> ResourceRef:
     rec = repo.get(record_id)                       # 资源事实来自可信记录，而不是请求
@@ -69,6 +74,40 @@ uv run uvicorn examples.minimal.app:app
 # 浏览器打开 http://127.0.0.1:8000/auth/login?return_to=/records ，选择三种人设之一
 ```
 
+## 请求关联 id（`request_id`）
+
+check / batch-check 可以带上调用方自己的关联 id，用来把应用日志和授权中心的审计对上。各入口新增的参数都是可选的，不传时发出的请求与之前完全一致：
+
+| 入口 | 参数 | 发往授权中心的位置 |
+|---|---|---|
+| `authorize(principal, permission, resource, *, request_id=None)` | `request_id`，仅关键字 | `POST /api/v1/check` 请求体顶层 `requestId` |
+| `batch_authorize(principal, items, *, request_id=None)` | `request_id`，仅关键字 | `POST /api/v1/batch-check` 请求体顶层 `requestId`（整个批次共用一个，item 级不带） |
+| `require(permission, resource_factory, *, request_id_factory=None)` | `request_id_factory`，与 `resource_factory` 一样由 FastAPI 解析 | 同 `authorize` |
+| `RealAuthorizer.check` / `batch_check` | `request_id`，第 4 个参数 | 同上 |
+
+- 传输约定是请求体字段 `requestId`，由窄客户端 `jxccs-authz-client` ≥ 0.2 写入并校验回显；授权中心 OpenAPI 的 `CheckRequest` / `BatchCheckRequest` 没有 `X-Request-ID` 请求头。
+- 回显：`AccessDecision.request_id` 与 403 响应的 `detail.requestId` 是同一个值；上游失败时 503 响应的 `detail.requestId` 优先取上游错误体里的值，没有则取传入值。
+- 只有满足"非空、长度 ≤ 128、首尾无空白、每个字符都可打印（`str.isprintable()`）"的字符串才会原样转发。空串、纯空白、超长、含控制字符或不可见格式字符（CR/LF、NEL、双向覆盖符等）、非字符串，一律按未传处理，由授权中心自行生成。请求 ID 只用于关联，不参与判定，非法值不会让一次判定变成 503。
+- 本包不读取入站 `X-Request-ID`：采信、覆盖还是自行生成请求 ID 由应用决定，再显式传入。
+- mock 模式不调用授权中心：`request_id` 被接受并忽略，决策里的 `request_id` 为 `None`。
+
+```python
+from fastapi import Request
+
+def inbound_request_id(request: Request) -> str | None:
+    return request.headers.get("X-Request-ID")
+
+# 依赖入口：request_id_factory 可以取 Request、路径参数或其它依赖
+@app.get("/records/{record_id}/export")
+def export_record(record_id: str,
+                  d: AccessDecision = Depends(require("record.export", load_record,
+                                                       request_id_factory=inbound_request_id))):
+    ...
+
+# 直接调用：传应用自己认定的请求 ID
+authorize(p, "record.write", load_record(record_id), request_id=context.request_id)
+```
+
 ## 路由
 
 | 路由 | 说明 |
@@ -93,7 +132,7 @@ uv run uvicorn examples.minimal.app:app
 | `OIDC_ISSUER_KEY` | 构造主体用的已登记 issuer key（如 `casdoor-jiaxing-company`），不从 token 推导 |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | 每个应用、每个环境一个 Casdoor client |
 | `AUTHZ_BASE_URL` / `AUTHZ_SERVICE_TOKEN` | Authorization Center 地址和服务身份 Bearer token（每次调用时读取） |
-| `SESSION_STORE_URL` | `redis://...`；为空时使用内存存储（只适用于单副本） |
+| `SESSION_STORE_URL` | `redis://...`；为空时使用内存存储（只适用于单副本；会话与登录事务字典各有 4096 条上限，写入时惰性清扫过期条目，满时新会话/登录返回 503） |
 | `SESSION_IDLE_SECONDS` / `SESSION_ABSOLUTE_SECONDS` | 默认 1800 / 28800 |
 | `SESSION_CHECK_INTERVAL_SECONDS` | `SESSION` 复核间隔，默认 30；`0` 表示每个请求都复核 |
 | `MOCK_MODE` | `off`（默认）或 `persona` |
@@ -132,6 +171,8 @@ personas:
 ```
 
 capability 只允许 `{permission, resource_type}` 两个字段，不允许角色、通配符、scope、deny 或过期。判定规则是"在表中允许，不在表中拒绝"，reason 固定为 `MOCK_TABLE`，`audit_actor()` 的 `source=mock`。
+
+真实登录的主体 `source=oidc`：与 IdP 产品名无关的中性标签，换 IdP（Casdoor → Hydra）不影响审计字段。`source` 只区分"真实 OIDC 登录"与"dev mock"，不携带厂商信息。
 
 用下面的命令对照应用 manifest 校验 fixture（离线运行，不调用 Authorization Center）：
 

@@ -16,10 +16,15 @@ from typing import Any, Protocol
 from .principal import Principal
 
 _MAX_LOGIN_TRANSACTIONS = 4096
+_MAX_SESSIONS = 4096
 
 
 class LoginTransactionCapacityError(Exception):
     """The memory store already holds its maximum number of live transactions."""
+
+
+class SessionCapacityError(Exception):
+    """The memory store already holds its maximum number of live sessions."""
 
 
 def new_token() -> str:
@@ -111,7 +116,16 @@ class MemorySessionStore:
 
     def put(self, record: SessionRecord, ttl_seconds: int) -> None:
         with self._lock:
-            self._sessions[record.sid] = (self._clock() + ttl_seconds, record.dumps())
+            now = self._clock()
+            if record.sid not in self._sessions:
+                expired = [
+                    sid for sid, (expires_at, _) in self._sessions.items() if expires_at <= now
+                ]
+                for sid in expired:
+                    del self._sessions[sid]
+                if len(self._sessions) >= _MAX_SESSIONS:
+                    raise SessionCapacityError
+            self._sessions[record.sid] = (now + ttl_seconds, record.dumps())
 
     def delete(self, sid: str) -> None:
         with self._lock:

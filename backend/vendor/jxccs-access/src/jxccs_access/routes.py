@@ -16,7 +16,7 @@ from .errors import AccessError, Forbidden, Unauthenticated, Unavailable
 from .oidc import OidcError
 from .principal import Principal
 from .runtime import AccessRuntime, current_principal, new_state, request_access
-from .session import LoginTransaction, LoginTransactionCapacityError
+from .session import LoginTransaction, LoginTransactionCapacityError, SessionCapacityError
 from .subject_context import ContextUnavailable, NotEligible
 
 
@@ -152,12 +152,15 @@ def build_router(runtime: AccessRuntime, return_prefix: str) -> APIRouter:
             employee_id=context.employee_id,
             department_ids=context.department_ids,
             account_status="ACTIVE",
-            source=config.oidc_issuer_key,
+            source="oidc",
         )
-        record = access.start_session(principal)
-        record.session_epoch = context.session_epoch
-        record.session_checked_at = runtime.clock()
-        runtime.save(record)
+        try:
+            record = access.start_session(principal)
+            record.session_epoch = context.session_epoch
+            record.session_checked_at = runtime.clock()
+            runtime.save(record)
+        except SessionCapacityError:
+            return _error(503, "DEPENDENCY_UNAVAILABLE")
         return RedirectResponse(tx.return_to, status_code=302)
 
     return router
