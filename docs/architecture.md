@@ -73,11 +73,11 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
   没有该端点，不展示退出），退出后回到应用首页并展示「未登录 + 登录」。
 - **Principal.source 口径**：随上游 `issuer-neutral-source`，真实会话的 `source` 为
   中性标签 `oidc`（issuer 身份在 `issuer_key` 里），`mock` 仅表示模拟身份会话。
-  历史存量里的 `casdoor` 值读回时按 `oidc` 解析，无需重新登录；但 #42 构建写入的
-  `source=issuer_key` 存量会话读回会失败（请求 500），已部署过 #42 的环境要等
-  这类会话过期或清理后再升级（当前 dev 镜像早于 #42，不受影响）。#42 临时加在
-  vendor 上的补丁已随 vendor 刷新移除，升级注意见
-  `backend/vendor/jxccs-access/VENDOR-SOURCE.txt`。
+  历史存量里的 `casdoor` 值读回时按 `oidc` 解析，无需重新登录；#42 曾临时打在
+  vendor 上的 `source=issuer_key` 补丁已随 vendor 刷新移除。
+- **读不出来的存量会话**：SDK 严格校验存量会话里的主体，格式不再被识别（例如上面
+  那份补丁写入的会话）时读回会抛错。接线处把这类会话按未登录处理：删除记录、清
+  Cookie、用户重新登录，不会让带该 Cookie 的每个请求（含登录）都 500。
 
 ### Dify
 

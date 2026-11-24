@@ -958,3 +958,21 @@ def test_stored_principal_legacy_casdoor_source_still_authenticates(sdk: Sdk) ->
     assert me_refreshed.status_code == 200
     assert me_refreshed.json()["source"] == "oidc"
     assert context_calls == [(PAN.sub, 1)]
+
+
+def test_unreadable_stored_session_means_sign_in_again_not_500(sdk: Sdk, monkeypatch) -> None:
+    """vendor 刷新前由 #42 口径（source=issuer_key）写入的存量会话 SDK 读不回来：
+    按未登录处理（401 + loginUrl、清 Cookie），登录入口照常可用，重新登录后恢复。"""
+    monkeypatch.setattr(sdk.runtime.oidc, "authorization_url", lambda **_: "http://10.34.200.223:8000/authorize")
+    stale_principal = Principal(ISSUER_KEY, "stale-subject", None, None, (), "ACTIVE", ISSUER_KEY)  # type: ignore[arg-type]
+    stale = sdk.login(stale_principal)
+
+    me = sdk.client.get("/api/v1/me", headers=sdk.headers(stale))
+    login = sdk.client.get("/auth/login", headers=sdk.headers(stale), follow_redirects=False)
+
+    assert me.status_code == 401
+    assert me.json()["detail"]["loginUrl"] == "/hr-certflow-dev/auth/login"
+    assert "set-cookie" in me.headers  # 清除读不出来的会话 Cookie
+    assert login.status_code == 302
+    assert sdk.runtime.store.get(stale.sid) is None
+    assert sdk.client.get("/api/v1/me", headers=sdk.headers(sdk.login(PAN))).status_code == 200
