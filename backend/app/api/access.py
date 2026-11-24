@@ -38,7 +38,7 @@ class _TolerantSessionStore:
 
     SDK 严格校验存量会话里的主体，格式对不上（如 vendor 刷新前写入的旧 ``Principal.source``）
     时 ``get`` 抛 ``ValueError``。会话本可丢弃重建：删除该记录并返回 ``None``，中间件随即清
-    Cookie，用户重新登录。只兜解析 / 校验失败，存储后端自身的故障照常抛出。
+    Cookie，用户重新登录。只兜记录解析 / 校验失败的异常，存储后端自身的故障照常抛出。
     """
 
     def __init__(self, store: SessionStore) -> None:
@@ -47,7 +47,9 @@ class _TolerantSessionStore:
     def get(self, sid: str) -> SessionRecord | None:
         try:
             return self._store.get(sid)
-        except ValueError:
+        # 记录不合 schema 时，SessionRecord.loads / Principal.from_dict 按情况抛这四类异常；
+        # 存储后端自身的故障不在其中。
+        except (TypeError, KeyError, ValueError, AttributeError):
             logger.warning("Dropped an unreadable stored session; the user has to sign in again")
             self._store.delete(sid)
             return None

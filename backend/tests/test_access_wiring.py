@@ -26,6 +26,7 @@ from jxccs_authz.client import RawResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.api.access import _TolerantSessionStore
 from app.api.deps import MAX_REQUEST_ID_LENGTH
 from app.api.routes import documents
 from app.core.config import get_settings
@@ -976,3 +977,62 @@ def test_unreadable_stored_session_means_sign_in_again_not_500(sdk: Sdk, monkeyp
     assert login.status_code == 302
     assert sdk.runtime.store.get(stale.sid) is None
     assert sdk.client.get("/api/v1/me", headers=sdk.headers(sdk.login(PAN))).status_code == 200
+
+
+@dataclass
+class RawJsonSessionStore:
+    """只保存原始 JSON 文本的会话存储：用来放入 SDK 自己不会再写出的畸形或旧格式记录。"""
+
+    records: dict[str, str]
+
+    def get(self, sid: str) -> SessionRecord | None:
+        return SessionRecord.loads(self.records[sid]) if sid in self.records else None
+
+    def delete(self, sid: str) -> None:
+        self.records.pop(sid, None)
+
+
+def _stored_session_json(source: str) -> str:
+    data = json.loads(SessionRecord.new(0.0, PAN).dumps())
+    data["principal"]["source"] = source
+    return json.dumps(data)
+
+
+_BASE_RECORD = '{"sid": "s", "csrf_token": "c", "created_at": 0, "last_seen_at": 0'
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        pytest.param('{"sid": "s"}', TypeError, id="missing-record-fields"),
+        pytest.param(_BASE_RECORD + ', "unexpected": 1}', TypeError, id="unknown-record-field"),
+        pytest.param(_BASE_RECORD + ', "principal": {"issuer_key": "i"}}', KeyError, id="missing-principal-fields"),
+        pytest.param("null", AttributeError, id="not-an-object"),
+        pytest.param("not json", ValueError, id="invalid-json"),
+        pytest.param(_stored_session_json("some-other-idp"), ValueError, id="unknown-source-label"),
+    ],
+)
+def test_tolerant_store_treats_every_deserialisation_failure_as_absent(
+    payload: str, error: type[Exception]
+) -> None:
+    """存量记录只要是 SDK 解析 / 校验不了的，就按不存在处理并删除，不论它抛的是哪一种异常。"""
+    store = RawJsonSessionStore({"sid": payload})
+    with pytest.raises(error):
+        store.get("sid")  # 没有包装时，SDK 对这种记录确实抛该异常
+
+    assert _TolerantSessionStore(store).get("sid") is None  # type: ignore[arg-type]
+    assert store.records == {}
+
+
+def test_tolerant_store_does_not_swallow_a_store_failure() -> None:
+    """存储后端自身的故障不是“会话读不出来”：必须照常抛出，也不能顺手删记录。"""
+
+    class DownStore:
+        def get(self, sid: str) -> SessionRecord | None:
+            raise ConnectionError("store down")
+
+        def delete(self, sid: str) -> None:
+            raise AssertionError("a store failure must not delete anything")
+
+    with pytest.raises(ConnectionError):
+        _TolerantSessionStore(DownStore()).get("sid")  # type: ignore[arg-type]
