@@ -31,10 +31,21 @@ Dev already uses the application-owned `jxccs-access` stack for step 3:
   `RedisSessionStore` when this URL is present; dev does not use the in-memory
   fallback
 
+Release uses the same application-owned `jxccs-access` stack (Item #32 H1):
+
+- OIDC issuer: `http://10.34.200.180/hydra`
+- Issuer key: `hydra-jiaxing-company`
+- OIDC client ID: `hr-certflow-release` (Hydra release `clients-release.json`)
+- Authorization Center decision API: `authorization-center-release` runtime pods, TCP `8080`
+- Session cookies are isolated by the SDK's `hr-certflow-release-*` names and
+  the `/hr-certflow` path; `Secure=false` stays appropriate for the internal
+  HTTP ingress
+
 The API pod needs egress to Authorization Center and, through the Traefik pod,
 to the Hydra issuer. The corresponding NetworkPolicy remains infra-owned. The
-release namespace still uses the transitional gateway actor-header path until
-the release identity-chain work replaces it.
+transitional release gateway chain (`oauth2-proxy` + actor-header adapter) is
+infra-owned; it must be removed or repointed when the release cutover happens
+so the application's own `/hr-certflow/auth/*` route is the only login entry.
 
 ## Smoke
 

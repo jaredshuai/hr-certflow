@@ -20,6 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 from jxccs_access import AccessDecision, AccessRuntime, Principal, ResourceRef
 from jxccs_access.authorization import REQUEST_ID_MAX_LENGTH, RealAuthorizer
+from jxccs_access.config import ConfigError
 from jxccs_access.session import SessionRecord
 from jxccs_authz import AuthorizationClient, ClientConfig, SubjectContext
 from jxccs_authz.client import RawResponse
@@ -172,17 +173,43 @@ def test_auth_login_redirects_to_casdoor_without_session(sdk: Sdk, monkeypatch) 
     assert response.headers["location"] == "http://10.34.200.223:8000/authorize"
 
 
-def test_sdk_rejected_outside_dev(monkeypatch) -> None:
+def test_sdk_installs_real_session_mode_on_release(monkeypatch) -> None:
+    """Item #32 H1：release 也允许启用 jxccs-access；mock 拒绝与真实字段校验由 SDK 负责。"""
+    for key, value in SDK_ENV.items():
+        monkeypatch.setenv(key, value)
+    for key in ("MOCK_MODE", "MOCK_FIXTURE_PATH", "SESSION_STORE_URL", "AUTHZ_SERVICE_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("APP_ENV", "release")
+    monkeypatch.setenv("AUTH_REQUIRED", "true")
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "10.42.0.0/16")
+    get_settings.cache_clear()
+    try:
+        from app.main import create_app
+
+        app = create_app()
+        runtime = app.state.jxccs_access
+        assert runtime.mock is False
+        assert runtime.config.env == "release"
+        assert runtime.config.session_cookie_name == "hr-certflow-release-sid"
+        paths = set(app.openapi()["paths"])  # type: ignore[attr-defined]
+        assert {"/auth/login", "/auth/callback", "/auth/logout", "/auth/me"} <= paths
+    finally:
+        get_settings.cache_clear()
+
+
+def test_release_with_app_id_and_mock_config_rejected(monkeypatch) -> None:
     for key, value in SDK_ENV.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setenv("APP_ENV", "release")
     monkeypatch.setenv("AUTH_REQUIRED", "true")
     monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "10.42.0.0/16")
+    monkeypatch.setenv("MOCK_MODE", "persona")
+    monkeypatch.setenv("MOCK_FIXTURE_PATH", "tests/fixtures/mock-directory.json")
     get_settings.cache_clear()
-    from app.main import create_app
-
     try:
-        with pytest.raises(RuntimeError, match="only enabled for APP_ENV local or dev"):
+        with pytest.raises(ConfigError, match="mock configuration is forbidden"):
+            from app.main import create_app
+
             create_app()
     finally:
         get_settings.cache_clear()

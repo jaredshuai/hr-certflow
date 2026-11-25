@@ -71,7 +71,8 @@ class Settings(BaseSettings):
 
     # #33 第 3 步：设置 APP_ID 即启用 jxccs-access（BFF 登录 + 业务会话 + 授权中心）。
     # 其余 SDK 配置（PUBLIC_BASE_URL、OIDC_*、AUTHZ_*、SESSION_*）由 SDK 自己从环境变量读取。
-    # 目前只允许 local/dev；release 未设置 APP_ID，仍走原有身份来源。
+    # 环境门禁（仅 local/dev 允许 mock、release 必须真实 OIDC）由 SDK 的 AccessConfig.validate 负责；
+    # release 与 dev 一样允许启用，release 门禁放松于 Item #32 H1。
     app_id: str = ""
 
     @property
@@ -133,10 +134,6 @@ def parse_trusted_proxy_networks(value: str) -> list[ipaddress.IPv4Network | ipa
 
 def validate_auth_settings(settings: Settings) -> None:
     """启动时校验身份来源配置，配置不安全时拒绝启动。"""
-    if settings.access_sdk_enabled and settings.app_env not in DEV_OPERATOR_ENVS:
-        raise RuntimeError(
-            f"APP_ID (jxccs-access) is only enabled for APP_ENV local or dev, got APP_ENV={settings.app_env!r}"
-        )
     if not settings.auth_required:
         if settings.app_env not in DEV_OPERATOR_ENVS:
             raise RuntimeError(
