@@ -17,7 +17,7 @@ from jxccs_access import AccessConfig, AccessRuntime, ResourceRef
 from jxccs_access.session import LoginTransaction, SessionRecord, SessionStore
 
 from app.api.deps import get_request_context
-from app.core.config import DEV_OPERATOR_ENVS, Settings
+from app.core.config import Settings
 
 # RequestContextMiddleware 把 SDK 认定的当前主体放在 scope["state"] 的这个键下。
 ACCESS_PRINCIPAL_STATE_KEY = "access_principal"
@@ -69,10 +69,7 @@ class _TolerantSessionStore:
 
 def install_access(app: FastAPI, settings: Settings) -> AccessRuntime:
     """按环境变量构造 SDK 配置并挂载 /auth/* 路由与会话/CSRF 中间件；配置非法直接抛错拒绝启动。"""
-    if settings.app_env not in DEV_OPERATOR_ENVS:
-        raise RuntimeError(
-            f"APP_ID (jxccs-access) is only enabled for APP_ENV local or dev, got APP_ENV={settings.app_env!r}"
-        )
+    # 环境门禁由 SDK 的 AccessConfig.validate 承担（release 拒绝一切 mock 配置并强制真实 OIDC）。
     config = AccessConfig.from_env()
     # BaseSettings also reads .env; a dotenv-only APP_ID would enable this branch while the SDK
     # (os.environ only) sees none. Refuse to start with a clear error instead of failing obscurely.

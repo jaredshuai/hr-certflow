@@ -25,6 +25,7 @@ STEP3_SECRET_KEYS = {"AUTHZ_SERVICE_TOKEN", "OIDC_CLIENT_SECRET", "SESSION_STORE
 AUTHORIZATION_MANIFEST = "authz/authorization-manifest.json"
 CLUSTER_PROBE_PATH = "/_internal/healthz"
 DEV_OIDC_ISSUER_URL = "http://10.34.200.180/hydra-dev"
+RELEASE_OIDC_ISSUER_URL = "http://10.34.200.180/hydra"
 
 EXPECTED = {
     "dev": {
@@ -32,12 +33,17 @@ EXPECTED = {
         "auth_required": "false",
         "namespace": "hr-certflow-dev",
         "path_prefix": "/hr-certflow-dev",
+        "oidc_issuer_url": DEV_OIDC_ISSUER_URL,
     },
     "release": {
         "app_env": "release",
         "auth_required": "true",
         "namespace": "hr-certflow-release",
         "path_prefix": "/hr-certflow",
+        "oidc_issuer_url": RELEASE_OIDC_ISSUER_URL,
+        "oidc_client_id": "hr-certflow-release",
+        "public_base_url": "http://10.34.200.180/hr-certflow",
+        "authz_base_url": "http://authorization-center-release.authorization-center-release.svc.cluster.local:8080",
     },
 }
 
@@ -123,20 +129,29 @@ def validate_values(env_name: str, path: Path) -> None:
                 f"{path}: TRUSTED_PROXY_CIDRS must not contain zero-prefix network {cidr!r}",
             )
 
-    if env_name == "dev":
-        missing_keys = sorted(STEP3_CONFIG_KEYS.difference(config))
-        require(
-            not missing_keys, f"{path}: missing jxccs-access step-3 keys {missing_keys}"
-        )
-        require(
-            config.get("OIDC_ISSUER_KEY") == "hydra-jiaxing-company",
-            f"{path}: dev OIDC_ISSUER_KEY must be hydra-jiaxing-company",
-        )
-        require(
-            config.get("OIDC_ISSUER_URL") == DEV_OIDC_ISSUER_URL,
-            f"{path}: dev OIDC_ISSUER_URL must be {DEV_OIDC_ISSUER_URL}",
-        )
-
+    # dev 与 release 都启用了 jxccs-access（Item #32 H1）：step-3 配置键两环境必填。
+    missing_keys = sorted(STEP3_CONFIG_KEYS.difference(config))
+    require(
+        not missing_keys, f"{path}: missing jxccs-access step-3 keys {missing_keys}"
+    )
+    require(
+        config.get("OIDC_ISSUER_KEY") == "hydra-jiaxing-company",
+        f"{path}: OIDC_ISSUER_KEY must be hydra-jiaxing-company",
+    )
+    require(
+        config.get("OIDC_ISSUER_URL") == expected["oidc_issuer_url"],
+        f"{path}: OIDC_ISSUER_URL must be {expected['oidc_issuer_url']}",
+    )
+    for key, expected_key in (
+        ("OIDC_CLIENT_ID", "oidc_client_id"),
+        ("PUBLIC_BASE_URL", "public_base_url"),
+        ("AUTHZ_BASE_URL", "authz_base_url"),
+    ):
+        if expected_key in expected:
+            require(
+                config.get(key) == expected[expected_key],
+                f"{path}: {key} must be {expected[expected_key]}",
+            )
     for image_name in ("api", "web"):
         image = images.get(image_name) or {}
         require(
