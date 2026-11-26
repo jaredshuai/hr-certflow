@@ -323,6 +323,21 @@ test('sanitizeGlitchtipEvent redacts sessionId/session_id and idToken/id_token a
   assert.equal(result.contexts.runtime.name, 'keep');
 });
 
+test('sanitizeGlitchtipEvent drops serialized string request bodies instead of forwarding them verbatim', () => {
+  // sentry 浏览器集成常把 body 序列化成字符串：JSON、form-encoded、multipart。
+  // 字符串形态无法按键脱敏，HR PII 底线是直接整段丢弃。
+  const json = sanitizeGlitchtipEvent({ request: { data: '{"password":"p","name":"张三"}' } });
+  assert.equal(json.request.data, '[Filtered]');
+
+  const form = sanitizeGlitchtipEvent({ request: { data: 'password=p&idNumber=3301' } });
+  assert.equal(form.request.data, '[Filtered]');
+
+  // 非字符串结构仍走原有的按键递归脱敏，不被误伤。
+  const objectBody = sanitizeGlitchtipEvent({ request: { data: { note: 'keep', password: 'p' } } });
+  assert.equal(objectBody.request.data.note, 'keep');
+  assert.equal(objectBody.request.data.password, '[Filtered]');
+});
+
 test('sanitizeGlitchtipEvent redacts sensitive keys at arbitrary depth without a depth cutoff', () => {
   let node = { password: 'deep-secret' };
   for (let i = 0; i < 12; i += 1) {

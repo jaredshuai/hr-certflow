@@ -199,7 +199,10 @@ export function sanitizeGlitchtipEvent<T>(event: T): T {
       requestCopy.headers = scrubHeaders(requestCopy.headers);
     }
     if ('data' in requestCopy) {
-      requestCopy.data = scrubValue(requestCopy.data, new WeakSet());
+      // 字符串形态的 body（浏览器集成常把 JSON/form/multipart 序列化后塞进来）
+      // 无法按键脱敏，HR PII 底线是整段丢弃；对象/数组仍走按键递归脱敏。
+      requestCopy.data =
+        typeof requestCopy.data === 'string' ? REDACTED : scrubValue(requestCopy.data, new WeakSet());
     }
     if ('cookies' in requestCopy) {
       delete requestCopy.cookies;
