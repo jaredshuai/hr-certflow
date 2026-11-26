@@ -84,6 +84,8 @@ const SENSITIVE_FIELD_NAMES: Record<string, true> = {
   refresh_token: true,
   id_token: true,
   idtoken: true,
+  sessionid: true,
+  session_id: true,
   ssotoken: true,
   ticket: true,
   // 文件内容/识别原文，属员工隐私数据

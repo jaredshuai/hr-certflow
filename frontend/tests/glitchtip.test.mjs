@@ -289,6 +289,40 @@ test('sanitizeGlitchtipEvent redacts camelCase token spellings in request bodies
   assert.equal(auth.operatorName, 'keep');
 });
 
+test('sanitizeGlitchtipEvent redacts sessionId/session_id and idToken/id_token across body, extra and contexts', () => {
+  const event = {
+    request: {
+      data: {
+        auth: {
+          sessionId: 'sess-camel',
+          session_id: 'sess-snake',
+          idToken: 'id-camel',
+          id_token: 'id-snake',
+          operatorName: 'keep',
+        },
+      },
+    },
+    extra: { sessionId: 'sess-extra', idToken: 'id-extra', note: 'keep' },
+    contexts: { runtime: { session_id: 'sess-ctx', id_token: 'id-ctx', name: 'keep' } },
+  };
+  const result = sanitizeGlitchtipEvent(event);
+
+  const auth = result.request.data.auth;
+  assert.equal(auth.sessionId, '[Filtered]');
+  assert.equal(auth.session_id, '[Filtered]');
+  assert.equal(auth.idToken, '[Filtered]');
+  assert.equal(auth.id_token, '[Filtered]');
+  assert.equal(auth.operatorName, 'keep');
+
+  assert.equal(result.extra.sessionId, '[Filtered]');
+  assert.equal(result.extra.idToken, '[Filtered]');
+  assert.equal(result.extra.note, 'keep');
+
+  assert.equal(result.contexts.runtime.session_id, '[Filtered]');
+  assert.equal(result.contexts.runtime.id_token, '[Filtered]');
+  assert.equal(result.contexts.runtime.name, 'keep');
+});
+
 test('sanitizeGlitchtipEvent redacts sensitive keys at arbitrary depth without a depth cutoff', () => {
   let node = { password: 'deep-secret' };
   for (let i = 0; i < 12; i += 1) {
