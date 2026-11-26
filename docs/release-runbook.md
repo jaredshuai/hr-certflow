@@ -284,10 +284,10 @@ Do not replace this with an application-owned runner or store deployer kubeconfi
   滚动更新 web Pod 使新配置生效。nginx 对该文件返回 `Cache-Control: no-store`，
   重启后浏览器立即取到新配置。
 
-- **break-glass**（紧急排障临时启用）：`kubectl create configmap <release>-web-glitchtip
-  --from-file=glitchtip-config.js=<本地文件> -n <namespace>` 后 `kubectl rollout restart`
-  web Deployment。注意 Argo CD 下次 sync 会按 Git 状态回滚该 ConfigMap，因此只作临时
-  手段，正式启用必须走上一条 infra values 路径，避免漂移。
+
+注入唯一路径就是上面的 infra values 覆盖：chart 关闭时 web Deployment 没有该
+ConfigMap 的挂载，手工 kubectl create 无法生效；chart 开启后 ConfigMap 归 Helm
+所有，手工替换又会被 Argo sync 回滚。因此不设 break-glass 捷径，避免配置漂移。
 
 未启用时占位文件为空对象，前端静默跳过初始化，dev/release 镜像内容完全一致，
 不受注入与否影响。

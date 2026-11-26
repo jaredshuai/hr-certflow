@@ -269,6 +269,26 @@ test('sanitizeGlitchtipEvent scrubs bearer-token style query params (access_toke
   assert.equal(url.searchParams.get('keep'), 'yes');
 });
 
+test('sanitizeGlitchtipEvent redacts camelCase token spellings in request bodies', () => {
+  const event = {
+    request: {
+      data: {
+        auth: {
+          idToken: 'id-t',
+          accessToken: 'a-t',
+          refreshToken: 'r-t',
+          operatorName: 'keep',
+        },
+      },
+    },
+  };
+  const auth = sanitizeGlitchtipEvent(event).request.data.auth;
+  assert.equal(auth.idToken, '[Filtered]');
+  assert.equal(auth.accessToken, '[Filtered]');
+  assert.equal(auth.refreshToken, '[Filtered]');
+  assert.equal(auth.operatorName, 'keep');
+});
+
 test('sanitizeGlitchtipEvent redacts sensitive keys at arbitrary depth without a depth cutoff', () => {
   let node = { password: 'deep-secret' };
   for (let i = 0; i < 12; i += 1) {
