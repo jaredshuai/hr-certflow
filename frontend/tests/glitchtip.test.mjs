@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   createGlitchtipInitOptions,
+  flushPendingGlitchtipReports,
   initGlitchtip,
   reportErrorToGlitchtip,
   resetGlitchtipForTests,
@@ -47,6 +48,9 @@ function withLocationPathname(pathname, run) {
   } finally {
     if (descriptor) {
       Object.defineProperty(window, 'location', descriptor);
+    } else {
+      // 首个用例注入的是自有属性；不删掉会让 pathname 泄漏给后续用例，形成顺序依赖。
+      delete window.location;
     }
   }
 }
@@ -247,4 +251,100 @@ test('reportErrorToGlitchtip forwards errors only after a successful init', asyn
 
   // 上报之后没有泄漏敏感身份。
   assert.equal(sentry.setUser, undefined);
+});
+
+// ---------- cubic 评审收敛（PR #49 首轮） ----------
+
+test('sanitizeGlitchtipEvent scrubs bearer-token style query params (access_token/refresh_token/session_state)', () => {
+  const event = {
+    request: {
+      url: 'http://intranet.example/hr-certflow/cb?access_token=a1&refresh_token=r2&session_state=s3&keep=yes',
+    },
+  };
+  const result = sanitizeGlitchtipEvent(event);
+  const url = new URL(result.request.url);
+  assert.equal(url.searchParams.get('access_token'), '[Filtered]');
+  assert.equal(url.searchParams.get('refresh_token'), '[Filtered]');
+  assert.equal(url.searchParams.get('session_state'), '[Filtered]');
+  assert.equal(url.searchParams.get('keep'), 'yes');
+});
+
+test('sanitizeGlitchtipEvent redacts sensitive keys at arbitrary depth without a depth cutoff', () => {
+  let node = { password: 'deep-secret' };
+  for (let i = 0; i < 12; i += 1) {
+    node = { nest: node };
+  }
+  const result = sanitizeGlitchtipEvent({ request: { data: node } });
+  let cursor = result.request.data;
+  for (let i = 0; i < 12; i += 1) {
+    cursor = cursor.nest;
+  }
+  assert.equal(cursor.password, '[Filtered]');
+});
+
+test('sanitizeGlitchtipEvent survives circular references without hanging or leaking', () => {
+  const payload = { secret: 's', note: 'keep' };
+  payload.self = payload;
+  const result = sanitizeGlitchtipEvent({ extra: payload });
+  assert.equal(result.extra.secret, '[Filtered]');
+  assert.equal(result.extra.note, 'keep');
+  // 循环引用被剪断而不是无限递归。
+  assert.equal(result.extra.self, '[Circular]');
+});
+
+test('sanitizeGlitchtipEvent scrubs query values in every url-bearing breadcrumb field', () => {
+  const event = {
+    breadcrumbs: [
+      {
+        category: 'navigation',
+        data: {
+          from: '/hr-certflow/login?code=abc',
+          to: '/hr-certflow/dashboard?ticket=t-1',
+          url: 'http://intranet.example/x?token=tok',
+        },
+      },
+    ],
+  };
+  const crumb = sanitizeGlitchtipEvent(event).breadcrumbs[0];
+  assert.match(crumb.data.from, /code=%5BFiltered%5D|code=\[Filtered\]/);
+  assert.match(crumb.data.to, /ticket=%5BFiltered%5D|ticket=\[Filtered\]/);
+  const url = new URL(crumb.data.url);
+  assert.equal(url.searchParams.get('token'), '[Filtered]');
+});
+
+test('reportErrorToGlitchtip buffers render errors raised while the sdk is still loading, then flushes', async () => {
+  resetGlitchtipForTests();
+  const captured = [];
+  const sentry = {
+    captureException(error, hint) {
+      captured.push([error, hint]);
+    },
+  };
+  // dsn 已注入、init 已判定启用，但 sdk 实例还没就绪（动态 import 还在路上）。
+  const initSentry = {
+    init() {},
+    // 注意：captureException 缺席——模拟 sdk 尚未 adopt 的状态由单独调用
+    // flushPendingGlitchtipReports 补齐（生产里即 import().then 的路径）。
+  };
+  withConfig({ dsn: 'http://public@monitoring.internal.invalid/3' }, () =>
+    withLocationPathname('/hr-certflow/', () => initGlitchtip(initSentry)),
+  );
+
+  // sdk 尚未就绪（dsn 已注入、动态 import 还在路上）时的渲染崩溃绝不能丢：
+  // 这正是首屏白屏路径。
+  const early = new TypeError('first-render crash');
+  await reportErrorToGlitchtip(early, { componentStack: 'at App' });
+
+  // 模拟 sdk 动态加载完成（生产里由 init 的 import().then 触发同一条 flush 路径）。
+  flushPendingGlitchtipReports(sentry);
+
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0][0], early);
+  assert.equal(captured[0][1].contexts.react.componentStack, 'at App');
+
+  // 缓冲区只 flush 一次，后续上报走直通。
+  const later = new Error('later');
+  await reportErrorToGlitchtip(later);
+  assert.equal(captured.length, 2);
+  assert.equal(captured[1][0], later);
 });

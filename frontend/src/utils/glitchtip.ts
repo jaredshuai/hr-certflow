@@ -23,7 +23,7 @@ type CaptureHint = {
 } & Record<string, unknown>;
 
 type SentryLike = {
-  init: (options: Record<string, unknown>) => void;
+  init?: (options: Record<string, unknown>) => void;
   captureException?: (error: unknown, hint?: CaptureHint) => void;
 };
 
@@ -55,12 +55,18 @@ export function resolveGlitchtipEnvironment(
 // beforeSend 脱敏：HR 系统含员工 PII，宁可丢信息也不外泄隐私。
 // ---------------------------------------------------------------------------
 
-// URL query 中常见的会话/票据参数，命中即抹掉取值（保留键名方便判断“被过滤了”）。
+// URL query 中常见的会话/票据/凭据参数，命中即抹掉取值（保留键名方便判断“被过滤了”）。
+// 覆盖 OIDC 回跳参数与 bearer token 常见 URL 形态，大小写不敏感。
 const SENSITIVE_QUERY_PARAMS: Record<string, true> = {
   token: true,
+  access_token: true,
+  refresh_token: true,
+  id_token: true,
   ticket: true,
   code: true,
   ssotoken: true,
+  session_state: true,
+  state: true,
 };
 
 // 请求/响应体、extras 等结构里按键名递归脱敏的字段（不区分大小写，键按小写匹配）。
@@ -76,6 +82,7 @@ const SENSITIVE_FIELD_NAMES: Record<string, true> = {
   access_token: true,
   refreshtoken: true,
   refresh_token: true,
+  id_token: true,
   sessionid: true,
   ssotoken: true,
   ticket: true,
@@ -91,6 +98,7 @@ const SENSITIVE_FIELD_NAMES: Record<string, true> = {
 };
 
 const REDACTED = '[Filtered]';
+const CIRCULAR = '[Circular]';
 
 function scrubUrl(rawUrl: unknown): unknown {
   if (typeof rawUrl !== 'string' || !rawUrl.includes('?')) return rawUrl;
@@ -112,13 +120,19 @@ function scrubUrl(rawUrl: unknown): unknown {
   }
 }
 
-function scrubValue(value: unknown, depth: number): unknown {
-  if (depth <= 0) return value;
-  if (Array.isArray(value)) return value.map((item) => scrubValue(item, depth - 1));
+// 深度不限的循环安全递归：敏感键在任何层级都被脱敏，循环引用剪断为 [Circular]。
+function scrubValue(value: unknown, seen: WeakSet<object>): unknown {
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return CIRCULAR;
+    seen.add(value);
+    return value.map((item) => scrubValue(item, seen));
+  }
   if (value && typeof value === 'object') {
+    if (seen.has(value)) return CIRCULAR;
+    seen.add(value);
     const result: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      result[key] = key.toLowerCase() in SENSITIVE_FIELD_NAMES ? REDACTED : scrubValue(item, depth - 1);
+      result[key] = key.toLowerCase() in SENSITIVE_FIELD_NAMES ? REDACTED : scrubValue(item, seen);
     }
     return result;
   }
@@ -144,10 +158,13 @@ function scrubBreadcrumbs(breadcrumbs: unknown): unknown {
     const data = copy.data;
     if (data && typeof data === 'object' && !Array.isArray(data)) {
       const dataCopy: Record<string, unknown> = { ...(data as Record<string, unknown>) };
-      if (typeof dataCopy.url === 'string') {
-        dataCopy.url = scrubUrl(dataCopy.url);
+      // 导航面包屑的 from/to/url 等字段都可能携带回跳参数：所有字符串值过一遍 query 脱敏。
+      for (const [key, item] of Object.entries(dataCopy)) {
+        if (typeof item === 'string' && item.includes('?')) {
+          dataCopy[key] = scrubUrl(item);
+        }
       }
-      copy.data = scrubValue(dataCopy, 2);
+      copy.data = scrubValue(dataCopy, new WeakSet());
     }
     return copy;
   });
@@ -158,8 +175,8 @@ type SanitizableEvent = Record<string, unknown>;
 /**
  * 事件级脱敏（beforeSend 主体）：
  * - 删除 request.headers 里的 Authorization / Cookie / Set-Cookie 与 request.cookies；
- * - URL 与 breadcrumb url 中的 token|ticket|code|ssotoken 参数值替换为 [Filtered]；
- * - request.data / extra / contexts 递归按敏感键名脱敏；
+ * - URL 与 breadcrumb 字符串字段中的敏感 query 参数值替换为 [Filtered]；
+ * - request.data / extra / contexts 循环安全地按键名递归脱敏（不设深度截断）；
  * - 整个 user 字段删除（sendDefaultPii: false 之外的第二道闸）。
  *
  * 异常形态（headers 非对象、缺字段等）一律原样放行，绝不因脱敏自身报错而丢事件。
@@ -180,7 +197,7 @@ export function sanitizeGlitchtipEvent<T>(event: T): T {
       requestCopy.headers = scrubHeaders(requestCopy.headers);
     }
     if ('data' in requestCopy) {
-      requestCopy.data = scrubValue(requestCopy.data, 4);
+      requestCopy.data = scrubValue(requestCopy.data, new WeakSet());
     }
     if ('cookies' in requestCopy) {
       delete requestCopy.cookies;
@@ -191,7 +208,7 @@ export function sanitizeGlitchtipEvent<T>(event: T): T {
   for (const section of ['extra', 'contexts'] as const) {
     const value = result[section];
     if (value && typeof value === 'object') {
-      result[section] = scrubValue(value, 4);
+      result[section] = scrubValue(value, new WeakSet());
     }
   }
 
@@ -239,17 +256,49 @@ export function createGlitchtipInitOptions(
   return options;
 }
 
+type PendingReport = {
+  error: unknown;
+  hint?: CaptureHint;
+};
+
+// sdk 动态加载完成前到达的上报先入缓冲区（有界），加载完成后按原顺序 flush；
+// sdk 加载失败或从未初始化时缓冲自然丢弃——监控是增强，绝不反过来拖垮应用。
+const PENDING_REPORT_LIMIT = 20;
+
 type GlitchtipState = {
   initialized: boolean;
   sentry: SentryLike | undefined;
+  pending: PendingReport[];
 };
 
-const state: GlitchtipState = { initialized: false, sentry: undefined };
+const state: GlitchtipState = { initialized: false, sentry: undefined, pending: [] };
 
 /** 单测专用：重置模块级初始化状态。生产代码不得调用。 */
 export function resetGlitchtipForTests(): void {
   state.initialized = false;
   state.sentry = undefined;
+  state.pending = [];
+}
+
+/** sdk 就绪后把缓冲期内积累的上报按原顺序补发，之后上报走直通。 */
+export function flushPendingGlitchtipReports(sentry: SentryLike): void {
+  state.sentry = sentry;
+  if (!sentry.captureException) {
+    state.pending = [];
+    return;
+  }
+  const queued = state.pending;
+  state.pending = [];
+  for (const item of queued) {
+    sentry.captureException(item.error, item.hint);
+  }
+}
+
+function adoptSentry(sentry: SentryLike, options?: Record<string, unknown>): void {
+  if (options && sentry.init) {
+    sentry.init(options);
+  }
+  flushPendingGlitchtipReports(sentry);
 }
 
 export function initGlitchtip(sentryOverride?: SentryLike): boolean {
@@ -263,9 +312,8 @@ export function initGlitchtip(sentryOverride?: SentryLike): boolean {
   const options = createGlitchtipInitOptions({ ...config, dsn }, pathname);
 
   if (sentryOverride) {
-    sentryOverride.init(options);
-    state.sentry = sentryOverride;
     state.initialized = true;
+    adoptSentry(sentryOverride, options);
     return true;
   }
 
@@ -273,11 +321,11 @@ export function initGlitchtip(sentryOverride?: SentryLike): boolean {
   state.initialized = true; // 先置位，避免并发触发重复加载；失败时降级为静默无监控。
   void import('@sentry/browser')
     .then((sdk) => {
-      sdk.init(options as Parameters<typeof sdk.init>[0]);
-      state.sentry = sdk;
+      adoptSentry(sdk, options);
     })
     .catch((error) => {
       // 监控是增强而非业务依赖：sdk 加载失败只记日志，绝不影响应用本身。
+      state.pending = [];
       console.error('[hr-certflow] GlitchTip SDK 加载失败，已跳过错误监控', error);
     });
   return true;
@@ -297,13 +345,21 @@ function captureHintFrom(hint?: Record<string, unknown>): CaptureHint | undefine
 }
 
 /**
- * ErrorBoundary 等手动上报入口。未初始化（无 DSN 或 sdk 尚未就绪）时为 no-op。
+ * ErrorBoundary 等手动上报入口。sdk 就绪前（含从未初始化）先缓冲，
+ * init 完成加载后由 flushPendingGlitchtipReports 补发；未启用监控时整体 no-op。
  */
 export async function reportErrorToGlitchtip(
   error: unknown,
   hint?: Record<string, unknown>,
 ): Promise<void> {
+  const captureHint = captureHintFrom(hint);
   const sentry = state.sentry;
-  if (!sentry?.captureException) return;
-  sentry.captureException(error, captureHintFrom(hint));
+  if (sentry?.captureException) {
+    sentry.captureException(error, captureHint);
+    return;
+  }
+  if (!state.initialized) return;
+  if (state.pending.length < PENDING_REPORT_LIMIT) {
+    state.pending.push({ error, hint: captureHint });
+  }
 }

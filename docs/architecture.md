@@ -115,8 +115,10 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
 抹掉 URL 与 breadcrumb 中的 `token|ticket|code|ssotoken` 参数值、递归脱敏请求体与
 extra/contexts 中的敏感键（密码、证件号、手机号、文件内容等）；401/会话失效属正常
 登录跳转流程（鉴权闸门已接管），这类事件直接丢弃不上报，避免监控被登录噪声淹没。
-`ErrorBoundary.componentDidCatch` 另把渲染崩溃连同 componentStack 手动上报，
-未初始化时为 no-op。
+`ErrorBoundary.componentDidCatch` 另把渲染崩溃连同 componentStack 手动上报：sdk 动态
+加载完成前到达的上报先入有界缓冲区，加载完成后按原顺序补发，首屏白屏路径不会因
+sdk 加载时序而丢失；从未初始化时整体 no-op。chart 侧 subPath 挂载不随 ConfigMap
+热更新，web Deployment pod 模板带内容校验和 annotation，配置变化即触发滚动更新。
 
 ### Dify
 
