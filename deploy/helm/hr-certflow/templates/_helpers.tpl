@@ -36,3 +36,16 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $value | quote -}}
 {{- end -}}
 {{- end -}}
+
+{{- /*
+GlitchTip 事件聚合用的 release 版本号：显式传入 glitchtip.release 时优先；
+留空或未设置时回退为当前 web 镜像 tag，使发版（只更新 images.web.tag）后
+错误监控 release 自动对齐，无需手工同步 Argo 参数。dig 保证 glitchtip/images
+任一层缺失时仍安全回退。
+*/ -}}
+{{- define "hr-certflow.glitchtipRelease" -}}
+{{- $values := .Values | deepCopy | mustToJson | mustFromJson -}}
+{{- $explicit := dig "glitchtip" "release" "" $values -}}
+{{- $webTag := dig "images" "web" "tag" "" $values -}}
+{{- default $webTag $explicit -}}
+{{- end -}}

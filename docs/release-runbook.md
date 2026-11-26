@@ -276,7 +276,8 @@ Do not replace this with an application-owned runner or store deployer kubeconfi
     enabled: true
     dsn: "<内网 GlitchTip DSN>"
     environment: "dev"      # 可选，缺省时前端按应用前缀自动推断
-    release: ""             # 可选，需要按版本聚合时填写
+    release: ""             # 推荐留空：自动回退为当前 web 镜像 tag，
+                            # 发版即完成版本聚合；仅需要跨版本聚合时才显式填写
   ```
 
   chart 据此生成 `<release>-web-glitchtip` ConfigMap，并以 subPath 覆盖 web 镜像内的

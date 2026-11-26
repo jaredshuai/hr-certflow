@@ -15,8 +15,7 @@ data:
       {{- if .Values.glitchtip.environment }}
       environment: {{ .Values.glitchtip.environment | quote }},
       {{- end }}
-      {{- if .Values.glitchtip.release }}
-      release: {{ .Values.glitchtip.release | quote }},
-      {{- end }}
+      {{- /* release 恒输出：未显式传入时由 helper 回退为 web 镜像 tag，错误事件按发版镜像版本自动聚合。 */}}
+      release: {{ include "hr-certflow.glitchtipRelease" . | quote }},
     };
 {{- end }}

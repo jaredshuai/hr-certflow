@@ -113,8 +113,10 @@ migrations:
 # GlitchTip 前端错误监控（公仓默认关闭）。
 # 启用时由部署侧私有 values overlay 覆盖：glitchtip.enabled=true 并提供真实
 # dsn（内网地址绝不进公仓）；chart 据此生成 ConfigMap 并以 subPath 覆盖 web
-# 镜像内的 glitchtip-config.js 占位文件。environment/release 可选，
-# 缺省时前端按应用前缀自动推断 dev/release。
+# 镜像内的 glitchtip-config.js 占位文件。environment/release 可选：
+# environment 缺省时前端按应用前缀自动推断 dev/release；release 留空时
+# chart 自动回退为当前 web 镜像 tag（images.web.tag），发版只更新镜像 tag
+# 即完成错误事件版本聚合，无需手工同步；显式传入则以显式值覆盖。
 glitchtip:
   enabled: false
   dsn: ""

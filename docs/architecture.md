@@ -118,7 +118,10 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
 前最早期调用 `utils/glitchtip.ts` 的 `initGlitchtip`：DSN 为空时静默返回、不加载 sdk；
 非空时才动态 `import('@sentry/browser')` 初始化，sdk 加载失败也只记日志、绝不影响应用。
 `environment` 优先取注入值，缺省按应用前缀推断（`/hr-certflow-dev` → dev，
-`/hr-certflow` → release）。HR 系统含员工 PII，脱敏是硬约束：`sendDefaultPii: false`、
+`/hr-certflow` → release）。`release` 同理优先显式注入值，但解析发生在 chart 侧：
+留空时渲染自动回退为当前 web 镜像 tag（`images.web.tag`），发版流水线只需更新镜像
+tag，错误事件即按镜像版本聚合，无需手工同步 Argo 参数。
+HR 系统含员工 PII，脱敏是硬约束：`sendDefaultPii: false`、
 不接 Session Replay；`beforeSend` 删除事件 `user` 与请求头 Authorization/Cookie、
 抹掉 URL 与 breadcrumb 中的 `token|ticket|code|ssotoken` 参数值、递归脱敏请求体与
 extra/contexts 中的敏感键（密码、证件号、手机号、文件内容等）；401/会话失效属正常
