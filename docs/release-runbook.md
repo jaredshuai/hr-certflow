@@ -289,10 +289,11 @@ Rules:
 
 ## 生产认证配置
 
-HR CertFlow 是 system of record，审计日志中的操作人必须可信。在 #33 第 3 步接入 BFF SDK
-之前，release 的过渡身份来源是：只采信来自可信网关的 `X-HR-Actor` / `X-HR-Actor-Source` 头。
-写接口不再从请求体或查询参数接收 `reviewed_by`、`operator`、`created_by`、`confirmed_by`、
-`user`；落库和审计中的操作人都取自后端当前操作人。
+HR CertFlow 是 system of record，审计日志中的操作人必须可信。dev 与 release 都由应用
+自己的 `jxccs-access` OIDC 会话认定 Principal：只采信后端 `/auth/*` 建立的业务会话
+（`(issuer, sub)` 与 `issuer_key`），不再从请求体、查询参数或网关身份头接收操作人。
+写接口的 `reviewed_by`、`operator`、`created_by`、`confirmed_by`、`user` 一律忽略，
+落库和审计中的操作人都取自后端当前操作人。
 
 ### 应用层配置
 
@@ -305,42 +306,80 @@ release：
 ```yaml
 APP_ENV: release
 AUTH_REQUIRED: "true"
-TRUSTED_PROXY_CIDRS: "10.42.0.0/16"   # 集群 Pod 网段，即直连 API 的网关所在网段
+TRUSTED_PROXY_CIDRS: "10.42.0.0/16"   # 集群 Pod 网段；审计 IP 的可信首跳
+APP_ID: hr-certflow
+PUBLIC_BASE_URL: http://<host>/hr-certflow
+OIDC_ISSUER_URL: http://<host>/hydra
+OIDC_ISSUER_KEY: hydra-jiaxing-company
+OIDC_CLIENT_ID: hr-certflow-release
+AUTHZ_BASE_URL: http://authorization-center-release.authorization-center-release.svc.cluster.local:8080
+SESSION_IDLE_SECONDS: "1800"
+SESSION_ABSOLUTE_SECONDS: "28800"
+SESSION_CHECK_INTERVAL_SECONDS: "30"
+POD_NAMESPACE: hr-certflow-release
 ```
 
-dev / local：
+dev（`deploy/gitops/dev/values.yaml`，同样启用 jxccs-access）：
 
 ```yaml
-APP_ENV: dev            # 或 local
-AUTH_REQUIRED: "false"  # dev values 中显式声明
+APP_ENV: dev
+AUTH_REQUIRED: "false"
+APP_ID: hr-certflow
+PUBLIC_BASE_URL: http://<host>/hr-certflow-dev
+OIDC_ISSUER_URL: http://<host>/hydra-dev
+OIDC_ISSUER_KEY: hydra-jiaxing-company
+OIDC_CLIENT_ID: hr-certflow-dev
+AUTHZ_BASE_URL: http://authorization-center-dev.authorization-center-dev.svc.cluster.local:8080
+SESSION_IDLE_SECONDS: "1800"
+SESSION_ABSOLUTE_SECONDS: "28800"
+SESSION_CHECK_INTERVAL_SECONDS: "30"
+POD_NAMESPACE: hr-certflow-dev
+```
+
+local（直连本地后端调试）：
+
+```yaml
+APP_ENV: local
+AUTH_REQUIRED: "false"   # 不设 APP_ID：不发 /auth/*，所有请求记在固定开发操作人
 # DEV_OPERATOR_NAME: dev-unauthenticated   # 可选，固定开发操作人名称
 ```
 
+- 设置 `APP_ID` 时启用 `jxccs-access` 会话与 `/auth/*` BFF：操作人只来自业务会话，
+  请求里的任何身份头都不采信。会话存储在 Redis（`SESSION_STORE_URL`，来自
+  `hr-certflow-runtime-secrets`）。
 - `TRUSTED_PROXY_CIDRS`：逗号分隔的 CIDR 列表，匹配的是**直连 API 的对端地址**
   （网关 / ingress Pod 的地址），不是 `X-Forwarded-For` 里的终端用户地址。
-  对端不在列表内时身份头一律忽略，请求按未认证处理（401）；审计 IP 也只记录对端地址。
-  对端可信时审计 IP 取 `X-Forwarded-For` 第一跳。
-- `AUTH_REQUIRED=false` 时所有请求都记在固定开发操作人名下（审计 `actor_source=dev-unauthenticated`），
-  请求里的身份头不会被采信。
+  对端可信时审计 IP 取 `X-Forwarded-For` 第一跳，否则只记录对端地址。
+- `AUTH_REQUIRED=false` 且未接 SDK 时，所有请求都记在固定开发操作人名下
+  （审计 `actor_source=dev-unauthenticated`），请求里的身份头不会被采信。
 
 API 启动时校验，配置不安全时拒绝启动：
 
 - `AUTH_REQUIRED=true` 但 `TRUSTED_PROXY_CIDRS` 为空或含非法 CIDR；
 - `AUTH_REQUIRED=false` 但 `APP_ENV` 不是 `local` / `dev`（`APP_ENV` 缺失按 release 处理）。
 
+### 登录与退出入口
+
+- 登录：`GET <PUBLIC_BASE_URL>/auth/login` → Hydra 授权码 + PKCE → `<前缀>/auth/callback`。
+  前端在 `/api/v1/me` 401 时优先采用响应体 `detail.loginUrl`，缺省回退
+  `<应用前缀>/auth/login`；不再依赖 oauth2-proxy 的 `/oauth2/start`。
+- 退出：`POST <应用前缀>/auth/logout` 只销毁本应用业务会话，不调用上游 end_session。
+
 ### 网关层配置（infra 职责）
 
-1. Traefik 剥离客户端自带的 `X-HR-Actor*` 头。
-2. oauth2-proxy（Casdoor OIDC）认证后，由 actor-header-adapter **覆写** `X-HR-Actor` /
-   `X-HR-Actor-Source: casdoor`。
+1. Traefik 剥离客户端自带的 `X-HR-Actor*` 头（身份头路径已退役，剥离保留为纵深防御）。
+2. 网关不再跑登录代理、不再注入身份头；`<应用前缀>/auth/*` 直接路由到 API。
 3. 直连 API 的 Traefik 所在 Pod 网段（k3s `10.42.0.0/16`）已写入 release values 的
    `TRUSTED_PROXY_CIDRS`，`AUTH_REQUIRED="true"` 同样写在 release values 中。
 
 ### 验证
 
 ```bash
-curl -H "X-HR-Actor: fake" http://<host>/hr-certflow/api/v1/me
-# 预期：未经网关登录时 401（网关会剥离伪造头，直连 API 时对端不可信）
+curl -i http://<host>/hr-certflow/api/v1/me
+# 预期：401，body 为 {"detail":{"code":"UNAUTHENTICATED","loginUrl":"/hr-certflow/auth/login"}}
+
+curl -i http://<host>/hr-certflow/auth/login
+# 预期：302 到 Hydra 的 /oauth2/auth（带 state / nonce / PKCE）
 ```
 
 ## Dependabot During Release Work

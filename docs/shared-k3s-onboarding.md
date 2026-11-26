@@ -43,9 +43,10 @@ Release uses the same application-owned `jxccs-access` stack (Item #32 H1):
 
 The API pod needs egress to Authorization Center and, through the Traefik pod,
 to the Hydra issuer. The corresponding NetworkPolicy remains infra-owned. The
-transitional release gateway chain (`oauth2-proxy` + actor-header adapter) is
-infra-owned; it must be removed or repointed when the release cutover happens
-so the application's own `/hr-certflow/auth/*` route is the only login entry.
+release cutover is complete: the application's own `/hr-certflow/auth/*` route
+is the only login entry, and the transitional `oauth2-proxy` + actor-header
+adapter chain must not be reintroduced (stripping client-supplied
+`X-HR-Actor*` headers stays as defence in depth).
 
 ## Smoke
 

@@ -4,6 +4,9 @@ type ApiErrorInfo = {
   };
   response?: {
     status?: number;
+    data?: {
+      detail?: unknown;
+    };
   };
   status?: number;
 };
@@ -17,6 +20,12 @@ function axiosResponseDetail(error: unknown): unknown {
   if (!error || typeof error !== 'object' || !('response' in error)) return undefined;
   const data = (error as { response?: { data?: unknown } }).response?.data;
   return data && typeof data === 'object' ? (data as { detail?: unknown }).detail : undefined;
+}
+
+/** `detail` 可能是字符串（业务错误）或对象（jxccs-access 的 `{code, loginUrl}`）。 */
+function errorDetail(error: unknown): unknown {
+  const info = errorInfo(error);
+  return info?.data?.detail ?? info?.response?.data?.detail ?? axiosResponseDetail(error);
 }
 
 // jxccs-access（dev 登录/会话/授权）返回 {detail: {code}}，按固定 code 给出中文提示。
@@ -38,12 +47,25 @@ function accessErrorMessage(detail: unknown): string | undefined {
 }
 
 export function apiErrorMessage(error: unknown, fallback: string): string {
-  const detail = errorInfo(error)?.data?.detail ?? axiosResponseDetail(error);
+  const detail = errorDetail(error);
   if (typeof detail === 'string' && detail.trim()) return detail;
   const accessMessage = accessErrorMessage(detail);
   if (accessMessage) return accessMessage;
   if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
+}
+
+/**
+ * 后端 401 body 里的 `detail.loginUrl`（jxccs-access 登录入口）。
+ *
+ * 前端据此跳转而不是写死 `/oauth2/start` 或 `/auth/login`：登录路径属于部署侧
+ * 契约，换了网关/前缀时不应再让浏览器落到一个不存在的路径上（那会白屏）。
+ */
+export function apiErrorLoginUrl(error: unknown): string | undefined {
+  const detail = errorDetail(error);
+  if (!detail || typeof detail !== 'object') return undefined;
+  const loginUrl = (detail as { loginUrl?: unknown }).loginUrl;
+  return typeof loginUrl === 'string' && loginUrl.trim() ? loginUrl.trim() : undefined;
 }
 
 // umi request 对 HTTP 非 2xx 抛 AxiosError（状态在 error.response.status），

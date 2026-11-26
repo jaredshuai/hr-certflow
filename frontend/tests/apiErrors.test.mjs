@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { apiErrorMessage, apiErrorStatus, isReviewStaleActionError } from '../src/utils/apiErrors.ts';
+import { apiErrorLoginUrl, apiErrorMessage, apiErrorStatus, isReviewStaleActionError } from '../src/utils/apiErrors.ts';
 
 function axiosError(status, detail) {
   const error = new Error(`Request failed with status code ${status}`);
@@ -10,7 +10,7 @@ function axiosError(status, detail) {
   return error;
 }
 
-test('AxiosError 401 (oauth2-proxy text/plain) exposes its status', () => {
+test('AxiosError 401 (gateway text/plain) exposes its status', () => {
   assert.equal(apiErrorStatus(axiosError(401)), 401);
 });
 
@@ -58,4 +58,24 @@ test('jxccs-access {code} details map to Chinese messages', () => {
     '权限服务暂时不可用，请稍后重试。',
   );
   assert.equal(apiErrorMessage(axiosError(400, { code: 'SOMETHING_ELSE' }), '失败'), 'Request failed with status code 400');
+});
+
+test('the 401 body loginUrl is read from both AxiosError and BizError shapes', () => {
+  const detail = { code: 'UNAUTHENTICATED', loginUrl: '/hr-certflow/auth/login' };
+  assert.equal(apiErrorLoginUrl(axiosError(401, detail)), '/hr-certflow/auth/login');
+  assert.equal(
+    apiErrorLoginUrl(Object.assign(new Error('x'), { info: { data: { detail }, status: 401 } })),
+    '/hr-certflow/auth/login',
+  );
+  assert.equal(
+    apiErrorLoginUrl(Object.assign(new Error('x'), { info: { response: { status: 401, data: { detail } } } })),
+    '/hr-certflow/auth/login',
+  );
+});
+
+test('a malformed or missing loginUrl is ignored', () => {
+  for (const detail of [undefined, 'Unauthorized', {}, { code: 'UNAUTHENTICATED' }, { loginUrl: 42 }, { loginUrl: '  ' }]) {
+    assert.equal(apiErrorLoginUrl(axiosError(401, detail)), undefined);
+  }
+  assert.equal(apiErrorLoginUrl(new Error('network')), undefined);
 });
