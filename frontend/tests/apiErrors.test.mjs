@@ -152,9 +152,8 @@ test('apiErrorMessage：字符串 detail 优先展示后端业务文案，axios 
   assert.equal(apiErrorMessage(biz, '兜底'), '没有执行此操作的权限，请联系管理员授权。');
 });
 
-test('blob 下载错误解码后可映射 403 中文授权提示（导出路径真源）', async () => {
-  // downloadCsv 的导出失败会先把 axios blob 错误体过 normalizeBlobError 再抛给
-  // 页面 catch——这里测的就是导出口径（403 FORBIDDEN 不再裸显英文）。
+test('normalizeBlobError：blob 错误体解码为可读 detail，非 blob/非 JSON 原样透传', async () => {
+  // downloadCsv 真实接线的端到端断言在 download.test.mjs；此处只锁解码器契约。
   function blobAxiosError(status, payload) {
     const error = new Error(`Request failed with status code ${status}`);
     error.name = 'AxiosError';
@@ -166,20 +165,15 @@ test('blob 下载错误解码后可映射 403 中文授权提示（导出路径�
   }
 
   const forbidden = await normalizeBlobError(blobAxiosError(403, { detail: { code: 'FORBIDDEN' } }));
-  assert.equal(tableRequestFailure(forbidden, '持证记录导出失败'), '没有执行此操作的权限，请联系管理员授权。');
+  assert.equal(tableRequestFailure(forbidden, '导出失败'), '没有执行此操作的权限，请联系管理员授权。');
 
-  // 字符串 detail 业务错误解码后原样展示。
   const business = await normalizeBlobError(blobAxiosError(422, { detail: '导出筛选范围过大' }));
   assert.equal(apiErrorMessage(business, '导出失败'), '导出筛选范围过大');
 
-  // 非 JSON 错误体（网关 text/plain）：原样保留，状态码仍可读，文案走中文兜底。
   const gateway = blobAxiosError(403, 'Forbidden');
   gateway.response.data = new Blob(['Forbidden'], { type: 'text/plain' });
-  const untouched = await normalizeBlobError(gateway);
-  assert.equal(apiErrorStatus(untouched), 403);
-  assert.equal(apiErrorMessage(untouched, '持证记录导出失败'), '持证记录导出失败');
+  assert.equal(await normalizeBlobError(gateway), gateway);
 
-  // 非 blob 错误原样透传，不做包装。
   const plain = axiosError(403, { code: 'FORBIDDEN' });
   assert.equal(await normalizeBlobError(plain), plain);
 });

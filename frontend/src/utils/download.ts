@@ -1,7 +1,7 @@
 import { request } from '@umijs/max';
 import type { AxiosResponse } from '@umijs/max';
 
-import { normalizeBlobError } from '@/utils/apiErrors';
+import { normalizeBlobError } from './apiErrors.ts';
 
 function buildFilename(response: AxiosResponse<Blob>, fallback: string): string {
   const disposition = response.headers['content-disposition'];
