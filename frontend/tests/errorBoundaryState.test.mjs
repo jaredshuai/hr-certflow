@@ -13,7 +13,7 @@ test('a thrown Error keeps its message', () => {
 });
 
 test('unreadable throwables use the fixed fallback instead of [object Object]', () => {
-  for (const value of [undefined, null, {}, [], '', '   ', new Error('   '), new Error('[object Object]')]) {
+  for (const value of [undefined, null, {}, [], '', '   ', '[object Object]', new Error('   '), new Error('[object Object]')]) {
     assert.equal(boundaryMessage(value), DEFAULT_BOUNDARY_MESSAGE);
   }
   assert.equal(boundaryMessage('render failed'), 'render failed');

@@ -317,11 +317,26 @@ SESSION_IDLE_SECONDS: "1800"
 SESSION_ABSOLUTE_SECONDS: "28800"
 ```
 
-dev / local：
+dev（`deploy/gitops/dev/values.yaml`，同样启用 jxccs-access）：
 
 ```yaml
-APP_ENV: dev            # 或 local
-AUTH_REQUIRED: "false"  # dev values 中显式声明
+APP_ENV: dev
+AUTH_REQUIRED: "false"
+APP_ID: hr-certflow
+PUBLIC_BASE_URL: http://<host>/hr-certflow-dev
+OIDC_ISSUER_URL: http://<host>/hydra-dev
+OIDC_ISSUER_KEY: hydra-jiaxing-company
+OIDC_CLIENT_ID: hr-certflow-dev
+AUTHZ_BASE_URL: http://authorization-center-dev.authorization-center-dev.svc.cluster.local:8080
+SESSION_IDLE_SECONDS: "1800"
+SESSION_ABSOLUTE_SECONDS: "28800"
+```
+
+local（直连本地后端调试）：
+
+```yaml
+APP_ENV: local
+AUTH_REQUIRED: "false"   # 不设 APP_ID：不发 /auth/*，所有请求记在固定开发操作人
 # DEV_OPERATOR_NAME: dev-unauthenticated   # 可选，固定开发操作人名称
 ```
 

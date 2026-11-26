@@ -20,7 +20,7 @@ export const emptyDashboardSummary: DashboardSummary = {
 };
 
 function numberOrZero(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 function text(value: unknown): string {
@@ -35,30 +35,59 @@ function objectRows(value: unknown): Record<string, unknown>[] {
 }
 
 function chartRows(value: unknown): DashboardChartRow[] {
-  return objectRows(value).map((row) => ({
-    category: text(row.category),
-    count: numberOrZero(row.count),
-    target_path: text(row.target_path),
-  }));
+  return objectRows(value)
+    .map((row) => ({
+      category: text(row.category),
+      count: numberOrZero(row.count),
+      target_path: text(row.target_path),
+    }))
+    .filter((row) => row.category !== '' && row.target_path !== '');
 }
 
 function pipelineSteps(value: unknown): DashboardPipelineStep[] {
-  return objectRows(value).map((step) => ({
-    title: text(step.title),
-    description: text(step.description),
-    count: numberOrZero(step.count),
-    target_path: text(step.target_path),
-  }));
+  return objectRows(value)
+    .map((step) => ({
+      title: text(step.title),
+      description: text(step.description),
+      count: numberOrZero(step.count),
+      target_path: text(step.target_path),
+    }))
+    .filter((step) => step.title !== '' && step.target_path !== '');
 }
 
 function riskRows(value: unknown): DashboardRiskRow[] {
-  return objectRows(value).map((row) => ({
-    id: text(row.id),
-    metric: text(row.metric),
-    count: numberOrZero(row.count),
-    status: text(row.status),
-    target_path: text(row.target_path),
-  }));
+  return objectRows(value)
+    .map((row) => ({
+      id: text(row.id),
+      metric: text(row.metric),
+      count: numberOrZero(row.count),
+      status: text(row.status),
+      target_path: text(row.target_path),
+    }))
+    // 缺 id 的行会让「追溯」拼出 /dashboard/risk-items//trace；缺 target_path 会让「明细」跳到空路径。
+    .filter((row) => row.id !== '' && row.metric !== '' && row.target_path !== '');
+}
+
+/**
+ * 判断响应是否真的是完整的 `/dashboard/summary` 结构。
+ *
+ * 200 但 body 是 HTML（网关兜底页）、空 body 或字段缺失时，normalize 仍会给出全 0
+ * 的可渲染数据；若只展示全 0，HR 会把「接口不可用」误读成「业务数据为 0」。调用方
+ * 用它把这类响应额外标记成加载异常。
+ */
+export function isDashboardSummary(raw: unknown): raw is DashboardSummary {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false;
+  const value = raw as Record<string, unknown>;
+  return (
+    typeof value.expiring_count === 'number' &&
+    typeof value.expired_count === 'number' &&
+    typeof value.pending_review_count === 'number' &&
+    typeof value.coverage === 'number' &&
+    Array.isArray(value.certificate_status_rows) &&
+    Array.isArray(value.workload_rows) &&
+    Array.isArray(value.pipeline_steps) &&
+    Array.isArray(value.risk_rows)
+  );
 }
 
 /**

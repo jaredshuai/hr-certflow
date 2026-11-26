@@ -14,7 +14,7 @@ import type {
   DashboardSummary,
 } from '@/types/domain';
 import { apiErrorMessage } from '@/utils/apiErrors';
-import { emptyDashboardSummary, normalizeDashboardSummary } from '@/utils/dashboardSummary';
+import { emptyDashboardSummary, isDashboardSummary, normalizeDashboardSummary } from '@/utils/dashboardSummary';
 import {
   auditActionLabel,
   auditResourceTypeLabel,
@@ -62,6 +62,9 @@ export default function DashboardPage() {
 
         if (!cancelled) {
           setSummary(normalizeDashboardSummary(response));
+          if (!isDashboardSummary(response)) {
+            setLoadError('工作台数据格式异常，请刷新后重试。');
+          }
         }
       } catch (error) {
         if (!cancelled) {

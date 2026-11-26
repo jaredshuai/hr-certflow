@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
-import { boundaryMessage } from '@/utils/errorBoundaryState';
+import { errorBoundaryStateFromError } from '@/utils/errorBoundaryState';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -22,7 +22,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   state: ErrorBoundaryState = { hasError: false, message: '' };
 
   static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
-    return { hasError: true, message: boundaryMessage(error) };
+    // 复用同一份实现，测试覆盖的就是生产行为。
+    return errorBoundaryStateFromError(error);
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo) {

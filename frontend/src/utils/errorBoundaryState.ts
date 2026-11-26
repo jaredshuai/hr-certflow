@@ -2,6 +2,8 @@
 
 export const DEFAULT_BOUNDARY_MESSAGE = '页面渲染出错，请重试。';
 
+const UNUSABLE_MESSAGE = '[object Object]';
+
 export interface ErrorBoundaryState {
   hasError: boolean;
   message: string;
@@ -12,13 +14,15 @@ export const initialErrorBoundaryState: ErrorBoundaryState = {
   message: '',
 };
 
+function usableMessage(value: string): string | undefined {
+  const message = value.trim();
+  return message && message !== UNUSABLE_MESSAGE ? message : undefined;
+}
+
 /** 从任意抛出物里取一条可读信息；拿不到时用固定文案，绝不把 `[object Object]` 给用户看。 */
 export function boundaryMessage(error: unknown): string {
-  if (error instanceof Error) {
-    const message = error.message.trim();
-    return message && message !== '[object Object]' ? message : DEFAULT_BOUNDARY_MESSAGE;
-  }
-  if (typeof error === 'string' && error.trim()) return error.trim();
+  if (error instanceof Error) return usableMessage(error.message) ?? DEFAULT_BOUNDARY_MESSAGE;
+  if (typeof error === 'string') return usableMessage(error) ?? DEFAULT_BOUNDARY_MESSAGE;
   return DEFAULT_BOUNDARY_MESSAGE;
 }
 
