@@ -27,6 +27,7 @@ test('array rows are filtered and field-normalised before rendering', () => {
     expired_count: 1,
     certificate_status_rows: [
       { category: '已过期', count: 1, target_path: '/certificates?status=EXPIRED' },
+      { category: '缺目标路径也可以上图', count: 'oops' },
       { category: '', count: 1, target_path: '/certificates' },
       null,
       'x',
@@ -46,6 +47,7 @@ test('array rows are filtered and field-normalised before rendering', () => {
 
   assert.deepEqual(summary.certificate_status_rows, [
     { category: '已过期', count: 1, target_path: '/certificates?status=EXPIRED' },
+    { category: '缺目标路径也可以上图', count: 0, target_path: '' },
   ]);
   assert.deepEqual(summary.workload_rows, [
     { category: '已过期', count: 0, target_path: '/certificates?status=EXPIRED' },
@@ -86,6 +88,8 @@ test('only a complete summary payload is treated as valid', () => {
   assert.equal(isDashboardSummary(valid), true);
   assert.equal(isDashboardSummary({ ...valid, risk_rows: undefined }), false);
   assert.equal(isDashboardSummary({ ...valid, coverage: '0' }), false);
+  assert.equal(isDashboardSummary({ ...valid, expiring_count: -1 }), false);
+  assert.equal(isDashboardSummary({ ...valid, coverage: Number.NaN }), false);
   for (const raw of [undefined, null, '', '<html></html>', [], 42]) {
     assert.equal(isDashboardSummary(raw), false);
   }

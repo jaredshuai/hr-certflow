@@ -19,8 +19,12 @@ export const emptyDashboardSummary: DashboardSummary = {
   risk_rows: [],
 };
 
+function isMetric(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
 function numberOrZero(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+  return isMetric(value) ? value : 0;
 }
 
 function text(value: unknown): string {
@@ -41,7 +45,8 @@ function chartRows(value: unknown): DashboardChartRow[] {
       count: numberOrZero(row.count),
       target_path: text(row.target_path),
     }))
-    .filter((row) => row.category !== '' && row.target_path !== '');
+    // 图表只需要 category/count；target_path 为空时 handleChartEvent 只是不跳转。
+    .filter((row) => row.category !== '');
 }
 
 function pipelineSteps(value: unknown): DashboardPipelineStep[] {
@@ -79,10 +84,10 @@ export function isDashboardSummary(raw: unknown): raw is DashboardSummary {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false;
   const value = raw as Record<string, unknown>;
   return (
-    typeof value.expiring_count === 'number' &&
-    typeof value.expired_count === 'number' &&
-    typeof value.pending_review_count === 'number' &&
-    typeof value.coverage === 'number' &&
+    isMetric(value.expiring_count) &&
+    isMetric(value.expired_count) &&
+    isMetric(value.pending_review_count) &&
+    isMetric(value.coverage) &&
     Array.isArray(value.certificate_status_rows) &&
     Array.isArray(value.workload_rows) &&
     Array.isArray(value.pipeline_steps) &&

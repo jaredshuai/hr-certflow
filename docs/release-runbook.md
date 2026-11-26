@@ -315,6 +315,8 @@ OIDC_CLIENT_ID: hr-certflow-release
 AUTHZ_BASE_URL: http://authorization-center-release.authorization-center-release.svc.cluster.local:8080
 SESSION_IDLE_SECONDS: "1800"
 SESSION_ABSOLUTE_SECONDS: "28800"
+SESSION_CHECK_INTERVAL_SECONDS: "30"
+POD_NAMESPACE: hr-certflow-release
 ```
 
 dev（`deploy/gitops/dev/values.yaml`，同样启用 jxccs-access）：
@@ -330,6 +332,8 @@ OIDC_CLIENT_ID: hr-certflow-dev
 AUTHZ_BASE_URL: http://authorization-center-dev.authorization-center-dev.svc.cluster.local:8080
 SESSION_IDLE_SECONDS: "1800"
 SESSION_ABSOLUTE_SECONDS: "28800"
+SESSION_CHECK_INTERVAL_SECONDS: "30"
+POD_NAMESPACE: hr-certflow-dev
 ```
 
 local（直连本地后端调试）：
