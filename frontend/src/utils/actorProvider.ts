@@ -1,41 +1,34 @@
 import { getResource, postResource } from '@/services/api';
-import { apiErrorLoginUrl, apiErrorStatus } from '@/utils/apiErrors';
+import { apiErrorLoginUrl, apiErrorStatus, isAuthError } from '@/utils/apiErrors';
 import { actorStateFromErrorStatus, actorStateFromMe, type ActorState, type MeResponse } from '@/utils/actorState';
 import {
+  clearRedirectMarker,
   hasAccessLogout,
-  LOGIN_REDIRECT_MARKER_KEY,
-  loginUrlForLocation,
+  redirectToLoginOnce,
   resolveAppBase,
+  setRedirectMarker,
+  type RedirectEnvironment,
+  type RedirectStorage,
 } from '@/utils/loginRedirect';
 import { message } from '@/utils/messageApi';
 import { setCsrfToken } from '@/utils/requestHeaders';
 
 type Listener = (state: ActorState) => void;
 
-function hasRedirectMarker(): boolean {
+function browserStorage(): RedirectStorage | null {
   try {
-    return window.sessionStorage.getItem(LOGIN_REDIRECT_MARKER_KEY) !== null;
+    return window.sessionStorage;
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** 写不进 sessionStorage 时无法防循环，返回 false 以放弃自动跳转。 */
-function setRedirectMarker(): boolean {
-  try {
-    window.sessionStorage.setItem(LOGIN_REDIRECT_MARKER_KEY, String(Date.now()));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function removeRedirectMarker() {
-  try {
-    window.sessionStorage.removeItem(LOGIN_REDIRECT_MARKER_KEY);
-  } catch {
-    // sessionStorage 不可用时没有标记可清。
-  }
+function redirectEnvironment(): RedirectEnvironment {
+  return {
+    location: window.location,
+    storage: browserStorage(),
+    assign: (url) => window.location.assign(url),
+  };
 }
 
 // 当前操作人只展示 GET /me 的结果：
@@ -63,6 +56,12 @@ class MeActorProvider {
     };
   }
 
+  private notify() {
+    for (const listener of this.listeners) {
+      listener(this.state);
+    }
+  }
+
   private ensureLoaded() {
     if (this.state.status !== 'loading' || this.loading) return;
     this.loading = true;
@@ -74,28 +73,37 @@ class MeActorProvider {
       const me = await getResource<MeResponse>('/me');
       setCsrfToken(me?.csrf_token);
       this.state = actorStateFromMe(me);
-      removeRedirectMarker();
+      clearRedirectMarker(browserStorage());
     } catch (error) {
+      this.loading = false;
+      if (isAuthError(error)) {
+        this.handleAuthError(error);
+        return;
+      }
       this.state = actorStateFromErrorStatus(apiErrorStatus(error));
-      if (this.state.status === 'unauthenticated' && this.redirectToLogin(apiErrorLoginUrl(error))) return;
+      this.notify();
+      return;
     }
     this.loading = false;
-    for (const listener of this.listeners) {
-      listener(this.state);
-    }
+    this.notify();
   }
 
-  /** 返回 true 表示已发起跳转；否则把登录链接放进未登录状态供界面展示。 */
-  private redirectToLogin(backendLoginUrl?: string): boolean {
+  /**
+   * 401 / 会话失效的统一入口：切到「未登录」并触发登录跳转。
+   *
+   * 请求层（app.tsx 的 errorConfig.errorHandler）与 /me 的首包都走这里；
+   * `redirectToLoginOnce` 的防重入标记保证并发的多个 401 只导航一次。
+   * 返回 true 表示本次真的发起了跳转。
+   */
+  handleAuthError(error: unknown): boolean {
     if (typeof window === 'undefined') return false;
-    const loginUrl = loginUrlForLocation(window.location, backendLoginUrl);
-    if (!loginUrl) return false;
-    if (!hasRedirectMarker() && setRedirectMarker()) {
-      window.location.assign(loginUrl);
-      return true;
-    }
-    this.state = { status: 'unauthenticated', loginUrl };
-    return false;
+    const outcome = redirectToLoginOnce(redirectEnvironment(), apiErrorLoginUrl(error));
+    this.loading = false;
+    this.state = outcome.loginUrl
+      ? { status: 'unauthenticated', loginUrl: outcome.loginUrl }
+      : { status: 'unauthenticated' };
+    this.notify();
+    return outcome.redirected;
   }
 
   /**
@@ -118,7 +126,7 @@ class MeActorProvider {
     }
     setCsrfToken(null);
     // 写防循环标记：回到首页后 401 不自动跳登录，让用户看到「未登录 + 登录」。
-    setRedirectMarker();
+    setRedirectMarker(browserStorage());
     window.location.assign(`${appBase}/`);
     return true;
   }

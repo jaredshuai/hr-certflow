@@ -26,7 +26,7 @@ import type {
   ReviewTask,
   ReviewTaskTrace,
 } from '@/types/domain';
-import { apiErrorMessage, isReviewStaleActionError, reviewStaleActionMessage } from '@/utils/apiErrors';
+import { apiErrorMessage, isAuthError, isReviewStaleActionError, reviewStaleActionMessage } from '@/utils/apiErrors';
 import {
   auditActionLabel,
   auditResourceTypeLabel,
@@ -177,6 +177,7 @@ export default function ReviewQueuePage() {
         message.success('待复核任务已全部处理');
       }
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '刷新复核队列失败');
       setCurrentReview(undefined);
     } finally {
@@ -237,6 +238,7 @@ export default function ReviewQueuePage() {
         actionRef.current?.reload();
       }
     } catch (error) {
+      if (isAuthError(error)) return;
       if (isReviewStaleActionError(error)) {
         const description = reviewStaleActionMessage(error);
         setStaleActionError(description);
@@ -275,6 +277,7 @@ export default function ReviewQueuePage() {
       actionRef.current?.reload();
       return true;
     } catch (error) {
+      if (isAuthError(error)) return false;
       if (isReviewStaleActionError(error)) {
         const description = reviewStaleActionMessage(error);
         setStaleActionError(description);
@@ -296,6 +299,7 @@ export default function ReviewQueuePage() {
       const trace = await getResource<ReviewTaskTrace>(`/reviews/${record.id}/trace`);
       setCurrentTrace(trace);
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '复核追溯链路加载失败');
     } finally {
       setTraceLoading(false);
@@ -416,6 +420,7 @@ export default function ReviewQueuePage() {
             setLoadError(undefined);
             return { data, success: true };
           } catch (error) {
+            if (isAuthError(error)) return { data: [], success: false };
             const description = error instanceof Error ? error.message : '复核任务加载失败';
             setLoadError(description);
             message.error(description);

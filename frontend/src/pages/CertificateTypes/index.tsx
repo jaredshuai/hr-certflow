@@ -19,6 +19,7 @@ import { useRef, useState } from 'react';
 
 import { createResource, getResource, pageResource, updateResource, uploadResource } from '@/services/api';
 import type { CertificateType, CertificateTypeTrace } from '@/types/domain';
+import { isAuthError } from '@/utils/apiErrors';
 import { emptyTableText } from '@/utils/emptyStates';
 import {
   auditActionLabel,
@@ -207,6 +208,7 @@ export default function CertificateTypesPage() {
       actionRef.current?.reload();
       return true;
     } catch (error) {
+      if (isAuthError(error)) return false;
       message.error(error instanceof Error ? error.message : '证书类型保存失败');
       return false;
     }
@@ -217,6 +219,7 @@ export default function CertificateTypesPage() {
       await downloadCsv('/certificate-types/export.csv', lastSearchParamsRef.current, 'certificate-types.csv');
       message.success('证书类型已开始导出');
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '证书类型导出失败');
     }
   }
@@ -226,6 +229,7 @@ export default function CertificateTypesPage() {
       await downloadCsv('/certificate-types/import-template.csv', {}, 'certificate-types-import-template.csv');
       message.success('证书类型导入模板已开始下载');
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '证书类型导入模板下载失败');
     }
   }
@@ -240,6 +244,7 @@ export default function CertificateTypesPage() {
       actionRef.current?.reload();
       message.success(`证书类型导入完成：新增 ${result.created} 项，更新 ${result.updated} 项`);
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '证书类型导入失败');
     } finally {
       setImporting(false);
@@ -254,6 +259,7 @@ export default function CertificateTypesPage() {
       const trace = await getResource<CertificateTypeTrace>(`/certificate-types/${record.id}/trace`);
       setCurrentTrace(trace);
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '证书类型追溯链路加载失败');
     } finally {
       setTraceLoading(false);
@@ -334,6 +340,7 @@ export default function CertificateTypesPage() {
             setLoadError(undefined);
             return { data: result.data, total: result.total, success: true };
           } catch (error) {
+            if (isAuthError(error)) return { data: [], success: false };
             const description = error instanceof Error ? error.message : '证书类型数据加载失败';
             setLoadError(description);
             message.error(description);

@@ -25,7 +25,7 @@ import type {
   ReviewTask,
   UploadIntent,
 } from '@/types/domain';
-import { apiErrorMessage, isReviewStaleActionError, reviewStaleActionMessage } from '@/utils/apiErrors';
+import { apiErrorMessage, isAuthError, isReviewStaleActionError, reviewStaleActionMessage } from '@/utils/apiErrors';
 import { documentStatusLabel } from '@/utils/displayLabels';
 import { certificateTypeSelectRequest, employeeSelectRequest } from '@/utils/formOptions';
 import { message } from '@/utils/messageApi';
@@ -255,6 +255,7 @@ export default function UploadRecognitionPage() {
         setRecognizing(false);
       }
     } catch (error) {
+      if (isAuthError(error)) return;
       setRecognitionStatus('识别失败');
       const description = error instanceof Error ? error.message : '上传识别失败';
       setErrorMessage(description);
@@ -277,6 +278,7 @@ export default function UploadRecognitionPage() {
       await recognizeDocument(documentId);
       message.success('重新识别已完成');
     } catch (error) {
+      if (isAuthError(error)) return;
       setRecognitionStatus('识别失败');
       const description = error instanceof Error ? error.message : '重新识别失败';
       setErrorMessage(description);
@@ -326,6 +328,7 @@ export default function UploadRecognitionPage() {
       setReviewTaskUpdatedAt(undefined);
       message.success('已生成正式持证记录');
     } catch (error) {
+      if (isAuthError(error)) return;
       if (isReviewStaleActionError(error)) {
         const description = reviewStaleActionMessage(error);
         setErrorMessage(`${description} 系统已重新获取当前待复核任务，请确认字段后再提交。`);

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { apiErrorLoginUrl, apiErrorMessage, apiErrorStatus, isReviewStaleActionError } from '../src/utils/apiErrors.ts';
+import { apiErrorLoginUrl, apiErrorMessage, apiErrorStatus, isAuthError, isReviewStaleActionError, pageLoadErrorMessage } from '../src/utils/apiErrors.ts';
+import { emptyDashboardSummary } from '../src/utils/dashboardSummary.ts';
 
 function axiosError(status, detail) {
   const error = new Error(`Request failed with status code ${status}`);
@@ -78,4 +79,53 @@ test('a malformed or missing loginUrl is ignored', () => {
     assert.equal(apiErrorLoginUrl(axiosError(401, detail)), undefined);
   }
   assert.equal(apiErrorLoginUrl(new Error('network')), undefined);
+});
+
+test('isAuthError 识别 401 与 jxccs-access 的会话失效 code', () => {
+  assert.equal(isAuthError(axiosError(401)), true);
+  assert.equal(isAuthError(axiosError(401, { code: 'UNAUTHENTICATED', loginUrl: '/hr-certflow/auth/login' })), true);
+  assert.equal(isAuthError(axiosError(401, { code: 'SESSION_EXPIRED' })), true);
+  // BizError（errorThrower）把 detail 放在 info.data.detail 下，同样要识别。
+  assert.equal(
+    isAuthError(Object.assign(new Error('x'), { info: { data: { detail: { code: 'SESSION_EXPIRED' } } } })),
+    true,
+  );
+});
+
+test('isAuthError 不把权限/普通故障误判为登录失效', () => {
+  assert.equal(isAuthError(axiosError(403, { code: 'FORBIDDEN' })), false);
+  assert.equal(isAuthError(axiosError(409, 'Review task has changed')), false);
+  assert.equal(isAuthError(axiosError(500, 'boom')), false);
+  assert.equal(isAuthError(new Error('network')), false);
+  assert.equal(isAuthError(undefined), false);
+});
+
+test('pageLoadErrorMessage：登录失效返回 null，其他错误照常给文案', () => {
+  assert.equal(pageLoadErrorMessage(axiosError(401), '工作台数据加载失败'), null);
+  assert.equal(pageLoadErrorMessage(axiosError(401, { code: 'SESSION_EXPIRED' }), '工作台数据加载失败'), null);
+  assert.equal(pageLoadErrorMessage(axiosError(403, { code: 'FORBIDDEN' }), '失败'), '没有执行此操作的权限，请联系管理员授权。');
+  assert.equal(pageLoadErrorMessage(axiosError(500, 'boom'), '失败'), 'boom');
+});
+
+test('工作台收到 401 时不渲染错误红框、不清零已有数据', () => {
+  // 与 pages/Dashboard/index.tsx 的 catch 同一条判定：pageLoadErrorMessage 返回 null
+  // 就直接 return，不执行下面的 setSummary/setLoadError。
+  let summary = { ...emptyDashboardSummary, expiring_count: 7, coverage: 62 };
+  let loadError;
+  function runDashboardCatch(error) {
+    const description = pageLoadErrorMessage(error, '工作台数据加载失败');
+    if (description === null) return;
+    summary = emptyDashboardSummary;
+    loadError = description;
+  }
+
+  runDashboardCatch(axiosError(401, { code: 'UNAUTHENTICATED' }));
+  assert.equal(summary.expiring_count, 7);
+  assert.equal(summary.coverage, 62);
+  assert.equal(loadError, undefined);
+
+  // 非登录故障仍然如实报错并退回空数据，避免把接口故障显示成 0 业务数据。
+  runDashboardCatch(axiosError(500, 'boom'));
+  assert.equal(summary.expiring_count, 0);
+  assert.equal(loadError, 'boom');
 });

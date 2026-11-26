@@ -13,7 +13,7 @@ import type {
   DashboardRiskTrace,
   DashboardSummary,
 } from '@/types/domain';
-import { apiErrorMessage } from '@/utils/apiErrors';
+import { isAuthError, pageLoadErrorMessage } from '@/utils/apiErrors';
 import { emptyDashboardSummary, isDashboardSummary, normalizeDashboardSummary } from '@/utils/dashboardSummary';
 import {
   auditActionLabel,
@@ -67,9 +67,13 @@ export default function DashboardPage() {
           }
         }
       } catch (error) {
+        // 401/会话失效由全局鉴权闸门与登录跳转接管：不把登录问题显示成数据错误，
+        // 也不把统计卡片清成 0（Item #48）。
+        const description = pageLoadErrorMessage(error, '工作台数据加载失败');
+        if (description === null) return;
         if (!cancelled) {
           setSummary(emptyDashboardSummary);
-          setLoadError(apiErrorMessage(error, '工作台数据加载失败'));
+          setLoadError(description);
         }
       } finally {
         if (!cancelled) {
@@ -117,6 +121,7 @@ export default function DashboardPage() {
       const trace = await getResource<DashboardRiskTrace>(`/dashboard/risk-items/${record.id}/trace`);
       setCurrentRiskTrace(trace);
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '风险项追溯加载失败');
     } finally {
       setRiskTraceLoading(false);

@@ -81,6 +81,34 @@ export function apiErrorStatus(error: unknown): number | undefined {
   return axiosResponseStatus(error) ?? info?.response?.status ?? info?.status;
 }
 
+// 登录态失效的两种来源：中间件无会话（UNAUTHENTICATED）与授权中心判定会话过期
+// （SESSION_EXPIRED）；两者都必须交给登录跳转，不能渲染成页面业务错误。
+const AUTH_ERROR_CODES = new Set(['UNAUTHENTICATED', 'SESSION_EXPIRED']);
+
+/**
+ * 是否为「登录态失效」错误。
+ *
+ * 页面加载/提交收到这类错误时不应展示红框或业务 toast（那是把登录问题误报成数据
+ * 问题，且会在跳转登录前闪一下）；统一由全局鉴权闸门与 `handleAuthError` 接管。
+ */
+export function isAuthError(error: unknown): boolean {
+  if (apiErrorStatus(error) === 401) return true;
+  const detail = errorDetail(error);
+  if (!detail || typeof detail !== 'object') return false;
+  const code = (detail as { code?: unknown }).code;
+  return typeof code === 'string' && AUTH_ERROR_CODES.has(code);
+}
+
+/**
+ * 页面加载失败时的展示文案；登录态失效返回 null。
+ *
+ * 调用方拿到 null 时不进入错误态（不渲染红框、不清零已有数据），登录跳转由全局
+ * 鉴权闸门与 `handleAuthError` 统一负责。
+ */
+export function pageLoadErrorMessage(error: unknown, fallback: string): string | null {
+  return isAuthError(error) ? null : apiErrorMessage(error, fallback);
+}
+
 export function isReviewStaleActionError(error: unknown): boolean {
   const message = apiErrorMessage(error, '');
   const status = apiErrorStatus(error);
