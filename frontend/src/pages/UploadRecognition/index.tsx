@@ -257,7 +257,7 @@ export default function UploadRecognitionPage() {
     } catch (error) {
       if (isAuthError(error)) return;
       setRecognitionStatus('识别失败');
-      const description = error instanceof Error ? error.message : '上传识别失败';
+      const description = apiErrorMessage(error, '上传识别失败');
       setErrorMessage(description);
       message.error(description);
       setUploading(false);
@@ -280,7 +280,7 @@ export default function UploadRecognitionPage() {
     } catch (error) {
       if (isAuthError(error)) return;
       setRecognitionStatus('识别失败');
-      const description = error instanceof Error ? error.message : '重新识别失败';
+      const description = apiErrorMessage(error, '重新识别失败');
       setErrorMessage(description);
       message.error(description);
     } finally {

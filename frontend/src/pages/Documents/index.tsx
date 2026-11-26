@@ -12,7 +12,7 @@ import type {
   RecognitionDispatch,
   RecognitionStatus,
 } from '@/types/domain';
-import { isAuthError } from '@/utils/apiErrors';
+import { apiErrorMessage, isAuthError } from '@/utils/apiErrors';
 import {
   auditActionLabel,
   auditResourceTypeLabel,
@@ -61,7 +61,7 @@ export default function DocumentsPage() {
       message.success('文件台账已开始导出');
     } catch (error) {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '文件台账导出失败');
+      message.error(apiErrorMessage(error, '文件台账导出失败'));
     }
   }
 
@@ -73,7 +73,7 @@ export default function DocumentsPage() {
       actionRef.current?.reload();
     } catch (error) {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '确认上传失败');
+      message.error(apiErrorMessage(error, '确认上传失败'));
     } finally {
       setRunningAction(undefined);
     }
@@ -118,7 +118,7 @@ export default function DocumentsPage() {
       }
     } catch (error) {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '重新识别失败');
+      message.error(apiErrorMessage(error, '重新识别失败'));
     } finally {
       setRunningAction(undefined);
     }
@@ -133,7 +133,7 @@ export default function DocumentsPage() {
       setCurrentTrace(trace);
     } catch (error) {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '文件追溯链路加载失败');
+      message.error(apiErrorMessage(error, '文件追溯链路加载失败'));
     } finally {
       setTraceLoading(false);
     }
@@ -244,7 +244,7 @@ export default function DocumentsPage() {
             return { data: result.data, total: result.total, success: true };
           } catch (error) {
             if (isAuthError(error)) return { data: [], success: false };
-            const description = error instanceof Error ? error.message : '文件台账加载失败';
+            const description = apiErrorMessage(error, '文件台账加载失败');
             setLoadError(description);
             message.error(description);
             return { data: [], success: false };

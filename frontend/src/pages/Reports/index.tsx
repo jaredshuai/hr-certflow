@@ -12,7 +12,7 @@ import type {
   CertificateTypeRiskRow,
   ReportChartRow,
 } from '@/types/domain';
-import { isAuthError } from '@/utils/apiErrors';
+import { apiErrorMessage, isAuthError } from '@/utils/apiErrors';
 import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
 import { useChartHeight } from '@/utils/useChartHeight';
@@ -69,7 +69,7 @@ export default function ReportsPage() {
         if (isAuthError(error)) return;
         if (!cancelled) {
           setReport(emptyReport);
-          setLoadError(error instanceof Error ? error.message : '统计报表加载失败');
+          setLoadError(apiErrorMessage(error, '统计报表加载失败'));
         }
       } finally {
         if (!cancelled) {
@@ -90,7 +90,7 @@ export default function ReportsPage() {
       message.success('统计报表已开始导出');
     } catch (error) {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '统计报表导出失败');
+      message.error(apiErrorMessage(error, '统计报表导出失败'));
     }
   }
 
