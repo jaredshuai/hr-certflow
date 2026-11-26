@@ -46,15 +46,55 @@ function accessErrorMessage(detail: unknown): string | undefined {
     : undefined;
 }
 
+// axios 对无结构响应错误给出的机械文案——既不是后端业务文案也不能指导用户操作，
+// 展示给用户就是英文噪音，统一退回调用方的中文兜底。
+function isAxiosNoiseMessage(message: string): boolean {
+  return /^request failed with status code \d+$/i.test(message.trim()) || message.trim() === 'Network Error';
+}
+
 export function apiErrorMessage(error: unknown, fallback: string): string {
   const detail = errorDetail(error);
   if (typeof detail === 'string' && detail.trim()) return detail;
   const accessMessage = accessErrorMessage(detail);
   if (accessMessage) return accessMessage;
-  if (error instanceof Error && error.message.trim()) return error.message;
+  if (error instanceof Error && error.message.trim() && !isAxiosNoiseMessage(error.message)) {
+    return error.message;
+  }
   return fallback;
 }
 
+
+interface BlobErrorShape {
+  name?: unknown;
+  message?: unknown;
+  response?: {
+    status?: unknown;
+    data?: unknown;
+  };
+}
+
+/**
+ * blob 下载请求失败时 axios 把 JSON 错误体装进 Blob，`detail` 不经过解码就读不到，
+ * 本模块拿不到 {detail:{code}} 就没法映射中文授权提示（导出 403 会裸显英文）。
+ * 解码后重抛一个 response.data 为已解析 JSON 的同状态错误；非 blob/非 JSON 原样透传。
+ */
+export async function normalizeBlobError(error: unknown): Promise<unknown> {
+  if (!error || typeof error !== 'object' || !('response' in error)) return error;
+  const shape = error as BlobErrorShape;
+  if (!(shape.response?.data instanceof Blob)) return error;
+  if (typeof shape.response.status !== 'number') return error;
+  try {
+    const text = await shape.response.data.text();
+    const data: unknown = JSON.parse(text);
+    const normalized = new Error(typeof shape.message === 'string' ? shape.message : '下载失败');
+    normalized.name = typeof shape.name === 'string' ? shape.name : 'AxiosError';
+    Object.assign(normalized, { response: { status: shape.response.status, data } });
+    return normalized;
+  } catch {
+    // 错误体不是可解析 JSON（如网关 text/plain）：状态码仍然可读，文案走中文兜底。
+    return error;
+  }
+}
 /**
  * 后端 401 body 里的 `detail.loginUrl`（jxccs-access 登录入口）。
  *
@@ -112,6 +152,16 @@ export interface LoadFailureState<T> {
 export function loadFailureState<T>(error: unknown, fallback: string, empty: T): LoadFailureState<T> | null {
   if (isAuthError(error)) return null;
   return { data: empty, loadError: apiErrorMessage(error, fallback) };
+}
+
+/**
+ * 列表页表格 request/基础数据 useEffect 的 catch 判定：登录态失效返回 null
+ *（页面静默空数据、交给登录跳转），其他错误返回应展示给用户的文案。
+ * 各表格页与单测共用这一个出口，避免页面复制 catch 判定后测试只测到复制品。
+ */
+export function tableRequestFailure(error: unknown, fallback: string): string | null {
+  if (isAuthError(error)) return null;
+  return apiErrorMessage(error, fallback);
 }
 
 export function isReviewStaleActionError(error: unknown): boolean {

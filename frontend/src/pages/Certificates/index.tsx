@@ -22,7 +22,7 @@ import type {
   EmployeeCertificate,
   EmployeeCertificateTrace,
 } from '@/types/domain';
-import { apiErrorMessage, isAuthError } from '@/utils/apiErrors';
+import { apiErrorMessage, isAuthError, tableRequestFailure } from '@/utils/apiErrors';
 import {
   auditActionLabel,
   auditResourceTypeLabel,
@@ -99,8 +99,8 @@ export default function CertificatesPage() {
     }
 
     void loadOptions().catch((error) => {
-      if (isAuthError(error)) return;
-      message.error(apiErrorMessage(error, '基础数据加载失败'));
+      const failure = tableRequestFailure(error, '基础数据加载失败');
+      if (failure !== null) message.error(failure);
     });
   }, []);
 
@@ -294,10 +294,10 @@ export default function CertificatesPage() {
             setLoadError(undefined);
             return { data: result.data, total: result.total, success: true };
           } catch (error) {
-            if (isAuthError(error)) return { data: [], success: false };
-            const description = apiErrorMessage(error, '持证记录加载失败');
-            setLoadError(description);
-            message.error(description);
+            const failure = tableRequestFailure(error, '持证记录加载失败');
+            if (failure === null) return { data: [], success: false };
+            setLoadError(failure);
+            message.error(failure);
             return { data: [], success: false };
           }
         }}
