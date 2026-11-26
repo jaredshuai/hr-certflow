@@ -86,7 +86,9 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
 
 `layout.childrenRender` 外挂全局鉴权闸门（`components/AuthGate.tsx`，判定收敛在
 `utils/authGate.ts`）：`/me` 未返回前只渲染加载态、不挂载业务页面，工作台等页面不会
-在鉴权完成前抢跑发出首包请求；401 时改为「登录已失效，请重新登录」占位态并卸载业务页面。
+在鉴权完成前抢跑发出首包请求；401 时卸载业务页面并保持「正在跳转登录…」加载态，
+静默 SSO 往返全程不闪「登录已失效」；只有无法自动跳转（刚主动退出命中防循环标记、
+当前前缀没有登录入口）才展示手动登录兜底。
 登录跳转由 `utils/loginRedirect.ts` 的 `redirectToLoginOnce` 唯一执行，sessionStorage
 里的防重入标记保证并发多个 401 只导航一次，`/me` 成功后清标记、下次真正过期时仍可再跳。
 请求层 `errorConfig.errorHandler` 与各业务页面 catch 统一用 `utils/apiErrors.ts` 的

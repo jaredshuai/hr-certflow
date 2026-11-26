@@ -41,6 +41,8 @@ export function CurrentOperator() {
         </Tooltip>
       );
     case 'unauthenticated':
+      // 自动 SSO 跳转期间保持安静，避免右上角再闪一下「未登录」。
+      if (state.redirecting) return null;
       return (
         <>
           <Tag color="red">未登录</Tag>

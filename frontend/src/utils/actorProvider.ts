@@ -1,6 +1,6 @@
 import { getResource, postResource } from '@/services/api';
 import { apiErrorLoginUrl, apiErrorStatus, isAuthError } from '@/utils/apiErrors';
-import { actorStateFromErrorStatus, actorStateFromMe, type ActorState, type MeResponse } from '@/utils/actorState';
+import { actorStateFromErrorStatus, actorStateFromMe, unauthenticatedStateFromRedirect, type ActorState, type MeResponse } from '@/utils/actorState';
 import {
   clearRedirectMarker,
   hasAccessLogout,
@@ -99,9 +99,7 @@ class MeActorProvider {
     if (typeof window === 'undefined') return false;
     const outcome = redirectToLoginOnce(redirectEnvironment(), apiErrorLoginUrl(error));
     this.loading = false;
-    this.state = outcome.loginUrl
-      ? { status: 'unauthenticated', loginUrl: outcome.loginUrl }
-      : { status: 'unauthenticated' };
+    this.state = unauthenticatedStateFromRedirect(this.state, outcome);
     this.notify();
     return outcome.redirected;
   }
