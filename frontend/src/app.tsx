@@ -98,6 +98,8 @@ export const request: RequestConfig = {
     },
     // 401/会话失效不弹业务错误：工作台等页面在鉴权完成前已不会挂载；这里再兜一层
     // 会话中途过期（30 分钟空闲）的情况，统一交给 actorProvider 只跳一次登录。
+    // 非登录错误保持原契约：由具体页面的 catch 决定是否提示（umi 本身没有默认
+    // errorHandler，不配置时错误也只是 reject 给调用方），这里不重复弹 toast。
     errorHandler: (error: unknown) => {
       if (isAuthError(error)) {
         actorProvider.handleAuthError(error);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { apiErrorLoginUrl, apiErrorMessage, apiErrorStatus, isAuthError, isReviewStaleActionError, pageLoadErrorMessage } from '../src/utils/apiErrors.ts';
+import { apiErrorLoginUrl, apiErrorMessage, apiErrorStatus, isAuthError, isReviewStaleActionError, loadFailureState } from '../src/utils/apiErrors.ts';
 import { emptyDashboardSummary } from '../src/utils/dashboardSummary.ts';
 
 function axiosError(status, detail) {
@@ -100,23 +100,32 @@ test('isAuthError 不把权限/普通故障误判为登录失效', () => {
   assert.equal(isAuthError(undefined), false);
 });
 
-test('pageLoadErrorMessage：登录失效返回 null，其他错误照常给文案', () => {
-  assert.equal(pageLoadErrorMessage(axiosError(401), '工作台数据加载失败'), null);
-  assert.equal(pageLoadErrorMessage(axiosError(401, { code: 'SESSION_EXPIRED' }), '工作台数据加载失败'), null);
-  assert.equal(pageLoadErrorMessage(axiosError(403, { code: 'FORBIDDEN' }), '失败'), '没有执行此操作的权限，请联系管理员授权。');
-  assert.equal(pageLoadErrorMessage(axiosError(500, 'boom'), '失败'), 'boom');
+test('loadFailureState：登录失效返回 null，其他错误退回空数据并给文案', () => {
+  assert.equal(loadFailureState(axiosError(401), '工作台数据加载失败', emptyDashboardSummary), null);
+  assert.equal(
+    loadFailureState(axiosError(401, { code: 'SESSION_EXPIRED' }), '工作台数据加载失败', emptyDashboardSummary),
+    null,
+  );
+  assert.deepEqual(loadFailureState(axiosError(500, 'boom'), '失败', 'empty'), {
+    data: 'empty',
+    loadError: 'boom',
+  });
+  assert.equal(
+    loadFailureState(axiosError(403, { code: 'FORBIDDEN' }), '失败', 'empty').loadError,
+    '没有执行此操作的权限，请联系管理员授权。',
+  );
 });
 
 test('工作台收到 401 时不渲染错误红框、不清零已有数据', () => {
-  // 与 pages/Dashboard/index.tsx 的 catch 同一条判定：pageLoadErrorMessage 返回 null
-  // 就直接 return，不执行下面的 setSummary/setLoadError。
+  // 与 pages/Dashboard/index.tsx 的 catch 同一条判定：loadFailureState 返回 null
+  // 就直接 return，不执行 setSummary/setLoadError。
   let summary = { ...emptyDashboardSummary, expiring_count: 7, coverage: 62 };
   let loadError;
   function runDashboardCatch(error) {
-    const description = pageLoadErrorMessage(error, '工作台数据加载失败');
-    if (description === null) return;
-    summary = emptyDashboardSummary;
-    loadError = description;
+    const failure = loadFailureState(error, '工作台数据加载失败', emptyDashboardSummary);
+    if (!failure) return;
+    summary = failure.data;
+    loadError = failure.loadError;
   }
 
   runDashboardCatch(axiosError(401, { code: 'UNAUTHENTICATED' }));

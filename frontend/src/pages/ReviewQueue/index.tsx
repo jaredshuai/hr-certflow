@@ -152,6 +152,7 @@ export default function ReviewQueuePage() {
     }
 
     void loadOptions().catch((error) => {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '基础数据加载失败');
     });
   }, []);

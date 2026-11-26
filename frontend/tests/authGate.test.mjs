@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { authGateLoginUrl, authGateMode } from '../src/utils/authGate.ts';
+import { authGateMode, authGateView } from '../src/utils/authGate.ts';
 
 test('loading / unauthenticated / error never let business pages through', () => {
   assert.equal(authGateMode({ status: 'loading' }), 'loading');
@@ -19,11 +19,12 @@ test('only a confirmed actor (real session or dev operator) opens the gate', () 
 });
 
 test('a page is not mounted, and therefore sends no first request, until auth resolves', () => {
-  // Mirrors app.tsx childrenRender + AuthGate: children render only for mode 'ready'.
+  // AuthGate.tsx renders children only when authGateView(state).renderChildren is true;
+  // this exercises that production boundary rather than a second copy of the rule.
   let pageMounts = 0;
   let firstRequests = 0;
   function renderGate(state) {
-    if (authGateMode(state) !== 'ready') return null;
+    if (!authGateView(state).renderChildren) return null;
     pageMounts += 1;
     firstRequests += 1; // the Dashboard useEffect request fires on mount
     return 'page';
@@ -41,8 +42,11 @@ test('a page is not mounted, and therefore sends no first request, until auth re
 });
 
 test('the manual login link only exists for unauthenticated state', () => {
-  assert.equal(authGateLoginUrl({ status: 'unauthenticated', loginUrl: '/hr-certflow/auth/login' }), '/hr-certflow/auth/login');
-  assert.equal(authGateLoginUrl({ status: 'unauthenticated' }), undefined);
-  assert.equal(authGateLoginUrl({ status: 'loading' }), undefined);
-  assert.equal(authGateLoginUrl({ status: 'error' }), undefined);
+  assert.equal(
+    authGateView({ status: 'unauthenticated', loginUrl: '/hr-certflow/auth/login' }).loginUrl,
+    '/hr-certflow/auth/login',
+  );
+  assert.equal(authGateView({ status: 'unauthenticated' }).loginUrl, undefined);
+  assert.equal(authGateView({ status: 'loading' }).loginUrl, undefined);
+  assert.equal(authGateView({ status: 'error' }).loginUrl, undefined);
 });

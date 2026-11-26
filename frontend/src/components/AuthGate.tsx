@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import { actorProvider } from '@/utils/actorProvider';
 import type { ActorState } from '@/utils/actorState';
-import { authGateLoginUrl, authGateMode } from '@/utils/authGate';
+import { authGateView } from '@/utils/authGate';
 
 interface AuthGateProps {
   children: ReactNode;
@@ -35,14 +35,14 @@ export function AuthGate({ children }: AuthGateProps) {
 
   useEffect(() => actorProvider.subscribe(setState), []);
 
-  const mode = authGateMode(state);
-  if (mode === 'ready') {
+  const view = authGateView(state);
+  if (view.renderChildren) {
     return <>{children}</>;
   }
 
-  const loginUrl = authGateLoginUrl(state);
+  const loginUrl = view.loginUrl;
 
-  if (mode === 'loading') {
+  if (view.mode === 'loading') {
     return (
       <div style={frameStyle} role="status">
         <Spin size="large" />
@@ -51,7 +51,7 @@ export function AuthGate({ children }: AuthGateProps) {
     );
   }
 
-  if (mode === 'unauthenticated') {
+  if (view.mode === 'unauthenticated') {
     return (
       <div style={frameStyle} role="status">
         <Typography.Title level={4} style={{ margin: 0 }}>

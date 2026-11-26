@@ -13,7 +13,7 @@ import type {
   DashboardRiskTrace,
   DashboardSummary,
 } from '@/types/domain';
-import { isAuthError, pageLoadErrorMessage } from '@/utils/apiErrors';
+import { isAuthError, loadFailureState } from '@/utils/apiErrors';
 import { emptyDashboardSummary, isDashboardSummary, normalizeDashboardSummary } from '@/utils/dashboardSummary';
 import {
   auditActionLabel,
@@ -69,11 +69,11 @@ export default function DashboardPage() {
       } catch (error) {
         // 401/会话失效由全局鉴权闸门与登录跳转接管：不把登录问题显示成数据错误，
         // 也不把统计卡片清成 0（Item #48）。
-        const description = pageLoadErrorMessage(error, '工作台数据加载失败');
-        if (description === null) return;
+        const failure = loadFailureState(error, '工作台数据加载失败', emptyDashboardSummary);
+        if (!failure) return;
         if (!cancelled) {
-          setSummary(emptyDashboardSummary);
-          setLoadError(description);
+          setSummary(failure.data);
+          setLoadError(failure.loadError);
         }
       } finally {
         if (!cancelled) {

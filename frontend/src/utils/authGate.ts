@@ -22,7 +22,23 @@ export function authGateMode(state: ActorState): AuthGateMode {
   }
 }
 
-/** 闸门展示的登录入口：只有未登录状态可能带 loginUrl。 */
-export function authGateLoginUrl(state: ActorState): string | undefined {
-  return state.status === 'unauthenticated' ? state.loginUrl : undefined;
+export interface AuthGateView {
+  mode: AuthGateMode;
+  /** 是否挂载业务页面；只有确认了操作人才为 true。 */
+  renderChildren: boolean;
+  /** 未登录且当前前缀有登录入口时的手动兜底链接。 */
+  loginUrl?: string;
+}
+
+/**
+ * `AuthGate` 实际渲染所依据的边界：业务页面是否挂载只有这一个出口。
+ * 单测直接调用它，避免另写一份判定而在组件回归时仍然全绿。
+ */
+export function authGateView(state: ActorState): AuthGateView {
+  const mode = authGateMode(state);
+  return {
+    mode,
+    renderChildren: mode === 'ready',
+    loginUrl: state.status === 'unauthenticated' ? state.loginUrl : undefined,
+  };
 }

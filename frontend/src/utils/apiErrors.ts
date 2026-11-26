@@ -99,14 +99,19 @@ export function isAuthError(error: unknown): boolean {
   return typeof code === 'string' && AUTH_ERROR_CODES.has(code);
 }
 
+export interface LoadFailureState<T> {
+  data: T;
+  loadError: string;
+}
+
 /**
- * 页面加载失败时的展示文案；登录态失效返回 null。
- *
- * 调用方拿到 null 时不进入错误态（不渲染红框、不清零已有数据），登录跳转由全局
- * 鉴权闸门与 `handleAuthError` 统一负责。
+ * 页面加载失败时的完整状态：登录态失效返回 null，页面保持原状（不清零、不报错）；
+ * 其他失败退回 `empty` 数据并给出提示文案。工作台等页面直接使用这个结果，
+ * 单测因此覆盖的是页面真正执行的同一条路径。
  */
-export function pageLoadErrorMessage(error: unknown, fallback: string): string | null {
-  return isAuthError(error) ? null : apiErrorMessage(error, fallback);
+export function loadFailureState<T>(error: unknown, fallback: string, empty: T): LoadFailureState<T> | null {
+  if (isAuthError(error)) return null;
+  return { data: empty, loadError: apiErrorMessage(error, fallback) };
 }
 
 export function isReviewStaleActionError(error: unknown): boolean {
