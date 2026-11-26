@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 import { errorBoundaryStateFromError } from '@/utils/errorBoundaryState';
+import { reportErrorToGlitchtip } from '@/utils/glitchtip';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -28,6 +29,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
     console.error('[hr-certflow] 页面渲染出错', error, info.componentStack);
+    // 监控未启用（无 DSN 注入）时这是 no-op；componentStack 在 glitchtip.ts
+    // 内收进 contexts.react 并走同一套脱敏规则。
+    void reportErrorToGlitchtip(error, { componentStack: info.componentStack ?? undefined });
   }
 
   private handleReload = () => {

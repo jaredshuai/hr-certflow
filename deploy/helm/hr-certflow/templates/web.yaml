@@ -18,6 +18,12 @@ spec:
       app.kubernetes.io/component: web
   template:
     metadata:
+      # subPath 挂载不随 ConfigMap 更新热替换：把内容校验和放进 pod 模板，
+      # dsn/environment/release 任何一项变化都会触发滚动更新。
+      {{- if .Values.glitchtip.enabled }}
+      annotations:
+        checksum/glitchtip-config: {{ printf "%s|%s|%s" (.Values.glitchtip.dsn | default "") (.Values.glitchtip.environment | default "") (.Values.glitchtip.release | default "") | sha256sum | quote }}
+      {{- end }}
       labels:
         {{- include "hr-certflow.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: web
@@ -45,6 +51,21 @@ spec:
             periodSeconds: 20
           resources:
             {{- toYaml .Values.web.resources | nindent 12 }}
+          {{- if .Values.glitchtip.enabled }}
+          volumeMounts:
+            - name: glitchtip-config
+              # subPath 只覆盖这一个文件，镜像内其余静态资源不受影响；
+              # nginx 已对该路径返回 no-store，更新 ConfigMap 后浏览器即取新值。
+              mountPath: /usr/share/nginx/html/glitchtip-config.js
+              subPath: glitchtip-config.js
+              readOnly: true
+          {{- end }}
+      {{- if .Values.glitchtip.enabled }}
+      volumes:
+        - name: glitchtip-config
+          configMap:
+            name: {{ include "hr-certflow.fullname" . }}-web-glitchtip
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

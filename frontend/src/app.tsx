@@ -11,9 +11,14 @@ import { CurrentOperator } from '@/components/CurrentOperator';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { actorProvider } from '@/utils/actorProvider';
 import { isAuthError } from '@/utils/apiErrors';
+import { initGlitchtip } from '@/utils/glitchtip';
 import { resolveAppBase } from '@/utils/loginRedirect';
 import { setMessageInstance } from '@/utils/messageApi';
 import { buildRequestHeaders, buildRequestId } from '@/utils/requestHeaders';
+
+// 错误监控在应用渲染前最早期接线：glitchtip-config.js 已先于主 bundle 执行，
+// 这里有 DSN 才初始化，未注入的环境完全静默、零副作用（Item #51）。
+initGlitchtip();
 
 const appTheme: ThemeConfig = {
   cssVar: true as any,

@@ -101,6 +101,25 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
 的响应先经 `normalizeDashboardSummary` 收敛（空 body、HTML 兜底页、缺字段、字段类型
 不对都退回空数据结构），渲染层不再直接解引用接口返回值。
 
+### Frontend 错误监控（GlitchTip，可选）
+
+前端可选接入内网 GlitchTip（Sentry 协议）错误监控，严格按「运行时注入、公仓零泄漏」：
+镜像内 `glitchtip-config.js` 只是空占位文件（`window.__GLITCHTIP_CONFIG__ = {}`），
+公仓源码、默认值与文档中绝不出现真实 DSN 或内网地址；dev 与 release 共用同一份 web
+镜像，启用与否完全由部署侧 ConfigMap 以 subPath 覆盖该文件决定。入口 `app.tsx` 在渲染
+前最早期调用 `utils/glitchtip.ts` 的 `initGlitchtip`：DSN 为空时静默返回、不加载 sdk；
+非空时才动态 `import('@sentry/browser')` 初始化，sdk 加载失败也只记日志、绝不影响应用。
+`environment` 优先取注入值，缺省按应用前缀推断（`/hr-certflow-dev` → dev，
+`/hr-certflow` → release）。HR 系统含员工 PII，脱敏是硬约束：`sendDefaultPii: false`、
+不接 Session Replay；`beforeSend` 删除事件 `user` 与请求头 Authorization/Cookie、
+抹掉 URL 与 breadcrumb 中的 `token|ticket|code|ssotoken` 参数值、递归脱敏请求体与
+extra/contexts 中的敏感键（密码、证件号、手机号、文件内容等）；401/会话失效属正常
+登录跳转流程（鉴权闸门已接管），这类事件直接丢弃不上报，避免监控被登录噪声淹没。
+`ErrorBoundary.componentDidCatch` 另把渲染崩溃连同 componentStack 手动上报：sdk 动态
+加载完成前到达的上报先入有界缓冲区，加载完成后按原顺序补发，首屏白屏路径不会因
+sdk 加载时序而丢失；从未初始化时整体 no-op。chart 侧 subPath 挂载不随 ConfigMap
+热更新，web Deployment pod 模板带内容校验和 annotation，配置变化即触发滚动更新。
+
 ### Dify
 
 Dify is the shared AI workflow center for the MVP and near-term platform

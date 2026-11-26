@@ -259,6 +259,39 @@ self-hosted, Linux, X64, shared-k3s-deployer, kb
 
 Do not replace this with an application-owned runner or store deployer kubeconfig material in the repo.
 
+## GlitchTip 前端错误监控注入（可选）
+
+公仓 values 里 `glitchtip.enabled` 恒为 `false`、`dsn` 恒为空：真实 DSN 含内网
+地址，绝不进入公仓（含源码、默认值、注释与 PR 描述）。
+
+注入路径与 GitOps 的衔接（**infra 职责**，与 runtime secrets 同一契约）：
+
+- **正轨**：由 infra 在 Argo CD Application 上配置仓库外的私有 values 源
+  （与 `hr-certflow-runtime-secrets` 一样，值不进仓库、由 infra 持有），覆盖：
+
+  ```yaml
+  # 私有 values 示例（仅存于 infra 侧，不提交公仓；dsn 从内网 GlitchTip 项目的
+  # DSN 页复制）
+  glitchtip:
+    enabled: true
+    dsn: "<内网 GlitchTip DSN>"
+    environment: "dev"      # 可选，缺省时前端按应用前缀自动推断
+    release: ""             # 可选，需要按版本聚合时填写
+  ```
+
+  chart 据此生成 `<release>-web-glitchtip` ConfigMap，并以 subPath 覆盖 web 镜像内的
+  `glitchtip-config.js` 占位文件；values 变化被 chart 内 checksum annotation 捕获，
+  滚动更新 web Pod 使新配置生效。nginx 对该文件返回 `Cache-Control: no-store`，
+  重启后浏览器立即取到新配置。
+
+
+注入唯一路径就是上面的 infra values 覆盖：chart 关闭时 web Deployment 没有该
+ConfigMap 的挂载，手工 kubectl create 无法生效；chart 开启后 ConfigMap 归 Helm
+所有，手工替换又会被 Argo sync 回滚。因此不设 break-glass 捷径，避免配置漂移。
+
+未启用时占位文件为空对象，前端静默跳过初始化，dev/release 镜像内容完全一致，
+不受注入与否影响。
+
 ## Environment Data Policy
 
 Dev may contain smoke-test uploads, AI extraction samples, and manually created
