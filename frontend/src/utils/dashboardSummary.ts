@@ -79,8 +79,11 @@ function riskRows(value: unknown): DashboardRiskRow[] {
  * 200 但 body 是 HTML（网关兜底页）、空 body 或字段缺失时，normalize 仍会给出全 0
  * 的可渲染数据；若只展示全 0，HR 会把「接口不可用」误读成「业务数据为 0」。调用方
  * 用它把这类响应额外标记成加载异常。
+ *
+ * 只做顶层字段校验，不对每一行做类型收窄，所以返回 `boolean` 而不是类型谓词；
+ * 行级容错由 `normalizeDashboardSummary` 负责。
  */
-export function isDashboardSummary(raw: unknown): raw is DashboardSummary {
+export function isDashboardSummary(raw: unknown): boolean {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false;
   const value = raw as Record<string, unknown>;
   return (
