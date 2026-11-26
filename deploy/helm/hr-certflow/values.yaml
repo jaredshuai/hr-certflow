@@ -116,7 +116,9 @@ migrations:
 # 镜像内的 glitchtip-config.js 占位文件。environment/release 可选：
 # environment 缺省时前端按应用前缀自动推断 dev/release；release 留空时
 # chart 自动回退为当前 web 镜像 tag（images.web.tag），发版只更新镜像 tag
-# 即完成错误事件版本聚合，无需手工同步；显式传入则以显式值覆盖。
+# 即完成错误事件版本聚合，无需手工同步；显式传入（任何非空白标量，含 "0"）
+# 则以显式值覆盖。回退值是 chart 默认占位 latest 或空串时 release 字段整体
+# 省略——latest/空不是有意义的版本，注入只会把事件聚到伪版本。
 glitchtip:
   enabled: false
   dsn: ""
