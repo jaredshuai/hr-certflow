@@ -276,12 +276,15 @@ Do not replace this with an application-owned runner or store deployer kubeconfi
     enabled: true
     dsn: "<内网 GlitchTip DSN>"
     environment: "dev"      # 可选，缺省时前端按应用前缀自动推断
-    release: ""             # 可选，需要按版本聚合时填写
+    release: ""             # 推荐留空：自动回退为当前 web 镜像 tag，
+                            # 发版即完成版本聚合；仅需要跨版本聚合时才显式填写
   ```
 
   chart 据此生成 `<release>-web-glitchtip` ConfigMap，并以 subPath 覆盖 web 镜像内的
   `glitchtip-config.js` 占位文件；values 变化被 chart 内 checksum annotation 捕获，
-  滚动更新 web Pod 使新配置生效。nginx 对该文件返回 `Cache-Control: no-store`，
+  滚动更新 web Pod 使新配置生效。release 留空时按上文回退为当前 web 镜像 tag；
+  若镜像 tag 仍是 chart 默认占位 `latest` 或空串，release 字段整体省略（避免事件
+  聚到伪版本）。nginx 对该文件返回 `Cache-Control: no-store`，
   重启后浏览器立即取到新配置。
 
 

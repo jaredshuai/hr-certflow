@@ -15,8 +15,10 @@ data:
       {{- if .Values.glitchtip.environment }}
       environment: {{ .Values.glitchtip.environment | quote }},
       {{- end }}
-      {{- if .Values.glitchtip.release }}
-      release: {{ .Values.glitchtip.release | quote }},
+      {{- /* 解析出有效 release（显式值或有意义的镜像 tag）才输出；latest/空回退不产生伪版本。 */}}
+      {{- $glitchtipRelease := include "hr-certflow.glitchtipRelease" . }}
+      {{- if $glitchtipRelease }}
+      release: {{ $glitchtipRelease | quote }},
       {{- end }}
     };
 {{- end }}

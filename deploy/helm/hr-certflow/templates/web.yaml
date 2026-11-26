@@ -22,7 +22,8 @@ spec:
       # dsn/environment/release 任何一项变化都会触发滚动更新。
       {{- if .Values.glitchtip.enabled }}
       annotations:
-        checksum/glitchtip-config: {{ printf "%s|%s|%s" (.Values.glitchtip.dsn | default "") (.Values.glitchtip.environment | default "") (.Values.glitchtip.release | default "") | sha256sum | quote }}
+        # release 取解析后的生效值（含镜像 tag 回退），保证镜像 tag 变化时校验和翻转。
+        checksum/glitchtip-config: {{ printf "%s|%s|%s" (.Values.glitchtip.dsn | default "") (.Values.glitchtip.environment | default "") (include "hr-certflow.glitchtipRelease" .) | sha256sum | quote }}
       {{- end }}
       labels:
         {{- include "hr-certflow.selectorLabels" . | nindent 8 }}

@@ -39,6 +39,10 @@ jobs:
 
       - uses: astral-sh/setup-uv@v8.1.0
 
+      # backend/tests 里的 Helm 渲染测试（glitchtip release 回退等）需要 helm CLI；
+      # 未安装时这些用例按 skip 处理，装上后 CI 才真正执行它们。
+      - uses: azure/setup-helm@v5
+
       - name: Install backend
         run: uv sync --project backend --extra dev --locked --python 3.12
 
