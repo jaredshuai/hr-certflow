@@ -259,6 +259,26 @@ self-hosted, Linux, X64, shared-k3s-deployer, kb
 
 Do not replace this with an application-owned runner or store deployer kubeconfig material in the repo.
 
+## GlitchTip 前端错误监控注入（可选）
+
+公仓 values 里 `glitchtip.enabled` 恒为 `false`、`dsn` 恒为空：真实 DSN 含内网
+地址，绝不进入公仓（含源码、默认值、注释与 PR 描述）。要为某环境启用前端错误监控，
+部署时额外叠加一份**仓库外**的私有 values（或 `--set`）覆盖：
+
+```yaml
+# 私有 overlay 示例（不提交公仓；dsn 从内网 GlitchTip 项目的 DSN 页复制）
+glitchtip:
+  enabled: true
+  dsn: "<内网 GlitchTip DSN>"
+  environment: "dev"      # 可选，缺省时前端按应用前缀自动推断
+  release: ""             # 可选，需要按版本聚合时填写
+```
+
+chart 据此生成 `<release>-web-glitchtip` ConfigMap，并以 subPath 覆盖 web 镜像内的
+`glitchtip-config.js` 占位文件；nginx 对该文件返回 `Cache-Control: no-store`，更新
+ConfigMap 并滚动重启 web 后浏览器立即取到新配置。未启用时占位文件为空对象，前端
+静默跳过初始化，dev/release 镜像内容完全一致，不受注入与否影响。
+
 ## Environment Data Policy
 
 Dev may contain smoke-test uploads, AI extraction samples, and manually created

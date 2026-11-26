@@ -110,6 +110,17 @@ migrations:
       cpu: 250m
       memory: 256Mi
 
+# GlitchTip 前端错误监控（公仓默认关闭）。
+# 启用时由部署侧私有 values overlay 覆盖：glitchtip.enabled=true 并提供真实
+# dsn（内网地址绝不进公仓）；chart 据此生成 ConfigMap 并以 subPath 覆盖 web
+# 镜像内的 glitchtip-config.js 占位文件。environment/release 可选，
+# 缺省时前端按应用前缀自动推断 dev/release。
+glitchtip:
+  enabled: false
+  dsn: ""
+  environment: ""
+  release: ""
+
 ingress:
   enabled: true
   className: traefik

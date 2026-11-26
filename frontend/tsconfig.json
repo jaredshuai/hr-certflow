@@ -2,6 +2,8 @@
   "extends": "./src/.umi/tsconfig.json",
   "compilerOptions": {
     "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    // tests/ 用 node --test 直接跑 .ts（需显式扩展名导入），这里放行该写法。
+    "allowImportingTsExtensions": true
   }
 }

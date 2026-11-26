@@ -9,6 +9,11 @@ export default defineConfig({
   // dev 与 release 共用同一份前端镜像，分别挂在 /hr-certflow-dev/ 与 /hr-certflow/。
   // 必须保持相对路径：写死任一前缀都会让另一环境加载不到 umi.js。
   publicPath: process.env.NODE_ENV === 'production' ? './' : '/',
+  // GlitchTip 运行时注入的占位配置，必须在主 bundle 之前加载。
+  // 相对路径保证在 /hr-certflow/ 与 /hr-certflow-dev/ 子路径部署下都能命中
+  // 站点根的 glitchtip-config.js；未挂载 ConfigMap 时是空占位文件，永不 404，
+  // 也绝不会被 SPA fallback 当作 HTML 执行。
+  headScripts: [{ src: './glitchtip-config.js' }],
   layout: {
     title: '人力证书管理',
     locale: false,
