@@ -12,7 +12,7 @@ export function CurrentOperator() {
 
   useEffect(() => actorProvider.subscribe(setState), []);
 
-  // 「退出」只在 dev 会话前缀下提供：release 网关模式没有本应用 /auth/logout 端点。
+  // 「退出」只在挂了本应用 /auth/logout 的前缀下提供（dev / release）或本地直连。
   const canLogout = typeof window !== 'undefined' && hasAccessLogout(window.location.pathname);
 
   switch (state.status) {

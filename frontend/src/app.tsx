@@ -7,6 +7,7 @@ import 'dayjs/locale/zh-cn';
 import type { ReactNode } from 'react';
 
 import { CurrentOperator } from '@/components/CurrentOperator';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { resolveAppBase } from '@/utils/loginRedirect';
 import { setMessageInstance } from '@/utils/messageApi';
 import { buildRequestHeaders, buildRequestId } from '@/utils/requestHeaders';
@@ -127,11 +128,13 @@ function MessageInstaller() {
 
 export function rootContainer(container: ReactNode) {
   return (
-    <ConfigProvider locale={zhCN} theme={appTheme}>
-      <AntdApp>
-        <MessageInstaller />
-        <ProConfigProvider intl={zhCNIntl}>{container}</ProConfigProvider>
-      </AntdApp>
-    </ConfigProvider>
+    <ErrorBoundary>
+      <ConfigProvider locale={zhCN} theme={appTheme}>
+        <AntdApp>
+          <MessageInstaller />
+          <ProConfigProvider intl={zhCNIntl}>{container}</ProConfigProvider>
+        </AntdApp>
+      </ConfigProvider>
+    </ErrorBoundary>
   );
 }

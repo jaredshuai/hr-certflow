@@ -50,8 +50,11 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
 
 ### Identity And Access (jxccs-access)
 
-启用 `APP_ID` 时（local/dev），后端挂载 `jxccs-access` SDK 的 `/auth/*` BFF
-（登录、回调、登出、`/auth/me`）与会话/CSRF 中间件；release 过渡期仍走网关身份头。
+启用 `APP_ID` 时（local / dev / release），后端挂载 `jxccs-access` SDK 的 `/auth/*` BFF
+（登录、回调、登出、`/auth/me`）与会话/CSRF 中间件。release 已从 oauth2-proxy +
+身份头的过渡方案切到应用自有 OIDC（Hydra + Authorization Center），dev 与 release
+共用同一份前端镜像。前端在 `/me` 401 时优先采用响应体 `detail.loginUrl` 跳转登录，
+没有该字段时回退 `<应用前缀>/auth/login`；不再写死 `/oauth2/start`。
 
 - **业务 PEP**：证书台账读操作（certificates 列表/分页/导出/详情 trace）挂
   `certificate.view`；证书台账写操作（certificates 创建/更新、上传确认）与复核
@@ -69,8 +72,8 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
     VARCHAR(128)，原样落库会让带审计的写请求失败，所以非法值不回显、不落库、不转发。
 - **退出**：`POST /auth/logout` 只销毁本应用业务会话（服务端 session 记录删除 +
   清 Cookie），不调用 Casdoor/省平台的 end_session，不影响上游会话与其他应用。
-  前端在右上角提供「退出」入口（dev 会话前缀与本地直连根路径；release 网关前缀
-  没有该端点，不展示退出），退出后回到应用首页并展示「未登录 + 登录」。
+  前端在右上角提供「退出」入口（dev 与 release 前缀，以及本地直连根路径），退出后
+  回到应用首页并展示「未登录 + 登录」。
 - **Principal.source 口径**：随上游 `issuer-neutral-source`，真实会话的 `source` 为
   中性标签 `oidc`（issuer 身份在 `issuer_key` 里），`mock` 仅表示模拟身份会话。
   历史存量里的 `casdoor` 值读回时按 `oidc` 解析，无需重新登录；#42 曾临时打在
@@ -78,6 +81,13 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
 - **读不出来的存量会话**：SDK 严格校验存量会话里的主体，格式不再被识别（例如上面
   那份补丁写入的会话）时读回会抛错。接线处把这类会话按未登录处理：删除记录、清
   Cookie、用户重新登录，不会让带该 Cookie 的每个请求（含登录）都 500。
+
+### Frontend 渲染兜底
+
+`rootContainer` 最外层挂轻量 `ErrorBoundary`：任何页面组件在 render/lifecycle 抛错时
+展示错误页与「重试」按钮，而不是让 React 卸载整棵树留下白屏。工作台 `/dashboard/summary`
+的响应先经 `normalizeDashboardSummary` 收敛（空 body、HTML 兜底页、缺字段、字段类型
+不对都退回空数据结构），渲染层不再直接解引用接口返回值。
 
 ### Dify
 

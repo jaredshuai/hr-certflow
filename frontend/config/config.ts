@@ -6,6 +6,8 @@ export default defineConfig({
   esbuildMinifyIIFE: true,
   request: {},
   history: { type: 'hash' },
+  // dev 与 release 共用同一份前端镜像，分别挂在 /hr-certflow-dev/ 与 /hr-certflow/。
+  // 必须保持相对路径：写死任一前缀都会让另一环境加载不到 umi.js。
   publicPath: process.env.NODE_ENV === 'production' ? './' : '/',
   layout: {
     title: '人力证书管理',

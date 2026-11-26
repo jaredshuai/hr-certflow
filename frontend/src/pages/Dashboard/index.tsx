@@ -13,6 +13,8 @@ import type {
   DashboardRiskTrace,
   DashboardSummary,
 } from '@/types/domain';
+import { apiErrorMessage } from '@/utils/apiErrors';
+import { emptyDashboardSummary, normalizeDashboardSummary } from '@/utils/dashboardSummary';
 import {
   auditActionLabel,
   auditResourceTypeLabel,
@@ -25,17 +27,6 @@ import {
 import { emptyTableText } from '@/utils/emptyStates';
 import { useChartHeight } from '@/utils/useChartHeight';
 import { message } from '@/utils/messageApi';
-
-const emptyDashboardSummary: DashboardSummary = {
-  expiring_count: 0,
-  expired_count: 0,
-  pending_review_count: 0,
-  coverage: 0,
-  certificate_status_rows: [],
-  workload_rows: [],
-  pipeline_steps: [],
-  risk_rows: [],
-};
 
 interface ChartClickEvent {
   type?: string;
@@ -70,12 +61,12 @@ export default function DashboardPage() {
         const response = await request<DashboardSummary>('/dashboard/summary');
 
         if (!cancelled) {
-          setSummary(response);
+          setSummary(normalizeDashboardSummary(response));
         }
       } catch (error) {
         if (!cancelled) {
           setSummary(emptyDashboardSummary);
-          setLoadError(error instanceof Error ? error.message : '工作台数据加载失败');
+          setLoadError(apiErrorMessage(error, '工作台数据加载失败'));
         }
       } finally {
         if (!cancelled) {
