@@ -6,8 +6,11 @@ import type { ThemeConfig } from 'antd';
 import 'dayjs/locale/zh-cn';
 import type { ReactNode } from 'react';
 
+import { AuthGate } from '@/components/AuthGate';
 import { CurrentOperator } from '@/components/CurrentOperator';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { actorProvider } from '@/utils/actorProvider';
+import { isAuthError } from '@/utils/apiErrors';
 import { resolveAppBase } from '@/utils/loginRedirect';
 import { setMessageInstance } from '@/utils/messageApi';
 import { buildRequestHeaders, buildRequestId } from '@/utils/requestHeaders';
@@ -93,6 +96,15 @@ export const request: RequestConfig = {
       error.info = response;
       throw error;
     },
+    // 401/会话失效不弹业务错误：工作台等页面在鉴权完成前已不会挂载；这里再兜一层
+    // 会话中途过期（30 分钟空闲）的情况，统一交给 actorProvider 只跳一次登录。
+    // 非登录错误保持原契约：由具体页面的 catch 决定是否提示（umi 本身没有默认
+    // errorHandler，不配置时错误也只是 reject 给调用方），这里不重复弹 toast。
+    errorHandler: (error: unknown) => {
+      if (isAuthError(error)) {
+        actorProvider.handleAuthError(error);
+      }
+    },
   },
 };
 
@@ -118,6 +130,9 @@ export const layout: RunTimeLayoutConfig = () => ({
     },
   },
   actionsRender: () => [<CurrentOperator key="current-operator" />],
+  // 全局鉴权闸门：/me 未返回前不挂载业务页面，避免工作台抢跑发请求并把 401
+  // 渲染成「数据加载失败」红框（Item #48）。
+  childrenRender: (children) => <AuthGate>{children}</AuthGate>,
 });
 
 function MessageInstaller() {

@@ -97,3 +97,73 @@ export function hasAccessLogout(pathname: string): boolean {
   const appBase = resolveAppBase(pathname);
   return appBase === undefined || isAccessBase(appBase);
 }
+
+export interface RedirectStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+export interface RedirectEnvironment {
+  location: LoginRedirectLocation;
+  /** sessionStorage 不可用（隐私模式/被策略禁用）时为 null；此时无法防循环，放弃自动跳转。 */
+  storage: RedirectStorage | null;
+  assign(url: string): void;
+}
+
+export interface LoginRedirectOutcome {
+  /** true 表示本次调用真的发起了导航。 */
+  redirected: boolean;
+  /** 可用的登录入口；undefined 表示当前前缀没有登录入口（如本地直连、已退役前缀）。 */
+  loginUrl?: string;
+}
+
+export function hasRedirectMarker(storage: RedirectStorage | null): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(LOGIN_REDIRECT_MARKER_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** 写不进 storage 时返回 false，调用方据此放弃自动跳转，避免 401 死循环。 */
+export function setRedirectMarker(storage: RedirectStorage | null): boolean {
+  if (!storage) return false;
+  try {
+    storage.setItem(LOGIN_REDIRECT_MARKER_KEY, String(Date.now()));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** /me 成功后调用，恢复下一次自动跳转。 */
+export function clearRedirectMarker(storage: RedirectStorage | null): void {
+  if (!storage) return;
+  try {
+    storage.removeItem(LOGIN_REDIRECT_MARKER_KEY);
+  } catch {
+    // storage 不可用时没有标记可清。
+  }
+}
+
+/**
+ * 401 的统一出口：在防重入标记下最多导航一次。
+ *
+ * 并发场景（工作台 `/me` 与业务请求同时 401）里，第一次调用写入标记并导航；
+ * 后续调用只返回同一个 `loginUrl`，不重复 `assign`。没有登录入口或写不进标记时
+ * 不导航，把 `loginUrl` 交给界面展示手动登录入口。
+ */
+export function redirectToLoginOnce(
+  environment: RedirectEnvironment,
+  backendLoginUrl?: string,
+): LoginRedirectOutcome {
+  const loginUrl = loginUrlForLocation(environment.location, backendLoginUrl);
+  if (!loginUrl) return { redirected: false };
+  if (!hasRedirectMarker(environment.storage) && setRedirectMarker(environment.storage)) {
+    environment.assign(loginUrl);
+    return { redirected: true, loginUrl };
+  }
+  return { redirected: false, loginUrl };
+}

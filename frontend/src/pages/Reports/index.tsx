@@ -12,6 +12,7 @@ import type {
   CertificateTypeRiskRow,
   ReportChartRow,
 } from '@/types/domain';
+import { isAuthError } from '@/utils/apiErrors';
 import { downloadCsv } from '@/utils/download';
 import { emptyTableText } from '@/utils/emptyStates';
 import { useChartHeight } from '@/utils/useChartHeight';
@@ -64,6 +65,8 @@ export default function ReportsPage() {
           setReport(response);
         }
       } catch (error) {
+        // 401/会话失效由全局鉴权闸门与登录跳转接管，页面保持原数据，不闪红框。
+        if (isAuthError(error)) return;
         if (!cancelled) {
           setReport(emptyReport);
           setLoadError(error instanceof Error ? error.message : '统计报表加载失败');
@@ -86,6 +89,7 @@ export default function ReportsPage() {
       await downloadCsv('/reports/certificate-coverage/export.csv', {}, 'certificate-coverage-report.csv');
       message.success('统计报表已开始导出');
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '统计报表导出失败');
     }
   }

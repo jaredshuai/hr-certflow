@@ -30,6 +30,7 @@ import type {
   ReminderTaskStatus,
   ReminderTaskTimeline,
 } from '@/types/domain';
+import { isAuthError } from '@/utils/apiErrors';
 import {
   auditActionLabel,
   auditResourceTypeLabel,
@@ -244,6 +245,7 @@ export default function RemindersPage() {
       policyActionRef.current?.reload();
       return true;
     } catch (error) {
+      if (isAuthError(error)) return false;
       message.error(error instanceof Error ? error.message : '提醒策略保存失败');
       return false;
     }
@@ -260,6 +262,7 @@ export default function RemindersPage() {
       message.success('人力反馈已记录');
       actionRef.current?.reload();
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '反馈提交失败');
     } finally {
       setSubmittingId(undefined);
@@ -273,6 +276,7 @@ export default function RemindersPage() {
       const data = await getResource<ReminderTaskTimeline>(`/reminders/tasks/${reminderTaskId}/timeline`);
       setCurrentTimeline(data);
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '提醒详情加载失败');
     } finally {
       setTimelineLoading(false);
@@ -300,6 +304,7 @@ export default function RemindersPage() {
         await loadTimeline(record.id, false);
       }
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '提醒派发失败');
     } finally {
       setSubmittingId(undefined);
@@ -315,6 +320,7 @@ export default function RemindersPage() {
       );
       actionRef.current?.reload();
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '提醒任务扫描失败');
     } finally {
       setScanning(false);
@@ -326,6 +332,7 @@ export default function RemindersPage() {
       await downloadCsv('/reminders/tasks/export.csv', lastSearchParamsRef.current, 'reminder-tasks.csv');
       message.success('提醒任务已开始导出');
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '提醒任务导出失败');
     }
   }
@@ -561,6 +568,7 @@ export default function RemindersPage() {
               setPolicyLoadError(undefined);
               return { data, success: true };
             } catch (error) {
+              if (isAuthError(error)) return { data: [], success: false };
               const description = error instanceof Error ? error.message : '提醒策略加载失败';
               setPolicyLoadError(description);
               message.error(description);
@@ -600,6 +608,7 @@ export default function RemindersPage() {
             setLoadError(undefined);
             return { data: result.data, total: result.total, success: true };
           } catch (error) {
+            if (isAuthError(error)) return { data: [], success: false };
             const description = error instanceof Error ? error.message : '提醒任务加载失败';
             setLoadError(description);
             message.error(description);

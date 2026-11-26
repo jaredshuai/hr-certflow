@@ -22,6 +22,7 @@ import type {
   EmployeeCertificate,
   EmployeeCertificateTrace,
 } from '@/types/domain';
+import { isAuthError } from '@/utils/apiErrors';
 import {
   auditActionLabel,
   auditResourceTypeLabel,
@@ -98,6 +99,7 @@ export default function CertificatesPage() {
     }
 
     void loadOptions().catch((error) => {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '基础数据加载失败');
     });
   }, []);
@@ -163,6 +165,7 @@ export default function CertificatesPage() {
       actionRef.current?.reload();
       return true;
     } catch (error) {
+      if (isAuthError(error)) return false;
       message.error(error instanceof Error ? error.message : '持证记录保存失败');
       return false;
     }
@@ -173,6 +176,7 @@ export default function CertificatesPage() {
       await downloadCsv('/certificates/export.csv', lastSearchParamsRef.current, 'employee-certificates.csv');
       message.success('持证记录已开始导出');
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '持证记录导出失败');
     }
   }
@@ -185,6 +189,7 @@ export default function CertificatesPage() {
       const trace = await getResource<EmployeeCertificateTrace>(`/certificates/${record.id}/trace`);
       setCurrentTrace(trace);
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '追溯链路加载失败');
     } finally {
       setTraceLoading(false);
@@ -289,6 +294,7 @@ export default function CertificatesPage() {
             setLoadError(undefined);
             return { data: result.data, total: result.total, success: true };
           } catch (error) {
+            if (isAuthError(error)) return { data: [], success: false };
             const description = error instanceof Error ? error.message : '持证记录加载失败';
             setLoadError(description);
             message.error(description);

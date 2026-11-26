@@ -15,7 +15,11 @@ export type ActorState =
   | { status: 'loading' }
   | { status: 'authenticated'; name: string; source: string | null }
   | { status: 'dev-operator'; name: string }
-  | { status: 'unauthenticated'; loginUrl?: string }
+  /**
+   * 未登录。`redirecting` 为 true 表示已经发起自动登录跳转（静默 SSO 往返中），
+   * 界面应保持平滑加载态；false/缺省表示停在手动登录兜底（如刚退出、无法自动跳转）。
+   */
+  | { status: 'unauthenticated'; loginUrl?: string; redirecting?: boolean }
   | { status: 'error' };
 
 /** 当前操作人只来自 GET /me；前端不再有任何 mock 兜底身份。 */
@@ -28,4 +32,26 @@ export function actorStateFromMe(me: MeResponse | null | undefined): ActorState 
 
 export function actorStateFromErrorStatus(status: number | undefined): ActorState {
   return status === 401 ? { status: 'unauthenticated' } : { status: 'error' };
+}
+
+/**
+ * 401 之后的未登录状态。
+ *
+ * 第一次 401 且真的发起了 `window.location.assign` 时 `redirecting=true`，闸门保持
+ * 平滑加载态直到文档离开；并发的后续 401（导航已发起、本次 redirectToLoginOnce
+ * 返回 false）必须沿用 `redirecting=true`，否则会退回手动登录页闪出「登录已失效」。
+ * 只有从未发起跳转（刚退出命中防循环标记、无登录入口）才是手动兜底态。
+ */
+export function unauthenticatedStateFromRedirect(
+  previous: ActorState,
+  outcome: { redirected: boolean; loginUrl?: string },
+): Extract<ActorState, { status: 'unauthenticated' }> {
+  const loginUrl =
+    outcome.loginUrl ?? (previous.status === 'unauthenticated' ? previous.loginUrl : undefined);
+  const alreadyRedirecting = previous.status === 'unauthenticated' && previous.redirecting === true;
+  return {
+    status: 'unauthenticated',
+    ...(loginUrl ? { loginUrl } : {}),
+    redirecting: outcome.redirected || alreadyRedirecting,
+  };
 }

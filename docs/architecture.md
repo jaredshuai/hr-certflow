@@ -84,6 +84,18 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
 
 ### Frontend 渲染兜底
 
+`layout.childrenRender` 外挂全局鉴权闸门（`components/AuthGate.tsx`，判定收敛在
+`utils/authGate.ts`）：`/me` 未返回前只渲染加载态、不挂载业务页面，工作台等页面不会
+在鉴权完成前抢跑发出首包请求；401 时卸载业务页面并保持「正在跳转登录…」加载态，
+静默 SSO 往返全程不闪「登录已失效」；只有无法自动跳转（刚主动退出命中防循环标记、
+当前前缀没有登录入口）才展示手动登录兜底。
+登录跳转由 `utils/loginRedirect.ts` 的 `redirectToLoginOnce` 唯一执行，sessionStorage
+里的防重入标记保证并发多个 401 只导航一次，`/me` 成功后清标记、下次真正过期时仍可再跳。
+请求层 `errorConfig.errorHandler` 与各业务页面 catch 统一用 `utils/apiErrors.ts` 的
+`isAuthError` 识别 401 / `UNAUTHENTICATED` / `SESSION_EXPIRED`：这类错误不进入页面错误态
+（不渲染红框、不弹业务提示），工作台/报表保留已有数据，列表页只是不展示登录错误，
+跳转由上面的闸门统一负责；其他错误仍按原有逻辑展示错误红框或提示。
+
 `rootContainer` 最外层挂轻量 `ErrorBoundary`：任何页面组件在 render/lifecycle 抛错时
 展示错误页与「重试」按钮，而不是让 React 卸载整棵树留下白屏。工作台 `/dashboard/summary`
 的响应先经 `normalizeDashboardSummary` 收敛（空 body、HTML 兜底页、缺字段、字段类型

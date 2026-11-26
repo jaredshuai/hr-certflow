@@ -17,6 +17,7 @@ import { useLocation } from '@umijs/max';
 
 import { createResource, getResource, pageResource, updateResource, uploadResource } from '@/services/api';
 import type { Employee, EmployeeTrace, EmploymentStatus } from '@/types/domain';
+import { isAuthError } from '@/utils/apiErrors';
 import { emptyTableText } from '@/utils/emptyStates';
 import {
   auditActionLabel,
@@ -129,6 +130,7 @@ export default function EmployeesPage() {
       actionRef.current?.reload();
       return true;
     } catch (error) {
+      if (isAuthError(error)) return false;
       message.error(error instanceof Error ? error.message : '人员保存失败');
       return false;
     }
@@ -139,6 +141,7 @@ export default function EmployeesPage() {
       await downloadCsv('/employees/export.csv', lastSearchParamsRef.current, 'employees.csv');
       message.success('人员数据已开始导出');
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '人员数据导出失败');
     }
   }
@@ -148,6 +151,7 @@ export default function EmployeesPage() {
       await downloadCsv('/employees/import-template.csv', {}, 'employees-import-template.csv');
       message.success('人员导入模板已开始下载');
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '人员导入模板下载失败');
     }
   }
@@ -162,6 +166,7 @@ export default function EmployeesPage() {
       actionRef.current?.reload();
       message.success(`人员导入完成：新增 ${result.created} 人，更新 ${result.updated} 人`);
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '人员导入失败');
     } finally {
       setImporting(false);
@@ -176,6 +181,7 @@ export default function EmployeesPage() {
       const trace = await getResource<EmployeeTrace>(`/employees/${record.id}/trace`);
       setCurrentTrace(trace);
     } catch (error) {
+      if (isAuthError(error)) return;
       message.error(error instanceof Error ? error.message : '人员追溯链路加载失败');
     } finally {
       setTraceLoading(false);
@@ -251,6 +257,7 @@ export default function EmployeesPage() {
             setLoadError(undefined);
             return { data: result.data, total: result.total, success: true };
           } catch (error) {
+            if (isAuthError(error)) return { data: [], success: false };
             const description = error instanceof Error ? error.message : '人员数据加载失败';
             setLoadError(description);
             message.error(description);
