@@ -116,6 +116,53 @@ test('loadFailureState：登录失效返回 null，其他错误退回空数据�
   );
 });
 
+test('Certificates 页表格加载收到 403 FORBIDDEN 时渲染中文授权提示而非 axios 原文', () => {
+  // 与 pages/Certificates/index.tsx 表格 request 的 catch 同一条判定：
+  // 登录失效静默空数据；其他错误统一过 apiErrorMessage（防回归——页面曾
+  // 直展示 axios 英文 error.message，403 会裸显 "Request failed with status code 403"）。
+  let loadError;
+  const messages = [];
+  function runCertificatesRequestCatch(error) {
+    if (isAuthError(error)) return { data: [], success: false };
+    const description = apiErrorMessage(error, '持证记录加载失败');
+    loadError = description;
+    messages.push(description);
+    return { data: [], success: false };
+  }
+
+  runCertificatesRequestCatch(axiosError(403, { code: 'FORBIDDEN' }));
+  assert.equal(loadError, '没有执行此操作的权限，请联系管理员授权。');
+  assert.ok(!loadError.includes('Request failed with status code'), '不得展示 axios 英文原文');
+  assert.equal(messages[0], '没有执行此操作的权限，请联系管理员授权。');
+});
+
+test('Certificates 页基础数据加载 catch 同样走 apiErrorMessage', () => {
+  // 与 useEffect 里 loadOptions().catch 的口径一致：登录失效静默，其余给中文文案。
+  let toast;
+  function runOptionsCatch(error) {
+    if (isAuthError(error)) return;
+    toast = apiErrorMessage(error, '基础数据加载失败');
+  }
+
+  runOptionsCatch(axiosError(401, { code: 'SESSION_EXPIRED' }));
+  assert.equal(toast, undefined);
+
+  runOptionsCatch(axiosError(403, { code: 'FORBIDDEN' }));
+  assert.equal(toast, '没有执行此操作的权限，请联系管理员授权。');
+});
+
+test('apiErrorMessage：字符串 detail 优先展示后端业务文案，纯网络错误退回兜底', () => {
+  assert.equal(apiErrorMessage(axiosError(422, '证书编号已被占用'), '兜底'), '证书编号已被占用');
+  assert.equal(apiErrorMessage(axiosError(422, '  '), '兜底'), 'Request failed with status code 422');
+  assert.equal(apiErrorMessage(new Error('   '), '兜底'), '兜底');
+  assert.equal(apiErrorMessage('not an error', '兜底'), '兜底');
+  // BizError（errorThrower）形态下 FORBIDDEN 同样映射中文。
+  const biz = Object.assign(new Error('biz'), {
+    info: { data: { detail: { code: 'FORBIDDEN' } }, status: 403 },
+  });
+  assert.equal(apiErrorMessage(biz, '兜底'), '没有执行此操作的权限，请联系管理员授权。');
+});
+
 test('工作台收到 401 时不渲染错误红框、不清零已有数据', () => {
   // 与 pages/Dashboard/index.tsx 的 catch 同一条判定：loadFailureState 返回 null
   // 就直接 return，不执行 setSummary/setLoadError。

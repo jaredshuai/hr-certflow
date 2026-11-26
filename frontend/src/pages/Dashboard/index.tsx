@@ -13,7 +13,7 @@ import type {
   DashboardRiskTrace,
   DashboardSummary,
 } from '@/types/domain';
-import { isAuthError, loadFailureState } from '@/utils/apiErrors';
+import { apiErrorMessage, isAuthError, loadFailureState } from '@/utils/apiErrors';
 import { emptyDashboardSummary, isDashboardSummary, normalizeDashboardSummary } from '@/utils/dashboardSummary';
 import {
   auditActionLabel,
@@ -122,7 +122,7 @@ export default function DashboardPage() {
       setCurrentRiskTrace(trace);
     } catch (error) {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '风险项追溯加载失败');
+      message.error(apiErrorMessage(error, '风险项追溯加载失败'));
     } finally {
       setRiskTraceLoading(false);
     }

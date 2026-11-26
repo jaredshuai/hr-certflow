@@ -94,7 +94,12 @@ It must not delegate business state to Dify, Paperless, n8n, or RAGFlow.
 请求层 `errorConfig.errorHandler` 与各业务页面 catch 统一用 `utils/apiErrors.ts` 的
 `isAuthError` 识别 401 / `UNAUTHENTICATED` / `SESSION_EXPIRED`：这类错误不进入页面错误态
 （不渲染红框、不弹业务提示），工作台/报表保留已有数据，列表页只是不展示登录错误，
-跳转由上面的闸门统一负责；其他错误仍按原有逻辑展示错误红框或提示。
+跳转由上面的闸门统一负责。其他错误的展示文案一律过 `apiErrorMessage`：后端业务错误
+（字符串 `detail`）原样展示，授权中心结构化错误 `{detail:{code}}` 映射中文提示
+（403 `FORBIDDEN` →「没有执行此操作的权限，请联系管理员授权。」），页面不得直接把
+axios 的英文 `error.message`（如 "Request failed with status code 403"）渲染给用户；
+不走它的只有两类非接口错误——表单解析/组装的客户端校验（如提醒策略天数文本）与
+ErrorBoundary 兜底。
 
 `rootContainer` 最外层挂轻量 `ErrorBoundary`：任何页面组件在 render/lifecycle 抛错时
 展示错误页与「重试」按钮，而不是让 React 卸载整棵树留下白屏。工作台 `/dashboard/summary`

@@ -9,7 +9,7 @@ import {
   auditResourceTypeLabel,
   auditResourceTypeOptions,
 } from '@/utils/displayLabels';
-import { isAuthError } from '@/utils/apiErrors';
+import { apiErrorMessage, isAuthError } from '@/utils/apiErrors';
 import { emptyTableText } from '@/utils/emptyStates';
 import { message } from '@/utils/messageApi';
 
@@ -132,7 +132,7 @@ export default function AuditLogPage() {
             return { data, success: true };
           } catch (error) {
             if (isAuthError(error)) return { data: [], success: false };
-            const description = error instanceof Error ? error.message : '审计日志加载失败';
+            const description = apiErrorMessage(error, '审计日志加载失败');
             setLoadError(description);
             message.error(description);
             return { data: [], success: false };

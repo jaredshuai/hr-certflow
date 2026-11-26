@@ -22,7 +22,7 @@ import type {
   EmployeeCertificate,
   EmployeeCertificateTrace,
 } from '@/types/domain';
-import { isAuthError } from '@/utils/apiErrors';
+import { apiErrorMessage, isAuthError } from '@/utils/apiErrors';
 import {
   auditActionLabel,
   auditResourceTypeLabel,
@@ -100,7 +100,7 @@ export default function CertificatesPage() {
 
     void loadOptions().catch((error) => {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '基础数据加载失败');
+      message.error(apiErrorMessage(error, '基础数据加载失败'));
     });
   }, []);
 
@@ -166,7 +166,7 @@ export default function CertificatesPage() {
       return true;
     } catch (error) {
       if (isAuthError(error)) return false;
-      message.error(error instanceof Error ? error.message : '持证记录保存失败');
+      message.error(apiErrorMessage(error, '持证记录保存失败'));
       return false;
     }
   }
@@ -177,7 +177,7 @@ export default function CertificatesPage() {
       message.success('持证记录已开始导出');
     } catch (error) {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '持证记录导出失败');
+      message.error(apiErrorMessage(error, '持证记录导出失败'));
     }
   }
 
@@ -190,7 +190,7 @@ export default function CertificatesPage() {
       setCurrentTrace(trace);
     } catch (error) {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '追溯链路加载失败');
+      message.error(apiErrorMessage(error, '追溯链路加载失败'));
     } finally {
       setTraceLoading(false);
     }
@@ -295,7 +295,7 @@ export default function CertificatesPage() {
             return { data: result.data, total: result.total, success: true };
           } catch (error) {
             if (isAuthError(error)) return { data: [], success: false };
-            const description = error instanceof Error ? error.message : '持证记录加载失败';
+            const description = apiErrorMessage(error, '持证记录加载失败');
             setLoadError(description);
             message.error(description);
             return { data: [], success: false };

@@ -153,7 +153,7 @@ export default function ReviewQueuePage() {
 
     void loadOptions().catch((error) => {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '基础数据加载失败');
+      message.error(apiErrorMessage(error, '基础数据加载失败'));
     });
   }, []);
 
@@ -179,7 +179,7 @@ export default function ReviewQueuePage() {
       }
     } catch (error) {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '刷新复核队列失败');
+      message.error(apiErrorMessage(error, '刷新复核队列失败'));
       setCurrentReview(undefined);
     } finally {
       actionRef.current?.reload();
@@ -301,7 +301,7 @@ export default function ReviewQueuePage() {
       setCurrentTrace(trace);
     } catch (error) {
       if (isAuthError(error)) return;
-      message.error(error instanceof Error ? error.message : '复核追溯链路加载失败');
+      message.error(apiErrorMessage(error, '复核追溯链路加载失败'));
     } finally {
       setTraceLoading(false);
     }
@@ -422,7 +422,7 @@ export default function ReviewQueuePage() {
             return { data, success: true };
           } catch (error) {
             if (isAuthError(error)) return { data: [], success: false };
-            const description = error instanceof Error ? error.message : '复核任务加载失败';
+            const description = apiErrorMessage(error, '复核任务加载失败');
             setLoadError(description);
             message.error(description);
             return { data: [], success: false };
