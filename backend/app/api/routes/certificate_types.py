@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.api.access import certificate_type_collection, certificate_type_item, require_permission
 from app.api.deps import RequestContext, audit_context_kwargs, get_request_context
 from app.db.session import get_db
 from app.models import AuditLog, CertificateType, EmployeeCertificate, ReminderPolicy, ReminderTask
@@ -31,6 +32,12 @@ from app.schemas.certificates import (
 from app.services.audit import record_audit
 
 router = APIRouter()
+
+# S-01 补齐：读与追溯挂 certificate_type.view；写/导入/导出挂 certificate_type.manage。
+_VIEW_COLLECTION = [Depends(require_permission("certificate_type.view", certificate_type_collection))]
+_VIEW_ITEM = [Depends(require_permission("certificate_type.view", certificate_type_item))]
+_MANAGE_COLLECTION = [Depends(require_permission("certificate_type.manage", certificate_type_collection))]
+_MANAGE_ITEM = [Depends(require_permission("certificate_type.manage", certificate_type_item))]
 
 _CERTIFICATE_TYPE_IMPORT_FIELD_ALIASES = {
     "编码": "code",
@@ -398,13 +405,13 @@ def build_certificate_type_import_template_csv() -> str:
     return "\ufeff" + output.getvalue()
 
 
-@router.get("", response_model=list[CertificateTypeRead])
+@router.get("", response_model=list[CertificateTypeRead], dependencies=_VIEW_COLLECTION)
 def list_certificate_types(db: Session = Depends(get_db)) -> list[CertificateTypeRead]:
     rows = list(db.scalars(select(CertificateType).order_by(CertificateType.name.asc())).all())
     return [_certificate_type_to_read(db, row) for row in rows]
 
 
-@router.get("/page", response_model=CertificateTypePageRead)
+@router.get("/page", response_model=CertificateTypePageRead, dependencies=_VIEW_COLLECTION)
 def page_certificate_types(
     db: Session = Depends(get_db),
     current: int = 1,
@@ -431,7 +438,7 @@ def page_certificate_types(
     return CertificateTypePageRead(data=[_certificate_type_to_read(db, row) for row in rows], total=total)
 
 
-@router.get("/export.csv")
+@router.get("/export.csv", dependencies=_MANAGE_COLLECTION)
 def export_certificate_types_csv(
     db: Session = Depends(get_db),
     keyword: str | None = None,
@@ -456,7 +463,7 @@ def export_certificate_types_csv(
     )
 
 
-@router.get("/import-template.csv")
+@router.get("/import-template.csv", dependencies=_VIEW_COLLECTION)
 def export_certificate_type_import_template_csv() -> Response:
     return Response(
         content=build_certificate_type_import_template_csv(),
@@ -465,7 +472,7 @@ def export_certificate_type_import_template_csv() -> Response:
     )
 
 
-@router.post("/import.csv", response_model=CertificateTypeImportResultRead)
+@router.post("/import.csv", response_model=CertificateTypeImportResultRead, dependencies=_MANAGE_COLLECTION)
 async def import_certificate_types_csv(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -505,7 +512,11 @@ def _load_certificate_type_trace_audit_logs(
     return load_audit_logs_for_resources(db, resource_ids)
 
 
-@router.get("/{certificate_type_id}/trace", response_model=CertificateTypeTraceRead)
+@router.get(
+    "/{certificate_type_id}/trace",
+    response_model=CertificateTypeTraceRead,
+    dependencies=_VIEW_ITEM,
+)
 def get_certificate_type_trace(
     certificate_type_id: UUID,
     db: Session = Depends(get_db),
@@ -599,7 +610,12 @@ def get_certificate_type_trace(
     )
 
 
-@router.post("", response_model=CertificateTypeRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CertificateTypeRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_MANAGE_COLLECTION,
+)
 def create_certificate_type(
     payload: CertificateTypeCreate,
     db: Session = Depends(get_db),
@@ -627,7 +643,7 @@ def create_certificate_type(
     return _certificate_type_to_read(db, certificate_type)
 
 
-@router.patch("/{certificate_type_id}", response_model=CertificateTypeRead)
+@router.patch("/{certificate_type_id}", response_model=CertificateTypeRead, dependencies=_MANAGE_ITEM)
 def update_certificate_type(
     certificate_type_id: UUID,
     payload: CertificateTypeUpdate,

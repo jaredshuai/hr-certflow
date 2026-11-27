@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.access import report_collection, require_permission
 from app.db.session import get_db
 from app.domain.enums import CertificateStatus, EmploymentStatus
 from app.models import CertificateType, Employee, EmployeeCertificate
@@ -23,6 +24,10 @@ from app.schemas.reports import (
 )
 
 router = APIRouter()
+
+# S-01 补齐：读 report.view；CSV 导出汇总全组织数据，从 report.manage。
+_VIEW_COLLECTION = [Depends(require_permission("report.view", report_collection))]
+_MANAGE_COLLECTION = [Depends(require_permission("report.manage", report_collection))]
 
 ACTIVE_COVERAGE_STATUSES = {CertificateStatus.ACTIVE, CertificateStatus.EXPIRING}
 RISK_STATUSES = {CertificateStatus.EXPIRING, CertificateStatus.EXPIRED}
@@ -179,12 +184,16 @@ def _load_certificate_coverage_report(db: Session) -> CertificateCoverageReportR
     )
 
 
-@router.get("/certificate-coverage", response_model=CertificateCoverageReportRead)
+@router.get(
+    "/certificate-coverage",
+    response_model=CertificateCoverageReportRead,
+    dependencies=_VIEW_COLLECTION,
+)
 def get_certificate_coverage_report(db: Session = Depends(get_db)) -> CertificateCoverageReportRead:
     return _load_certificate_coverage_report(db)
 
 
-@router.get("/certificate-coverage/export.csv")
+@router.get("/certificate-coverage/export.csv", dependencies=_MANAGE_COLLECTION)
 def export_certificate_coverage_report_csv(db: Session = Depends(get_db)) -> Response:
     return Response(
         content=build_certificate_coverage_report_csv(_load_certificate_coverage_report(db)),

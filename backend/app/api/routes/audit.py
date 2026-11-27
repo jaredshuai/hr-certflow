@@ -8,10 +8,14 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.access import audit_log_collection, require_permission
 from app.db.session import get_db
 from app.models import AuditLog
 
 router = APIRouter()
+
+# S-08 补齐：审计日志含全量变更快照与操作人/IP，任何登录用户不可再裸读，挂 audit.view。
+_VIEW_COLLECTION = [Depends(require_permission("audit.view", audit_log_collection))]
 
 
 class AuditLogRead(BaseModel):
@@ -30,7 +34,7 @@ class AuditLogRead(BaseModel):
     created_at: datetime
 
 
-@router.get("", response_model=list[AuditLogRead])
+@router.get("", response_model=list[AuditLogRead], dependencies=_VIEW_COLLECTION)
 def list_audit_logs(
     db: Session = Depends(get_db),
     limit: int = 100,

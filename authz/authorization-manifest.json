@@ -1,12 +1,32 @@
 {
   "manifestVersion": "1.2.0",
-  "resources": ["certificate"],
+  "resources": [
+    "certificate",
+    "certificate_document",
+    "review_task",
+    "employee",
+    "audit_log",
+    "report",
+    "dashboard",
+    "reminder",
+    "certificate_type"
+  ],
   "attributes": [],
   "permissions": [
     {"id":"app.view","resourceTypes":["application"],"actions":["view"],"risk":"low","supportedScopes":["SELF"]},
     {"id":"app.enter","resourceTypes":["application"],"actions":["enter"],"risk":"low","supportedScopes":["SELF"]},
     {"id":"certificate.view","resourceTypes":["certificate"],"actions":["view"],"risk":"low","supportedScopes":["ALL"]},
-    {"id":"certificate.manage","resourceTypes":["certificate"],"actions":["create","update","confirm"],"risk":"normal","supportedScopes":["ALL"]}
+    {"id":"certificate.manage","resourceTypes":["certificate","certificate_document","review_task"],"actions":["create","update","confirm"],"risk":"normal","supportedScopes":["ALL"]},
+    {"id":"employee.view","resourceTypes":["employee"],"actions":["view"],"risk":"low","supportedScopes":["ALL"]},
+    {"id":"employee.manage","resourceTypes":["employee"],"actions":["create","update","import","export"],"risk":"normal","supportedScopes":["ALL"]},
+    {"id":"audit.view","resourceTypes":["audit_log"],"actions":["view"],"risk":"low","supportedScopes":["ALL"]},
+    {"id":"report.view","resourceTypes":["report"],"actions":["view"],"risk":"low","supportedScopes":["ALL"]},
+    {"id":"report.manage","resourceTypes":["report"],"actions":["export"],"risk":"normal","supportedScopes":["ALL"]},
+    {"id":"dashboard.view","resourceTypes":["dashboard"],"actions":["view"],"risk":"low","supportedScopes":["ALL"]},
+    {"id":"reminder.view","resourceTypes":["reminder"],"actions":["view"],"risk":"low","supportedScopes":["ALL"]},
+    {"id":"reminder.manage","resourceTypes":["reminder"],"actions":["create","update","import","export","dispatch"],"risk":"normal","supportedScopes":["ALL"]},
+    {"id":"certificate_type.view","resourceTypes":["certificate_type"],"actions":["view"],"risk":"low","supportedScopes":["ALL"]},
+    {"id":"certificate_type.manage","resourceTypes":["certificate_type"],"actions":["create","update","import","export"],"risk":"normal","supportedScopes":["ALL"]}
   ],
   "roles": [
     {"id":"certificate-viewer","permissions":["certificate.view"]},

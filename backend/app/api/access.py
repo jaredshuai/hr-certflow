@@ -25,6 +25,18 @@ ACCESS_PRINCIPAL_STATE_KEY = "access_principal"
 # 授权中心的 resourceId 只用于关联、不参与判定；集合级操作（列表、导出、创建）用固定 id。
 COLLECTION_RESOURCE_ID = "collection"
 CERTIFICATE_RESOURCE_TYPE = "certificate"
+# 文档/复核是证书生命周期内的从属资源；与证书共用 certificate.manage / certificate.view
+# 权限点，但送判时用各自的资源类型，避免「类型是 certificate、id 却是文档/复核 UUID」的
+# 资源事实错配（安全审计 S-06）。
+CERTIFICATE_DOCUMENT_RESOURCE_TYPE = "certificate_document"
+REVIEW_TASK_RESOURCE_TYPE = "review_task"
+# 六个业务模块各自的资源类型（安全审计 S-01 补齐）。
+EMPLOYEE_RESOURCE_TYPE = "employee"
+AUDIT_LOG_RESOURCE_TYPE = "audit_log"
+REPORT_RESOURCE_TYPE = "report"
+DASHBOARD_RESOURCE_TYPE = "dashboard"
+REMINDER_RESOURCE_TYPE = "reminder"
+CERTIFICATE_TYPE_RESOURCE_TYPE = "certificate_type"
 
 # audit_log.actor_source 是 VARCHAR(32)（models/hr.py）；真实会话的 actor_source 即
 # issuer_key，超长会在每次审计写入时炸库，必须在启动时拒绝而不是上线后才发现。
@@ -129,6 +141,8 @@ def require_permission(
             request_id=get_request_context(request).request_id,
         )
 
+    # 路由契约测试据此识别 PEP 依赖并核对权限点登记（见 backend/tests/test_route_pep_contract.py）。
+    dependency.pep_permission = permission  # ty: ignore[unresolved-attribute]
     return dependency
 
 
@@ -141,8 +155,50 @@ def certificate_item(certificate_id: UUID) -> ResourceRef:
 
 
 def certificate_document_item(document_id: UUID) -> ResourceRef:
-    return ResourceRef(CERTIFICATE_RESOURCE_TYPE, str(document_id))
+    return ResourceRef(CERTIFICATE_DOCUMENT_RESOURCE_TYPE, str(document_id))
 
 
 def certificate_review_item(review_task_id: UUID) -> ResourceRef:
-    return ResourceRef(CERTIFICATE_RESOURCE_TYPE, str(review_task_id))
+    return ResourceRef(REVIEW_TASK_RESOURCE_TYPE, str(review_task_id))
+
+
+def employee_collection() -> ResourceRef:
+    return ResourceRef(EMPLOYEE_RESOURCE_TYPE, COLLECTION_RESOURCE_ID)
+
+
+def employee_item(employee_id: UUID) -> ResourceRef:
+    return ResourceRef(EMPLOYEE_RESOURCE_TYPE, str(employee_id))
+
+
+def audit_log_collection() -> ResourceRef:
+    return ResourceRef(AUDIT_LOG_RESOURCE_TYPE, COLLECTION_RESOURCE_ID)
+
+
+def report_collection() -> ResourceRef:
+    return ResourceRef(REPORT_RESOURCE_TYPE, COLLECTION_RESOURCE_ID)
+
+
+def dashboard_collection() -> ResourceRef:
+    return ResourceRef(DASHBOARD_RESOURCE_TYPE, COLLECTION_RESOURCE_ID)
+
+
+def reminder_collection() -> ResourceRef:
+    return ResourceRef(REMINDER_RESOURCE_TYPE, COLLECTION_RESOURCE_ID)
+
+
+# 工厂参数名必须与路由 path 参数同名（FastAPI 据此注入），策略与任务分别是
+# reminder 资源域下的两类条目。
+def reminder_policy_item(policy_id: UUID) -> ResourceRef:
+    return ResourceRef(REMINDER_RESOURCE_TYPE, str(policy_id))
+
+
+def reminder_task_item(reminder_task_id: UUID) -> ResourceRef:
+    return ResourceRef(REMINDER_RESOURCE_TYPE, str(reminder_task_id))
+
+
+def certificate_type_collection() -> ResourceRef:
+    return ResourceRef(CERTIFICATE_TYPE_RESOURCE_TYPE, COLLECTION_RESOURCE_ID)
+
+
+def certificate_type_item(certificate_type_id: UUID) -> ResourceRef:
+    return ResourceRef(CERTIFICATE_TYPE_RESOURCE_TYPE, str(certificate_type_id))
