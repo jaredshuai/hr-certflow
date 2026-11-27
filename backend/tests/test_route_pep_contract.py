@@ -141,6 +141,28 @@ def test_every_route_permission_is_registered_in_manifest() -> None:
     )
 
 
+# 授权中心 ManifestValidator 的硬校验：含 export 动作的权限点风险等级不得低于 high，
+# 否则整份 manifest 导入被拒。这里按“不低于 high”断言（critical 亦满足）。
+HIGH_RISK_ACTIONS = frozenset({"export"})
+RISK_FLOOR_FOR_HIGH_RISK_ACTIONS = "high"
+_RISK_ORDER = {"low": 0, "normal": 1, "high": 2, "critical": 3}
+
+
+def test_export_permissions_are_at_least_high_risk() -> None:
+    manifest = _load_manifest()
+    violations = [
+        f"{permission['id']}（risk={permission['risk']}，actions={permission['actions']}）"
+        for permission in manifest["permissions"]
+        if set(permission["actions"]) & HIGH_RISK_ACTIONS
+        and _RISK_ORDER.get(permission["risk"], -1) < _RISK_ORDER[RISK_FLOOR_FOR_HIGH_RISK_ACTIONS]
+    ]
+
+    assert not violations, (
+        f"以下含 {sorted(HIGH_RISK_ACTIONS)} 动作的权限点 risk 低于 "
+        f"{RISK_FLOOR_FOR_HIGH_RISK_ACTIONS}，授权中心会拒绝导入整份 manifest：{violations}"
+    )
+
+
 def test_manifest_resource_types_are_declared() -> None:
     manifest = _load_manifest()
     resources = set(manifest["resources"])
