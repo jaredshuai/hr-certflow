@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 from datetime import UTC, datetime
 from io import StringIO
 from uuid import UUID
@@ -40,10 +41,20 @@ from app.services.storage import ObjectStorage
 
 router = APIRouter()
 
+logger = logging.getLogger(__name__)
+
+# S-07：boto3/httpx 的异常文本常带内网 endpoint、bucket、key 甚至签名 URL 片段，
+# 只进服务端日志；failure_reason 对外仅保留业务校验文案或统一提示。
+_UPLOAD_CONFIRM_FAILED_REASON = "上传确认失败，请稍后重试或联系管理员"
+
 
 def _failure_reason(exc: Exception) -> str:
-    message = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
-    return f"{exc.__class__.__name__}: {message}"[:500]
+    """供 failure_reason 落库与回显：业务校验文案直接用，其余只给统一提示。"""
+    if isinstance(exc, ValueError):
+        # _validate_uploaded_object 的文案本身面向用户（大小/类型不一致），不含内部细节。
+        message = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
+        return message[:500]
+    return _UPLOAD_CONFIRM_FAILED_REASON
 
 
 def _normalize_content_type(value: str | None) -> str | None:
@@ -384,6 +395,9 @@ def confirm_document_upload(
         sha256 = storage.calculate_sha256(bucket=document.storage_bucket, key=document.storage_key)
     except Exception as exc:
         reason = _failure_reason(exc)
+        if not isinstance(exc, ValueError):
+            # 原始异常（含内网细节）仅进服务端日志，不落 failure_reason。
+            logger.exception("Upload confirmation failed for document %s", document_id)
         document.status = DocumentStatus.FAILED
         document.failure_reason = reason
         record_audit(

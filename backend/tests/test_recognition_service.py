@@ -22,8 +22,10 @@ from app.domain.enums import DocumentStatus, ReviewStatus
 from app.models import CertificateDocument, ReviewTask
 from app.services import recognition_service
 from app.services.recognition_service import (
+    RECOGNITION_FAILED_REASON,
     RecognitionContext,
     RecognitionDocumentNotFoundError,
+    RecognitionExtractionError,
     RecognitionGateError,
     RecognitionInvalidStateError,
     RecognitionResult,
@@ -254,3 +256,22 @@ def test_run_recognition_propagates_http_error_for_celery_retry(monkeypatch) -> 
 
     with pytest.raises(httpx.HTTPError):
         run_recognition(db, document_id=document.id, user="HR", context=_ctx())
+
+
+def test_run_recognition_generic_failure_reason_is_sanitized(monkeypatch) -> None:
+    """S-07：非网络提取异常只落统一提示，原始异常文本（内网 endpoint 等）不进 failure_reason。"""
+    document = _make_document(DocumentStatus.UPLOADED)
+    db = FakeDb(document)
+    _patch_storage_and_client(
+        monkeypatch,
+        raise_exc=RuntimeError("dify endpoint http://dify.internal:8080/workflows/run unreachable"),
+    )
+    _patch_normalize(monkeypatch)
+
+    with pytest.raises(RecognitionExtractionError) as exc_info:
+        run_recognition(db, document_id=document.id, user="HR", context=_ctx())
+
+    assert str(exc_info.value) == RECOGNITION_FAILED_REASON
+    assert document.status == DocumentStatus.FAILED
+    assert document.failure_reason == RECOGNITION_FAILED_REASON
+    assert "dify.internal" not in document.failure_reason
