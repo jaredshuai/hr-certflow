@@ -30,11 +30,27 @@ _SENSITIVE_KEY_PARTS = (
     "token",
     "upload_url",
 )
-# 值级凭据掩码：字符串里无论以什么键名出现，key=/token=/access_token= 等「凭据=值」
-# 形态一律掩掉（Webhook 异常串、URL 查询串、Bearer 头都在此列）。
-_CREDENTIAL_VALUE_PATTERN = re.compile(
-    r"(?i)\b((?:access|refresh|id|api|client|session)?[_-]?"
-    r"(?:token|key|secret|signature|sign|passwd|password|credential|auth))(\s*=\s*)([^\s&;\"'<>]+)"
+# 值级凭据掩码：字符串里无论以什么键名出现，凭据的值一律掩掉。覆盖四种形态——
+# 1. ``Authorization`` 头：整值掩掉（不论 Bearer/Basic/其它方案），键与值带不带引号都认；
+# 2. 裸的 ``Bearer …`` 方案前缀（curl 命令行、headers repr）；
+# 3. 无引号或带引号的 ``name=value``（URL 查询串，含 auth_token / oauth_token）；
+# 4. 无引号或带引号的 ``name: value``（JSON / Python dict repr）。
+_CREDENTIAL_NAME = (
+    r"(?:access|refresh|id|api|client|session|auth|oauth)?[_-]?"
+    r"(?:token|key|secret|signature|sign|passwd|password|credential|auth|bearer)"
+)
+# 掩码按顺序叠加：先把 Authorization 头整值掩掉，再掩裸 Bearer，最后掩 kv 形态——
+# 否则 ``Authorization: Bearer abc`` 会被 kv 规则只掩掉 ``Bearer`` 而留下令牌。
+# 头值带引号时只掩到配对的闭引号（dict/JSON repr 的后续字段不受影响），否则掩到行尾。
+_AUTHORIZATION_HEADER_PATTERN = re.compile(
+    r"(?i)(\bauthorization[\"']?\s*:\s*)(?:([\"'])(.*?)\2|[^\r\n]*)"
+)
+_AUTH_SCHEME_PATTERN = re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9\-._~+/=%]+")
+_CREDENTIAL_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)\b(" + _CREDENTIAL_NAME + r")(\s*=\s*)(\"[^\"]*\"|'[^']*'|[^\s&;\"'<>]+)"
+)
+_CREDENTIAL_COLON_PATTERN = re.compile(
+    r"(?i)([\"']?)\b(" + _CREDENTIAL_NAME + r")\1(\s*:\s*)(\"[^\"]*\"|'[^']*'|[^\s,;\"'}\]]+)"
 )
 
 
@@ -43,8 +59,26 @@ def _is_sensitive_key(key: str) -> bool:
     return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
 
 
+def _masked_value(value: str) -> str:
+    """值换成 ***；值原本带引号时保留引号，JSON/dict repr 的结构不乱。"""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return f"{value[0]}***{value[0]}"
+    return "***"
+
+
+def _mask_authorization_header(match: re.Match[str]) -> str:
+    quote = match.group(2)
+    if quote:
+        return f"{match[1]}{quote}***{quote}"
+    return f"{match[1]}***"
+
+
 def _mask_credential_text(text: str) -> str:
-    return _CREDENTIAL_VALUE_PATTERN.sub(r"\1\2***", text)
+    text = _AUTHORIZATION_HEADER_PATTERN.sub(_mask_authorization_header, text)
+    text = _AUTH_SCHEME_PATTERN.sub(r"\1 ***", text)
+    text = _CREDENTIAL_ASSIGNMENT_PATTERN.sub(lambda m: f"{m[1]}{m[2]}{_masked_value(m[3])}", text)
+    # 冒号形态里键可带引号（m[1]），替换时原样放回键的两侧。
+    return _CREDENTIAL_COLON_PATTERN.sub(lambda m: f"{m[1]}{m[2]}{m[1]}{m[3]}{_masked_value(m[4])}", text)
 
 
 def _truncate_text(value: str) -> str:

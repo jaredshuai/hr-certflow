@@ -5,10 +5,15 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
+import httpx
+import pytest
+
 from app.core.config import Settings
 from app.domain.enums import CertificateStatus, ReminderEventType, ReminderTaskStatus
 from app.models import CertificateType, Employee, EmployeeCertificate, ReminderEvent, ReminderPolicy, ReminderTask
+from app.schemas.reminders import ReminderEventRead
 from app.services import reminder_service
+from app.services.audit import sanitize_audit_payload
 from app.services.notifications import NotificationMessage, NotificationRouter
 
 
@@ -279,6 +284,68 @@ def test_dispatch_due_records_failure_reason_code_in_reminder_event(monkeypatch)
         assert event.sent_at is None
         assert "key=" not in json.dumps(event.payload, ensure_ascii=False)
         assert event.payload["error"] == "WEBHOOK_HTTP_404"
+
+
+@pytest.mark.parametrize("succeeds", [False, True], ids=["http-404", "echoing-success"])
+def test_dispatch_due_with_real_router_keeps_webhook_secret_out_of_event_and_audit(monkeypatch, succeeds) -> None:
+    """走真实 NotificationRouter（只拦 httpx.Client.post 的网络请求）的回归。
+
+    上面的用例把 send_to_hr 整个换成 mock，旧实现也能过；这里让真实 httpx 抛出带完整 URL
+    （?key=<secret>）的 HTTPStatusError，或让上游在成功响应体里回显该 URL，断言落库的
+    ReminderEvent、时间线回显与审计 after 都不含真实 secret。
+    """
+    task = _build_waiting_feedback_task()
+    task.status = ReminderTaskStatus.PENDING
+    db = FakeReminderDb(task, [])
+    secret = "SUPER-SECRET-KEY-123"
+    url = f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={secret}"
+    echoing_body = f'{{"echo_url":"{url}","errmsg":"ok"}}'
+
+    def fake_post(self, request_url: str, **_kwargs: object) -> httpx.Response:
+        return httpx.Response(200 if succeeds else 404, request=httpx.Request("POST", request_url), text=echoing_body)
+
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+
+    audits: list[dict[str, Any]] = []
+
+    def capture_audit(_db: object, **kwargs: Any) -> None:
+        audits.append(kwargs)
+
+    monkeypatch.setattr(reminder_service, "record_audit", capture_audit)
+
+    dispatched = reminder_service.dispatch_due_reminder_notifications(
+        db,
+        Settings(notification_hr_recipients="hr@example.test", wecom_webhook_url=url),
+        today=date(2026, 5, 6),
+    )
+
+    wecom_events = [item for item in db.added if isinstance(item, ReminderEvent) and item.channel == "wecom"]
+    assert dispatched == 2  # email（未配 SMTP，skipped）+ wecom
+    assert len(wecom_events) == 1
+    event = wecom_events[0]
+    # 落库事件：只有原因码与脱敏后的 target。
+    assert event.payload["target"] == "https://qyapi.weixin.qq.com/cgi-bin/webhook/send"
+    assert secret not in json.dumps(event.payload, ensure_ascii=False)
+    # 回显：时间线接口原样返回 ReminderEvent.payload（id/时间戳由数据库默认值生成，这里补上以便校验）。
+    event.id = uuid.uuid4()
+    event.created_at = event.updated_at = datetime.now(UTC)
+    echoed = ReminderEventRead.model_validate(event).model_dump(mode="json")
+    assert secret not in json.dumps(echoed, ensure_ascii=False)
+    if succeeds:
+        assert event.payload["status"] == "sent"
+        assert event.error is None
+        assert "response" not in event.payload
+        assert "echo_url" not in json.dumps(event.payload)
+    else:
+        assert event.error == "WEBHOOK_HTTP_404"
+        assert event.payload["error"] == "WEBHOOK_HTTP_404"
+        assert event.sent_at is None
+
+    dispatch_audits = [entry for entry in audits if entry["action"] == "reminder_task.notification.dispatch"]
+    assert dispatch_audits
+    # 审计 after 里的 results 已是脱敏后的；值级掩码是第二道闸门，两道都过不了 secret。
+    assert secret not in str(dispatch_audits[0]["after"])
+    assert secret not in json.dumps(sanitize_audit_payload(dispatch_audits[0]["after"]), ensure_ascii=False)
 
 
 def _build_waiting_feedback_task() -> ReminderTask:

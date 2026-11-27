@@ -25,9 +25,9 @@ ACCESS_PRINCIPAL_STATE_KEY = "access_principal"
 # 授权中心的 resourceId 只用于关联、不参与判定；集合级操作（列表、导出、创建）用固定 id。
 COLLECTION_RESOURCE_ID = "collection"
 CERTIFICATE_RESOURCE_TYPE = "certificate"
-# 文档/复核是证书生命周期内的从属资源；与证书共用 certificate.manage / certificate.view
-# 权限点，但送判时用各自的资源类型，避免「类型是 certificate、id 却是文档/复核 UUID」的
-# 资源事实错配（安全审计 S-06）。
+# 文档/复核是证书生命周期内的从属资源，只用 certificate.manage 权限点送判（certificate.view 不覆盖
+# 这两类资源，见 manifest），但送判时用各自的资源类型，避免「类型是 certificate、id 却是文档/复核
+# UUID」的资源事实错配（安全审计 S-06）。
 CERTIFICATE_DOCUMENT_RESOURCE_TYPE = "certificate_document"
 REVIEW_TASK_RESOURCE_TYPE = "review_task"
 # 六个业务模块各自的资源类型（安全审计 S-01 补齐）。

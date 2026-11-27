@@ -273,3 +273,58 @@ def test_confirm_upload_failure_reason_keeps_user_facing_validation_text(monkeyp
     assert document.status == DocumentStatus.FAILED
     # 大小不一致属于业务校验文案（面向用户），保留可读提示，不隐藏。
     assert document.failure_reason == "上传对象大小不一致：期望 128 字节，实际 999 字节"
+
+
+class _ValueErrorHeadStorage:
+    """存储层抛的 ValueError（同在 confirm-upload 的 try 块内），文案带内网细节。"""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def head_object(self, *, bucket: str, key: str) -> object:
+        raise ValueError(f"Invalid bucket name https://oss.internal:9000/{bucket}/{key}")
+
+
+class _ValueErrorSha256Storage:
+    """head_object 通过（校验成功），calculate_sha256 抛 ValueError。"""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def head_object(self, *, bucket: str, key: str) -> object:
+        return ObjectMetadata(content_length=128, content_type="application/pdf", etag=None)
+
+    def calculate_sha256(self, *, bucket: str, key: str) -> str:
+        raise ValueError(f"unsupported checksum for s3://oss.internal:9000/{bucket}/{key}")
+
+
+@pytest.mark.parametrize("storage_cls", [_ValueErrorHeadStorage, _ValueErrorSha256Storage])
+def test_confirm_upload_storage_value_error_keeps_internal_details_out_of_failure_reason(
+    monkeypatch, caplog, storage_cls
+) -> None:
+    # 存储层 ValueError 不等于业务校验失败：不得落 failure_reason，只进服务端日志。
+    document = _pending_upload_document()
+    db = FakeDb(document)
+    monkeypatch.setattr(documents_route, "get_settings", lambda: Settings())
+    monkeypatch.setattr(documents_route, "ObjectStorage", storage_cls)
+
+    with caplog.at_level("ERROR", logger=documents_route.logger.name):
+        with pytest.raises(HTTPException) as exc_info:
+            documents_route.confirm_document_upload(document.id, db, None)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Upload confirmation failed"
+    assert document.status == DocumentStatus.FAILED
+    assert document.failure_reason == "上传确认失败，请稍后重试或联系管理员"
+    audit_entries = [item for item in db.added if getattr(item, "action", None).endswith("confirm.failed")]
+    assert audit_entries and "oss.internal" not in str(audit_entries[0].after)
+    # 原始异常只进服务端日志（logger.exception 的堆栈），便于排查。
+    assert any(record.exc_info and "oss.internal" in str(record.exc_info[1]) for record in caplog.records)
+
+
+def test_only_upload_validation_error_text_is_exposed_as_failure_reason() -> None:
+    validation = documents_route.UploadValidationError("上传对象类型必须是: application/pdf")
+    assert documents_route._failure_reason(validation) == "上传对象类型必须是: application/pdf"
+    assert documents_route._failure_reason(ValueError("Invalid bucket name hr-certflow-internal")) == (
+        "上传确认失败，请稍后重试或联系管理员"
+    )

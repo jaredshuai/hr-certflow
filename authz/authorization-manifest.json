@@ -29,7 +29,7 @@
     {"id":"certificate_type.manage","resourceTypes":["certificate_type"],"actions":["create","update","import","export"],"risk":"normal","supportedScopes":["ALL"]}
   ],
   "roles": [
-    {"id":"certificate-viewer","permissions":["certificate.view"]},
-    {"id":"certificate-admin","permissions":["certificate.view","certificate.manage"]}
+    {"id":"certificate-viewer","permissions":["certificate.view","employee.view","report.view","dashboard.view","reminder.view","certificate_type.view"]},
+    {"id":"certificate-admin","permissions":["certificate.view","certificate.manage","employee.view","employee.manage","audit.view","report.view","report.manage","dashboard.view","reminder.view","reminder.manage","certificate_type.view","certificate_type.manage"]}
   ]
 }

@@ -85,23 +85,95 @@ def test_delivery_error_code_maps_smtp_and_unknown() -> None:
 
 
 def test_sanitize_webhook_url_strips_query_credentials() -> None:
-    assert _sanitize_webhook_url(WECOM_URL) == "https://qyapi.weixin.qq.com/cgi-bin/webhook/send"
-    assert _sanitize_webhook_url(DINGTALK_URL) == "https://oapi.dingtalk.com/robot/send"
+    assert _sanitize_webhook_url(WECOM_URL, channel="wecom") == "https://qyapi.weixin.qq.com/cgi-bin/webhook/send"
+    assert _sanitize_webhook_url(DINGTALK_URL, channel="dingtalk") == "https://oapi.dingtalk.com/robot/send"
 
 
 def test_sanitize_webhook_url_masks_feishu_path_token() -> None:
     # 飞书自定义机器人的令牌在 path 末段：只剥 query 会漏掉，必须一并掩码。
-    sanitized = _sanitize_webhook_url(FEISHU_URL)
+    sanitized = _sanitize_webhook_url(FEISHU_URL, channel="feishu")
     assert sanitized == "https://open.feishu.cn/open-apis/bot/v2/hook/***"
     assert FEISHU_TOKEN not in sanitized
 
 
-@pytest.mark.parametrize("url", ["", "not-a-url", "http:///no-host"], ids=["empty", "garbage", "hostless"])
+@pytest.mark.parametrize(
+    "token", ["ab12", "x", "to-ken_1", "含中文的短令牌"], ids=["4-char", "1-char", "punctuated", "non-ascii"]
+)
+def test_sanitize_webhook_url_masks_short_feishu_path_token(token: str) -> None:
+    # 飞书渠道的末段无论长短、字符集如何都是凭据段，确定性掩码（不靠 >=16 字符的启发式）。
+    sanitized = _sanitize_webhook_url(f"https://open.feishu.cn/open-apis/bot/v2/hook/{token}", channel="feishu")
+    assert sanitized == "https://open.feishu.cn/open-apis/bot/v2/hook/***"
+    assert token not in sanitized
+
+
+def test_sanitize_webhook_url_leaves_wecom_and_dingtalk_path_visible() -> None:
+    # 这两家的凭据只在 query：path（/webhook/send、/robot/send）不是凭据，保留以便排查。
+    for url, channel in ((WECOM_URL, "wecom"), (DINGTALK_URL, "dingtalk")):
+        assert not _sanitize_webhook_url(url, channel=channel).endswith("***")
+
+
+@pytest.mark.parametrize(
+    ("url", "channel", "expected"),
+    [
+        ("https://user:secret@example.com/hook?key=abc", "wecom", "https://example.com/hook"),
+        ("https://user@example.com/robot/send?access_token=abc", "dingtalk", "https://example.com/robot/send"),
+        ("https://user:secret@example.com:8443/hook", "wecom", "https://example.com:8443/hook"),
+        ("https://example.com:8443/hook", "wecom", "https://example.com:8443/hook"),
+        ("https://user:secret@[2001:db8::1]:8443/hook", "wecom", "https://[2001:db8::1]:8443/hook"),
+        ("https://user:secret@open.feishu.cn/open-apis/bot/v2/hook/short", "feishu", "https://open.feishu.cn/open-apis/bot/v2/hook/***"),
+    ],
+    ids=["userinfo", "user-only", "userinfo-port", "port", "ipv6", "userinfo-feishu"],
+)
+def test_sanitize_webhook_url_strips_userinfo_and_keeps_host_and_port(url: str, channel: str, expected: str) -> None:
+    # netloc 原样带 user:password@；必须从 hostname（加合法 port）重新拼装。
+    sanitized = _sanitize_webhook_url(url, channel=channel)
+    assert sanitized == expected
+    assert "user" not in sanitized
+    assert "secret" not in sanitized
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["", "not-a-url", "http:///no-host", "https://example.com:abc/hook", "https://[::1:8443/hook"],
+    ids=["empty", "garbage", "hostless", "bad-port", "bad-ipv6"],
+)
 def test_sanitize_webhook_url_invalid_input(url: str) -> None:
-    assert _sanitize_webhook_url(url) == "invalid-webhook-url"
+    assert _sanitize_webhook_url(url, channel="wecom") == "invalid-webhook-url"
 
 
 # --- _send_webhook：结果只含原因码与脱敏 target --------------------------------
+
+
+class _EchoingWebhookClient:
+    """模拟会回显请求 URL 的 Webhook/代理：响应体原样带回带凭据的完整 URL。"""
+
+    def __init__(self, request_url: str) -> None:
+        self._request_url = request_url
+
+    def __enter__(self) -> _EchoingWebhookClient:
+        return self
+
+    def __exit__(self, *_args: object) -> bool:
+        return False
+
+    def post(self, *_args: object, **_kwargs: object) -> httpx.Response:
+        request = httpx.Request("POST", self._request_url)
+        return httpx.Response(200, request=request, text=f'{{"echo":"{self._request_url}","errmsg":"ok"}}')
+
+
+@pytest.mark.parametrize(
+    ("channel", "url", "secret"),
+    [("wecom", WECOM_URL, SECRET_KEY), ("feishu", FEISHU_URL, FEISHU_TOKEN)],
+)
+def test_send_webhook_success_omits_upstream_response_body(monkeypatch, channel: str, url: str, secret: str) -> None:
+    settings = Settings(wecom_webhook_url=WECOM_URL, feishu_webhook_url=FEISHU_URL)
+    monkeypatch.setattr(notifications_module.httpx, "Client", lambda *_a, **_k: _EchoingWebhookClient(url))
+
+    result = NotificationRouter(settings)._send_webhook(channel, url, _message())
+
+    # 成功结果不带原始响应体：否则被回显的 URL 会随 ReminderEvent.payload / 审计落库并回显。
+    assert result == {"channel": channel, "status": "sent", "target": _sanitize_webhook_url(url, channel=channel)}
+    assert secret not in json.dumps(result)
 
 
 def test_send_webhook_http_failure_returns_reason_code_only(monkeypatch) -> None:
@@ -137,6 +209,25 @@ def test_send_webhook_network_failure_returns_reason_code_only(monkeypatch) -> N
     assert result["error"] == "WEBHOOK_NETWORK_ERROR"
     assert result["target"] == "https://open.feishu.cn/open-apis/bot/v2/hook/***"
     assert FEISHU_TOKEN not in json.dumps(result)
+
+
+def test_send_webhook_failure_target_has_no_userinfo(monkeypatch) -> None:
+    url = "https://user:secret@example.com/hook?key=abc"
+    settings = Settings(wecom_webhook_url=url)
+    monkeypatch.setattr(
+        notifications_module.httpx, "Client", lambda *_a, **_k: _FailingWebhookClient(_http_status_error(url))
+    )
+
+    # 经真实 send_to_hr → _send_webhook，断言异常串里的 URL 带 userinfo 时失败结果与 target 都不含它。
+    results = NotificationRouter(settings).send_to_hr(_message(), ["wecom"])
+
+    assert results == [
+        {"channel": "wecom", "status": "failed", "error": "WEBHOOK_HTTP_404", "target": "https://example.com/hook"}
+    ]
+    dumped = json.dumps(results)
+    assert "secret" not in dumped
+    assert "user:" not in dumped
+    assert "key=" not in dumped
 
 
 def test_send_to_hr_email_smtp_failure_returns_reason_code(monkeypatch) -> None:
@@ -190,6 +281,68 @@ def test_sanitize_audit_payload_masks_credential_value_patterns(value: str, expe
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("Authorization: Bearer abc123", "Authorization: ***"),
+        ("authorization: bearer abc123", "authorization: ***"),
+        ("Authorization: Basic dXNlcjpwYXNz", "Authorization: ***"),
+        # 方案名不是 Bearer/Basic 时同样整值掩掉，不留后半截令牌。
+        ("X-Authorization: Token abc123", "X-Authorization: ***"),
+        ('headers={"Authorization": "Bearer abc123"}', 'headers={"Authorization": "***"}'),
+        ('{"Authorization":"Basic dXNlcjpwYXNz","cookie":"c"}', '{"Authorization":"***","cookie":"c"}'),
+        ("{'Authorization': 'Bearer abc123', 'cookie': 'x'}", "{'Authorization': '***', 'cookie': 'x'}"),
+        ("Bearer abc123", "Bearer ***"),
+        ("curl -H 'Authorization: Bearer abc123' http://10.0.0.1/x", "curl -H 'Authorization: ***"),
+        ("auth_token=abc123", "auth_token=***"),
+        ("oauth_token=abc123", "oauth_token=***"),
+        ("?auth_token=abc123&x=1", "?auth_token=***&x=1"),
+        ('{"access_token": "abc123", "x": 1}', '{"access_token": "***", "x": 1}'),
+        ("{'auth_token': 'abc123'}", "{'auth_token': '***'}"),
+        ('"oauth_token":"abc123"', '"oauth_token":"***"'),
+        ('token: "abc123"', 'token: "***"'),
+        ("token: abc123", "token: ***"),
+        (
+            '{"token": "abc123", "auth_token": "def456", "oauth_token": "xyz789"}',
+            '{"token": "***", "auth_token": "***", "oauth_token": "***"}',
+        ),
+    ],
+    ids=[
+        "bearer-header",
+        "bearer-header-lower",
+        "basic-header",
+        "custom-scheme",
+        "quoted-authorization-header",
+        "quoted-authorization-compact",
+        "quoted-authorization-keeps-siblings",
+        "bare-bearer",
+        "curl-command",
+        "auth_token-eq",
+        "oauth_token-eq",
+        "auth_token-query",
+        "json-quoted",
+        "python-repr-quoted",
+        "json-colon-compact",
+        "quoted-colon-value",
+        "bare-colon",
+        "multiple-fields",
+    ],
+)
+def test_sanitize_audit_payload_masks_bearer_and_quoted_or_colon_credential_fields(value: str, expected: str) -> None:
+    # cubic P1：原规则只认无引号 name=value，漏掉 Bearer 头、auth_token/oauth_token 及 JSON/冒号形态。
+    sanitized = sanitize_audit_payload({"detail": value})
+    assert sanitized == {"detail": expected}
+    for secret in ("abc123", "dXNlcjpwYXNz", "def456", "xyz789"):
+        assert secret not in json.dumps(sanitized, ensure_ascii=False)
+
+
+def test_sanitize_audit_payload_masks_bearer_header_inside_nested_exception_text() -> None:
+    leaked = "HTTPStatusError: request failed, headers: {'Authorization': 'Bearer abc123'}, token: 'def456'"
+    assert sanitize_audit_payload([{"error": leaked}]) == [
+        {"error": "HTTPStatusError: request failed, headers: {'Authorization': '***'}, token: '***'"}
+    ]
+
+
+@pytest.mark.parametrize(
     "value",
     [
         "keyword=员工",
@@ -197,8 +350,22 @@ def test_sanitize_audit_payload_masks_credential_value_patterns(value: str, expe
         "event_window_key=abc:FIRST_REMINDER",
         "覆盖率=87.5",
         "已覆盖员工数=36",
+        "basic auth login",
+        "登录方式：basic 认证",
+        "authorization pending",
+        "event_window_key:abc:FIRST_REMINDER",
     ],
-    ids=["keyword", "storage_key", "event_window_key", "chinese-eq", "chinese-count"],
+    ids=[
+        "keyword",
+        "storage_key",
+        "event_window_key",
+        "chinese-eq",
+        "chinese-count",
+        "basic-prose",
+        "basic-prose-cn",
+        "authorization-word",
+        "event_window_key-colon",
+    ],
 )
 def test_sanitize_audit_payload_keeps_non_credential_text(value: str) -> None:
     assert sanitize_audit_payload(value) == value

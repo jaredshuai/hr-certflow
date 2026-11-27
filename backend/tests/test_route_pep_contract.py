@@ -67,6 +67,63 @@ def test_exempt_paths_still_exist_and_stay_small() -> None:
     # 豁免清单本身也要被约束：路径必须真实存在，防止拼写错误悄悄扩大豁免面。
     paths = {route.path for route in _api_routes()}
     assert PEP_EXEMPT_PATHS <= paths, f"豁免清单里有不存在的路径：{PEP_EXEMPT_PATHS - paths}"
+    # 集合必须逐项等于审计过的豁免清单：把任何既有业务路径加进来都会让这条断言失败，
+    # 新增豁免必须显式改这里（并说明为何无资源语义），不能悄悄绕过 PEP 契约。
+    audited_exemptions = frozenset({"/health", "/me"})
+    assert PEP_EXEMPT_PATHS == audited_exemptions, (
+        f"PEP 豁免清单与审计结果不一致：多出 {sorted(PEP_EXEMPT_PATHS - audited_exemptions)}，"
+        f"缺少 {sorted(audited_exemptions - PEP_EXEMPT_PATHS)}"
+    )
+
+
+def test_every_route_permission_is_granted_by_a_declared_role() -> None:
+    # PEP 落地后权限点必须同时经 manifest 角色下发：只登记权限点、不补角色，
+    # 同步 manifest 后既有角色访问新增受保护模块会全部 403。
+    manifest = _load_manifest()
+    granted_by_roles: set[str] = set()
+    for role in manifest["roles"]:
+        granted_by_roles |= set(role["permissions"])
+
+    used: set[str] = set()
+    for route in _api_routes():
+        used.update(_route_pep_permissions(route))
+    ungranted = used - granted_by_roles
+    assert not ungranted, (
+        f"以下权限点挂在路由上，但没有任何 manifest 角色授予（既有角色访问会 403）：{sorted(ungranted)}"
+    )
+
+
+# 审计过的最小权限分配：只读角色只拿各模块的 *.view，管理角色拿全部业务权限点（含 audit.view 与全部 *.manage）。
+EXPECTED_ROLE_GRANTS = {
+    "certificate-viewer": {
+        "certificate.view",
+        "employee.view",
+        "report.view",
+        "dashboard.view",
+        "reminder.view",
+        "certificate_type.view",
+    },
+    "certificate-admin": {
+        "certificate.view",
+        "certificate.manage",
+        "employee.view",
+        "employee.manage",
+        "audit.view",
+        "report.view",
+        "report.manage",
+        "dashboard.view",
+        "reminder.view",
+        "reminder.manage",
+        "certificate_type.view",
+        "certificate_type.manage",
+    },
+}
+
+
+def test_declared_roles_follow_least_privilege_grants() -> None:
+    manifest = _load_manifest()
+    declared_roles = {role["id"]: set(role["permissions"]) for role in manifest["roles"]}
+    assert declared_roles == EXPECTED_ROLE_GRANTS
 
 
 def test_every_route_permission_is_registered_in_manifest() -> None:
