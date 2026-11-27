@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, date, datetime
 from typing import Any
@@ -233,6 +234,51 @@ def test_dispatch_due_skips_when_all_channels_already_succeeded(monkeypatch) -> 
     assert dispatched == 0
     assert sent_channel_batches == []
     assert db.added == []
+
+
+def test_dispatch_due_records_failure_reason_code_in_reminder_event(monkeypatch) -> None:
+    """G-03 回归：派发失败按固定原因码落 ReminderEvent.error/payload，不带原始异常文本。
+
+    修复前 ``str(exc)``（含 Webhook URL 查询串里的 ``key=`` 凭据）会原样落库并经时间线
+    回显前端；修复后 NotificationRouter 只产出 ``WEBHOOK_HTTP_<status>`` 等原因码，
+    本测试锁死「落库的一定是原因码」这一契约。
+    """
+    task = _build_waiting_feedback_task()
+    # 无既有成功事件的 PENDING 任务才会在扫描日直接派发 FIRST_REMINDER。
+    task.status = ReminderTaskStatus.PENDING
+    db = FakeReminderDb(task, [])
+
+    def fake_send_to_hr(
+        self: NotificationRouter,
+        message: NotificationMessage,
+        channels: list[str],
+    ) -> list[dict]:
+        return [
+            {
+                "channel": channel,
+                "status": "failed",
+                "error": "WEBHOOK_HTTP_404",
+                "target": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+            }
+            for channel in channels
+        ]
+
+    monkeypatch.setattr(reminder_service, "record_audit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(NotificationRouter, "send_to_hr", fake_send_to_hr)
+
+    dispatched = reminder_service.dispatch_due_reminder_notifications(
+        db,
+        Settings(notification_hr_recipients="hr@example.test"),
+        today=date(2026, 5, 6),
+    )
+
+    failed_events = [item for item in db.added if isinstance(item, ReminderEvent)]
+    assert dispatched == len(failed_events) == 2
+    for event in failed_events:
+        assert event.error == "WEBHOOK_HTTP_404"
+        assert event.sent_at is None
+        assert "key=" not in json.dumps(event.payload, ensure_ascii=False)
+        assert event.payload["error"] == "WEBHOOK_HTTP_404"
 
 
 def _build_waiting_feedback_task() -> ReminderTask:

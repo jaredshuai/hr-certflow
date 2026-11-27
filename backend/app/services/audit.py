@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
@@ -29,11 +30,21 @@ _SENSITIVE_KEY_PARTS = (
     "token",
     "upload_url",
 )
+# 值级凭据掩码：字符串里无论以什么键名出现，key=/token=/access_token= 等「凭据=值」
+# 形态一律掩掉（Webhook 异常串、URL 查询串、Bearer 头都在此列）。
+_CREDENTIAL_VALUE_PATTERN = re.compile(
+    r"(?i)\b((?:access|refresh|id|api|client|session)?[_-]?"
+    r"(?:token|key|secret|signature|sign|passwd|password|credential|auth))(\s*=\s*)([^\s&;\"'<>]+)"
+)
 
 
 def _is_sensitive_key(key: str) -> bool:
     normalized = key.casefold()
     return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+
+
+def _mask_credential_text(text: str) -> str:
+    return _CREDENTIAL_VALUE_PATTERN.sub(r"\1\2***", text)
 
 
 def _truncate_text(value: str) -> str:
@@ -47,7 +58,7 @@ def sanitize_audit_payload(value: Any, *, _depth: int = 0) -> Any:
     if value is None or isinstance(value, bool | int | float):
         return value
     if isinstance(value, str):
-        return _truncate_text(value)
+        return _truncate_text(_mask_credential_text(value))
     if _depth > _AUDIT_MAX_DEPTH:
         return "[max_depth_exceeded]"
     if isinstance(value, dict):
@@ -71,7 +82,7 @@ def sanitize_audit_payload(value: Any, *, _depth: int = 0) -> Any:
         if len(items) > _AUDIT_MAX_LIST_ITEMS:
             sanitized_items.append({"__truncated_items__": len(items) - _AUDIT_MAX_LIST_ITEMS})
         return sanitized_items
-    return _truncate_text(str(value))
+    return _truncate_text(_mask_credential_text(str(value)))
 
 
 def _sanitize_audit_mapping(value: dict[str, Any] | None) -> dict[str, Any] | None:
