@@ -273,8 +273,26 @@ def test_sanitize_audit_payload_masks_credential_query_strings() -> None:
         ("password=abc123", "password=***"),
         ("api key=hunter2", "api key=***"),
         ("错误：?key=abc123&x=1", "错误：?key=***&x=1"),
+        ("session_id=abc123", "session_id=***"),
+        ("sessionid=abc123", "sessionid=***"),
+        ("?sessionId=abc123&next=/", "?sessionId=***&next=/"),
+        ("session-id=abc123", "session-id=***"),
     ],
-    ids=["token", "access_token", "access-token", "secret", "client_secret", "signature", "password", "key", "query"],
+    ids=[
+        "token",
+        "access_token",
+        "access-token",
+        "secret",
+        "client_secret",
+        "signature",
+        "password",
+        "key",
+        "query",
+        "session_id-eq",
+        "sessionid-eq",
+        "sessionId-query",
+        "session-id-eq",
+    ],
 )
 def test_sanitize_audit_payload_masks_credential_value_patterns(value: str, expected: str) -> None:
     assert sanitize_audit_payload(value) == expected
@@ -305,6 +323,13 @@ def test_sanitize_audit_payload_masks_credential_value_patterns(value: str, expe
             '{"token": "abc123", "auth_token": "def456", "oauth_token": "xyz789"}',
             '{"token": "***", "auth_token": "***", "oauth_token": "***"}',
         ),
+        ('{"session_id": "abc123", "status": "failed"}', '{"session_id": "***", "status": "failed"}'),
+        ("{'sessionid': 'abc123'}", "{'sessionid': '***'}"),
+        ("session_id: abc123", "session_id: ***"),
+        (
+            "Invalid session for sessionid=abc123 bucket=hr-certflow-internal key=hr-certflow/test/secret-cert.pdf",
+            "Invalid session for sessionid=*** bucket=hr-certflow-internal key=***",
+        ),
     ],
     ids=[
         "bearer-header",
@@ -325,6 +350,10 @@ def test_sanitize_audit_payload_masks_credential_value_patterns(value: str, expe
         "quoted-colon-value",
         "bare-colon",
         "multiple-fields",
+        "session_id-json",
+        "sessionid-repr",
+        "session_id-colon",
+        "sessionid-in-exception-text",
     ],
 )
 def test_sanitize_audit_payload_masks_bearer_and_quoted_or_colon_credential_fields(value: str, expected: str) -> None:
@@ -333,6 +362,28 @@ def test_sanitize_audit_payload_masks_bearer_and_quoted_or_colon_credential_fiel
     assert sanitized == {"detail": expected}
     for secret in ("abc123", "dXNlcjpwYXNz", "def456", "xyz789"):
         assert secret not in json.dumps(sanitized, ensure_ascii=False)
+
+
+def test_sanitize_audit_payload_masks_session_id_by_key_name() -> None:
+    # cubic P1：session id 作为键出现时整值掩掉，大小写与连字符写法都算。
+    payload = {
+        "session_id": "abc123",
+        "sessionid": "def456",
+        "sessionId": "ghi789",
+        "SESSION_ID": "jkl012",
+        "Session-Id": "mno345",
+        "status": "failed",
+    }
+    sanitized = sanitize_audit_payload(payload)
+
+    assert sanitized == {
+        "session_id": "***",
+        "sessionid": "***",
+        "sessionId": "***",
+        "SESSION_ID": "***",
+        "Session-Id": "***",
+        "status": "failed",
+    }
 
 
 def test_sanitize_audit_payload_masks_bearer_header_inside_nested_exception_text() -> None:

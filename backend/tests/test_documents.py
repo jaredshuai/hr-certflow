@@ -317,7 +317,20 @@ def test_confirm_upload_storage_value_error_keeps_internal_details_out_of_failur
     assert document.status == DocumentStatus.FAILED
     assert document.failure_reason == "上传确认失败，请稍后重试或联系管理员"
     audit_entries = [item for item in db.added if getattr(item, "action", None).endswith("confirm.failed")]
-    assert audit_entries and "oss.internal" not in str(audit_entries[0].after)
+    # 审计只落通用提示：假异常里的 endpoint / bucket / object key 一个都不能出现。
+    assert len(audit_entries) == 1
+    assert audit_entries[0].after == {
+        "status": DocumentStatus.FAILED.value,
+        "failure_reason": "上传确认失败，请稍后重试或联系管理员",
+    }
+    leaked_markers = (
+        "oss.internal",
+        "hr-certflow-internal",
+        "hr-certflow/test/secret-cert.pdf",
+        "Invalid bucket",
+        "checksum",
+    )
+    assert all(marker not in str(audit_entries[0].after) for marker in leaked_markers)
     # 原始异常只进服务端日志（logger.exception 的堆栈），便于排查。
     assert any(record.exc_info and "oss.internal" in str(record.exc_info[1]) for record in caplog.records)
 

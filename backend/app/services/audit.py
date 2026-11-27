@@ -27,17 +27,22 @@ _SENSITIVE_KEY_PARTS = (
     "phone",
     "read_url",
     "secret",
+    "session-id",
+    "session_id",
+    "sessionid",
     "token",
     "upload_url",
 )
-# 值级凭据掩码：字符串里无论以什么键名出现，凭据的值一律掩掉。覆盖四种形态——
+# 值级凭据掩码：字符串里无论以什么键名出现，凭据的值一律掩掉。覆盖五种形态——
 # 1. ``Authorization`` 头：整值掩掉（不论 Bearer/Basic/其它方案），键与值带不带引号都认；
 # 2. 裸的 ``Bearer …`` 方案前缀（curl 命令行、headers repr）；
 # 3. 无引号或带引号的 ``name=value``（URL 查询串，含 auth_token / oauth_token）；
 # 4. 无引号或带引号的 ``name: value``（JSON / Python dict repr）。
+# 凭据名里单独列出 session id（``session_id`` / ``sessionid`` / ``session-id``）：它以 ``id`` 结尾，
+# 不落入「前缀 + token/key/…」的拼法，不单列就漏掉。
 _CREDENTIAL_NAME = (
-    r"(?:access|refresh|id|api|client|session|auth|oauth)?[_-]?"
-    r"(?:token|key|secret|signature|sign|passwd|password|credential|auth|bearer)"
+    r"(?:session[_-]?id|(?:access|refresh|id|api|client|session|auth|oauth)?[_-]?"
+    r"(?:token|key|secret|signature|sign|passwd|password|credential|auth|bearer))"
 )
 # 掩码按顺序叠加：先把 Authorization 头整值掩掉，再掩裸 Bearer，最后掩 kv 形态——
 # 否则 ``Authorization: Bearer abc`` 会被 kv 规则只掩掉 ``Bearer`` 而留下令牌。
