@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
@@ -26,14 +27,63 @@ _SENSITIVE_KEY_PARTS = (
     "phone",
     "read_url",
     "secret",
+    "session-id",
+    "session_id",
+    "sessionid",
     "token",
     "upload_url",
+)
+# 值级凭据掩码：字符串里无论以什么键名出现，凭据的值一律掩掉。覆盖五种形态——
+# 1. ``Authorization`` 头：整值掩掉（不论 Bearer/Basic/其它方案），键与值带不带引号都认；
+# 2. 裸的 ``Bearer …`` 方案前缀（curl 命令行、headers repr）；
+# 3. 无引号或带引号的 ``name=value``（URL 查询串，含 auth_token / oauth_token）；
+# 4. 无引号或带引号的 ``name: value``（JSON / Python dict repr）。
+# 凭据名里单独列出 session id（``session_id`` / ``sessionid`` / ``session-id``）：它以 ``id`` 结尾，
+# 不落入「前缀 + token/key/…」的拼法，不单列就漏掉。
+_CREDENTIAL_NAME = (
+    r"(?:session[_-]?id|(?:access|refresh|id|api|client|session|auth|oauth)?[_-]?"
+    r"(?:token|key|secret|signature|sign|passwd|password|credential|auth|bearer))"
+)
+# 掩码按顺序叠加：先把 Authorization 头整值掩掉，再掩裸 Bearer，最后掩 kv 形态——
+# 否则 ``Authorization: Bearer abc`` 会被 kv 规则只掩掉 ``Bearer`` 而留下令牌。
+# 头值带引号时只掩到配对的闭引号（dict/JSON repr 的后续字段不受影响），否则掩到行尾。
+_AUTHORIZATION_HEADER_PATTERN = re.compile(
+    r"(?i)(\bauthorization[\"']?\s*:\s*)(?:([\"'])(.*?)\2|[^\r\n]*)"
+)
+_AUTH_SCHEME_PATTERN = re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9\-._~+/=%]+")
+_CREDENTIAL_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)\b(" + _CREDENTIAL_NAME + r")(\s*=\s*)(\"[^\"]*\"|'[^']*'|[^\s&;\"'<>]+)"
+)
+_CREDENTIAL_COLON_PATTERN = re.compile(
+    r"(?i)([\"']?)\b(" + _CREDENTIAL_NAME + r")\1(\s*:\s*)(\"[^\"]*\"|'[^']*'|[^\s,;\"'}\]]+)"
 )
 
 
 def _is_sensitive_key(key: str) -> bool:
     normalized = key.casefold()
     return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+
+
+def _masked_value(value: str) -> str:
+    """值换成 ***；值原本带引号时保留引号，JSON/dict repr 的结构不乱。"""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return f"{value[0]}***{value[0]}"
+    return "***"
+
+
+def _mask_authorization_header(match: re.Match[str]) -> str:
+    quote = match.group(2)
+    if quote:
+        return f"{match[1]}{quote}***{quote}"
+    return f"{match[1]}***"
+
+
+def _mask_credential_text(text: str) -> str:
+    text = _AUTHORIZATION_HEADER_PATTERN.sub(_mask_authorization_header, text)
+    text = _AUTH_SCHEME_PATTERN.sub(r"\1 ***", text)
+    text = _CREDENTIAL_ASSIGNMENT_PATTERN.sub(lambda m: f"{m[1]}{m[2]}{_masked_value(m[3])}", text)
+    # 冒号形态里键可带引号（m[1]），替换时原样放回键的两侧。
+    return _CREDENTIAL_COLON_PATTERN.sub(lambda m: f"{m[1]}{m[2]}{m[1]}{m[3]}{_masked_value(m[4])}", text)
 
 
 def _truncate_text(value: str) -> str:
@@ -47,7 +97,7 @@ def sanitize_audit_payload(value: Any, *, _depth: int = 0) -> Any:
     if value is None or isinstance(value, bool | int | float):
         return value
     if isinstance(value, str):
-        return _truncate_text(value)
+        return _truncate_text(_mask_credential_text(value))
     if _depth > _AUDIT_MAX_DEPTH:
         return "[max_depth_exceeded]"
     if isinstance(value, dict):
@@ -71,7 +121,7 @@ def sanitize_audit_payload(value: Any, *, _depth: int = 0) -> Any:
         if len(items) > _AUDIT_MAX_LIST_ITEMS:
             sanitized_items.append({"__truncated_items__": len(items) - _AUDIT_MAX_LIST_ITEMS})
         return sanitized_items
-    return _truncate_text(str(value))
+    return _truncate_text(_mask_credential_text(str(value)))
 
 
 def _sanitize_audit_mapping(value: dict[str, Any] | None) -> dict[str, Any] | None:

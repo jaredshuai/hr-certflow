@@ -12,6 +12,12 @@ from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.access import (
+    reminder_collection,
+    reminder_policy_item,
+    reminder_task_item,
+    require_permission,
+)
 from app.api.deps import (
     RequestContext,
     audit_context_kwargs,
@@ -56,6 +62,14 @@ from app.services.reminder_service import (
 )
 
 router = APIRouter()
+
+# S-01 补齐：策略/任务读与时间线挂 reminder.view；策略写、扫描、派发、反馈与任务
+# 导出（含全量提醒明细）挂 reminder.manage。
+_VIEW_COLLECTION = [Depends(require_permission("reminder.view", reminder_collection))]
+_VIEW_ITEM = [Depends(require_permission("reminder.view", reminder_task_item))]
+_MANAGE_COLLECTION = [Depends(require_permission("reminder.manage", reminder_collection))]
+_MANAGE_POLICY_ITEM = [Depends(require_permission("reminder.manage", reminder_policy_item))]
+_MANAGE_TASK_ITEM = [Depends(require_permission("reminder.manage", reminder_task_item))]
 
 CLOSED_REMINDER_STATUSES = (ReminderTaskStatus.RESOLVED, ReminderTaskStatus.CLOSED)
 
@@ -254,7 +268,7 @@ def build_reminder_tasks_csv(rows: Iterable[ReminderTask]) -> str:
     return "\ufeff" + output.getvalue()
 
 
-@router.get("/policies", response_model=list[ReminderPolicyRead])
+@router.get("/policies", response_model=list[ReminderPolicyRead], dependencies=_VIEW_COLLECTION)
 def list_policies(db: Session = Depends(get_db)) -> list[ReminderPolicyRead]:
     policies = list(
         db.scalars(
@@ -266,7 +280,12 @@ def list_policies(db: Session = Depends(get_db)) -> list[ReminderPolicyRead]:
     return [_policy_to_read(policy) for policy in policies]
 
 
-@router.post("/policies", response_model=ReminderPolicyRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/policies",
+    response_model=ReminderPolicyRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_MANAGE_COLLECTION,
+)
 def create_policy(
     payload: ReminderPolicyCreate,
     db: Session = Depends(get_db),
@@ -293,7 +312,7 @@ def create_policy(
     return _policy_to_read(policy)
 
 
-@router.patch("/policies/{policy_id}", response_model=ReminderPolicyRead)
+@router.patch("/policies/{policy_id}", response_model=ReminderPolicyRead, dependencies=_MANAGE_POLICY_ITEM)
 def update_policy(
     policy_id: UUID,
     payload: ReminderPolicyUpdate,
@@ -335,7 +354,7 @@ def update_policy(
     return _policy_to_read(policy)
 
 
-@router.get("/tasks", response_model=list[ReminderTaskRead])
+@router.get("/tasks", response_model=list[ReminderTaskRead], dependencies=_VIEW_COLLECTION)
 def list_tasks(
     db: Session = Depends(get_db),
     status: Annotated[list[ReminderTaskStatus] | None, Query()] = None,
@@ -347,7 +366,7 @@ def list_tasks(
     return [_task_to_read(row) for row in rows]
 
 
-@router.get("/tasks/page", response_model=ReminderTaskPageRead)
+@router.get("/tasks/page", response_model=ReminderTaskPageRead, dependencies=_VIEW_COLLECTION)
 def page_tasks(
     db: Session = Depends(get_db),
     current: int = 1,
@@ -394,7 +413,7 @@ def page_tasks(
     return ReminderTaskPageRead(data=[_task_to_read(row) for row in rows], total=total)
 
 
-@router.get("/tasks/export.csv")
+@router.get("/tasks/export.csv", dependencies=_MANAGE_COLLECTION)
 def export_tasks_csv(
     db: Session = Depends(get_db),
     keyword: str | None = None,
@@ -427,7 +446,7 @@ def export_tasks_csv(
     )
 
 
-@router.post("/tasks/scan", response_model=ReminderTaskScanRead)
+@router.post("/tasks/scan", response_model=ReminderTaskScanRead, dependencies=_MANAGE_COLLECTION)
 def scan_tasks(
     payload: ReminderTaskScanCreate,
     db: Session = Depends(get_db),
@@ -454,7 +473,11 @@ def scan_tasks(
     return ReminderTaskScanRead(created=created, scan_date=scan_date, status_changed=status_changed)
 
 
-@router.get("/tasks/{reminder_task_id}/timeline", response_model=ReminderTaskTimelineRead)
+@router.get(
+    "/tasks/{reminder_task_id}/timeline",
+    response_model=ReminderTaskTimelineRead,
+    dependencies=_VIEW_ITEM,
+)
 def get_task_timeline(
     reminder_task_id: UUID,
     db: Session = Depends(get_db),
@@ -500,7 +523,11 @@ def get_task_timeline(
     )
 
 
-@router.post("/tasks/{reminder_task_id}/dispatch", response_model=ReminderDispatchRead)
+@router.post(
+    "/tasks/{reminder_task_id}/dispatch",
+    response_model=ReminderDispatchRead,
+    dependencies=_MANAGE_TASK_ITEM,
+)
 def dispatch_task(
     reminder_task_id: UUID,
     payload: ReminderDispatchCreate,
@@ -555,6 +582,7 @@ def dispatch_task(
     "/tasks/{reminder_task_id}/feedback",
     response_model=FeedbackRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=_MANAGE_TASK_ITEM,
 )
 def create_feedback(
     reminder_task_id: UUID,

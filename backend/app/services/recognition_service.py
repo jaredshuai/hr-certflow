@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -32,6 +33,12 @@ from app.services.audit import record_audit
 from app.services.certificates import SCHEDULER_ACTOR_SOURCE, SYSTEM_ACTOR_NAME
 from app.services.dify import DifyClient, DifyExtractionRequest, normalize_dify_outputs
 from app.services.storage import ObjectStorage
+
+logger = logging.getLogger(__name__)
+
+# S-07：识别链路的原始异常（Dify/存储的内网细节）只进服务端日志；
+# failure_reason 对外仅保留统一提示，门禁文案除外（自身面向用户）。
+RECOGNITION_FAILED_REASON = "证书识别失败，请重新识别或联系管理员"
 
 # 可识别的文档状态（重新识别 PENDING_REVIEW 是既有能力:关旧任务建新任务）
 _RECOGNIZABLE_STATUSES = {
@@ -132,11 +139,6 @@ def _close_open_review_tasks(
             "replaced_by_ai_result_id": str(replaced_by_ai_result_id),
         }
     return list(open_tasks)
-
-
-def _failure_reason(exc: Exception) -> str:
-    message = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
-    return f"{exc.__class__.__name__}: {message}"[:500]
 
 
 def _assert_recognizable(document: CertificateDocument) -> None:
@@ -287,12 +289,12 @@ def run_recognition(
     except Exception as exc:
         # 非网络异常 → 领域异常
         # 注意:httpx.HTTPError 不会被这里捕获,会原样向外抛供 Celery 重试
+        logger.exception("Recognition extraction failed for document %s", document_id)
         db.rollback()
         document = db.get(CertificateDocument, document_id)
         if document:
-            reason = _failure_reason(exc)
-            _mark_failed(db, document=document, reason=reason, user=user, context=context)
-        raise RecognitionExtractionError(_failure_reason(exc)) from exc
+            _mark_failed(db, document=document, reason=RECOGNITION_FAILED_REASON, user=user, context=context)
+        raise RecognitionExtractionError(RECOGNITION_FAILED_REASON) from exc
 
     result = AiExtractionResult(
         document_id=document.id,

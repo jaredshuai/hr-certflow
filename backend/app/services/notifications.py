@@ -1,12 +1,58 @@
 from __future__ import annotations
 
+import logging
 import smtplib
 from dataclasses import dataclass
 from email.message import EmailMessage
+from urllib.parse import urlsplit
 
 import httpx
 
 from app.core.config import Settings
+
+logger = logging.getLogger(__name__)
+
+# 凭据位置由渠道决定，不靠「末段够长、像令牌」的启发式：飞书自定义机器人的令牌就是 path
+# 末段（.../bot/v2/hook/<token>，长短不限），整段确定性掩码；企微/钉钉的凭据在 query（已整体剥离）。
+_PATH_TOKEN_CHANNELS = frozenset({"feishu"})
+
+
+def _delivery_error_code(exc: Exception) -> str:
+    """异常映射为固定原因码。
+
+    ``str(exc)``（尤其 ``httpx.HTTPStatusError``）携带完整 Webhook URL，查询串里就是
+    企微/钉钉的 key、飞书的 access_token——绝不落库、进审计或回显前端。
+    """
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+        return f"WEBHOOK_HTTP_{exc.response.status_code}"
+    if isinstance(exc, httpx.HTTPError):
+        return "WEBHOOK_NETWORK_ERROR"
+    if isinstance(exc, smtplib.SMTPException):
+        return "EMAIL_SMTP_ERROR"
+    return "DELIVERY_ERROR"
+
+
+def _sanitize_webhook_url(webhook_url: str, *, channel: str) -> str:
+    """Webhook URL 只保留 scheme+host+path：剥离 query 与 userinfo；渠道的凭据 path 段整段掩码。
+
+    ``netloc`` 原样带 ``user:password@``，所以这里从 ``hostname``（加合法 port）重新拼装。
+    """
+    try:
+        parts = urlsplit(webhook_url)
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:
+        # host/port 非法（如 :abc、括号不配对的 IPv6）的 URL 本身发不出去，不猜测着拼。
+        return "invalid-webhook-url"
+    if not parts.scheme or not hostname:
+        return "invalid-webhook-url"
+    segments = [segment for segment in parts.path.split("/") if segment]
+    if segments and channel in _PATH_TOKEN_CHANNELS:
+        segments[-1] = "***"
+    path = "/" + "/".join(segments) if segments else "/"
+    host = f"[{hostname}]" if ":" in hostname else hostname
+    netloc = f"{host}:{port}" if port is not None else host
+    return f"{parts.scheme}://{netloc}{path}"
 
 
 @dataclass(frozen=True)
@@ -45,15 +91,25 @@ class NotificationRouter:
                 else:
                     results.append({"channel": channel, "status": "skipped"})
             except Exception as exc:
-                results.append({"channel": channel, "status": "failed", "error": str(exc)})
+                code = _delivery_error_code(exc)
+                # 只记原因码，不打 str(exc)/堆栈：异常文本含 Webhook 凭据。
+                logger.warning("Notification delivery failed: channel=%s code=%s", channel, code)
+                results.append({"channel": channel, "status": "failed", "error": code})
         return results
 
     def _send_webhook(self, channel: str, webhook_url: str, message: NotificationMessage) -> dict:
         payload = self._webhook_payload(channel, message)
-        with httpx.Client(timeout=15) as client:
-            response = client.post(webhook_url, json=payload)
-            response.raise_for_status()
-            return {"channel": channel, "status": "sent", "response": response.text[:500]}
+        target = _sanitize_webhook_url(webhook_url, channel=channel)
+        try:
+            with httpx.Client(timeout=15) as client:
+                response = client.post(webhook_url, json=payload)
+                response.raise_for_status()
+        except Exception as exc:
+            code = _delivery_error_code(exc)
+            logger.warning("Webhook delivery failed: channel=%s target=%s code=%s", channel, target, code)
+            return {"channel": channel, "status": "failed", "error": code, "target": target}
+        # 成功路径不回传上游响应体：Webhook/代理若回显请求 URL，其中的凭据会随结果落库并回显。
+        return {"channel": channel, "status": "sent", "target": target}
 
     def _webhook_payload(self, channel: str, message: NotificationMessage) -> dict:
         text = f"{message.title}\n{message.content}"

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.access import dashboard_collection, require_permission
 from app.db.session import get_db
 from app.domain.enums import CertificateStatus, DocumentStatus, EmploymentStatus, ReminderTaskStatus, ReviewStatus
 from app.models import (
@@ -30,6 +31,9 @@ from app.schemas.reminders import ReminderTaskRead
 from app.services.certificates import on_roll_employee_ids
 
 router = APIRouter()
+
+# S-01 补齐：看板读数与风险下钻挂 dashboard.view（风险项非独立资源，统一按集合级送判）。
+_VIEW_COLLECTION = [Depends(require_permission("dashboard.view", dashboard_collection))]
 
 CERTIFICATE_STATUS_LABELS = {
     CertificateStatus.DRAFT: "草稿",
@@ -170,7 +174,7 @@ def _dashboard_risk_trace_payload(
     )
 
 
-@router.get("/summary", response_model=DashboardSummaryRead)
+@router.get("/summary", response_model=DashboardSummaryRead, dependencies=_VIEW_COLLECTION)
 def get_dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummaryRead:
     employee_count = _count(
         db,
@@ -466,7 +470,11 @@ _RISK_TRACE_HANDLERS: dict[str, Callable[[Session, int], DashboardRiskTraceRead]
 }
 
 
-@router.get("/risk-items/{risk_id}/trace", response_model=DashboardRiskTraceRead)
+@router.get(
+    "/risk-items/{risk_id}/trace",
+    response_model=DashboardRiskTraceRead,
+    dependencies=_VIEW_COLLECTION,
+)
 def get_dashboard_risk_trace(
     risk_id: str,
     db: Session = Depends(get_db),

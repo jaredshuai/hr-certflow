@@ -139,7 +139,13 @@ def sdk(monkeypatch) -> Generator[Sdk, None, None]:
     app = create_app()
     runtime = app.state.jxccs_access
     authorizer = FakeAuthorizer(
-        allow={(PAN.sub, "certificate.view", "certificate"), (PAN.sub, "certificate.manage", "certificate")}
+        allow={
+            # PAN 是证书管理员：manage 覆盖证书及其从属资源（文档 / 复核）。
+            (PAN.sub, "certificate.view", "certificate"),
+            (PAN.sub, "certificate.manage", "certificate"),
+            (PAN.sub, "certificate.manage", "certificate_document"),
+            (PAN.sub, "certificate.manage", "review_task"),
+        }
     )
     runtime.authorizer = authorizer
     yield Sdk(TestClient(app), runtime, authorizer)
@@ -344,16 +350,16 @@ def test_certificate_list_allowed_with_view(sdk: Sdk, no_db: MagicMock) -> None:
 
 
 @pytest.mark.parametrize(
-    ("method", "path", "resource_id"),
+    ("method", "path", "resource_type", "resource_id"),
     [
-        ("POST", "/api/v1/certificates", "collection"),
-        ("PATCH", f"/api/v1/certificates/{uuid.UUID(int=9)}", str(uuid.UUID(int=9))),
-        ("POST", f"/api/v1/reviews/{uuid.UUID(int=10)}/approve", str(uuid.UUID(int=10))),
-        ("POST", f"/api/v1/reviews/{uuid.UUID(int=10)}/reject", str(uuid.UUID(int=10))),
+        ("POST", "/api/v1/certificates", "certificate", "collection"),
+        ("PATCH", f"/api/v1/certificates/{uuid.UUID(int=9)}", "certificate", str(uuid.UUID(int=9))),
+        ("POST", f"/api/v1/reviews/{uuid.UUID(int=10)}/approve", "review_task", str(uuid.UUID(int=10))),
+        ("POST", f"/api/v1/reviews/{uuid.UUID(int=10)}/reject", "review_task", str(uuid.UUID(int=10))),
     ],
 )
 def test_certificate_writes_require_manage(
-    sdk: Sdk, no_db: MagicMock, method: str, path: str, resource_id: str
+    sdk: Sdk, no_db: MagicMock, method: str, path: str, resource_type: str, resource_id: str
 ) -> None:
     record = sdk.login(SUN)
     response = sdk.client.request(method, path, json={}, headers=sdk.headers(record, write=True))
@@ -361,7 +367,7 @@ def test_certificate_writes_require_manage(
     assert response.status_code == 403
     assert response.json() == {"detail": {"code": "FORBIDDEN", "requestId": "req-1"}}
     sub, permission, resource = sdk.authorizer.calls[-1]
-    assert (sub, permission, resource) == (SUN.sub, "certificate.manage", ResourceRef("certificate", resource_id))
+    assert (sub, permission, resource) == (SUN.sub, "certificate.manage", ResourceRef(resource_type, resource_id))
     no_db.scalar.assert_not_called()
     no_db.add.assert_not_called()
 
@@ -371,7 +377,7 @@ def test_confirm_upload_requires_manage(sdk: Sdk, no_db: MagicMock, monkeypatch,
     principal = Principal(ISSUER_KEY, "synthetic-confirmation-subject", None, None, (), "ACTIVE", "oidc")
     sdk.authorizer.allow.add((principal.sub, "certificate.view", "certificate"))
     if can_manage:
-        sdk.authorizer.allow.add((principal.sub, "certificate.manage", "certificate"))
+        sdk.authorizer.allow.add((principal.sub, "certificate.manage", "certificate_document"))
     document = CertificateDocument(
         id=uuid.UUID(int=11),
         status=DocumentStatus.PENDING_UPLOAD,
@@ -405,7 +411,9 @@ def test_confirm_upload_requires_manage(sdk: Sdk, no_db: MagicMock, monkeypatch,
         no_db.get.assert_not_called()
         storage_factory.assert_not_called()
         no_db.commit.assert_not_called()
-    assert sdk.authorizer.calls == [(principal.sub, "certificate.manage", ResourceRef("certificate", str(document.id)))]
+    assert sdk.authorizer.calls == [
+        (principal.sub, "certificate.manage", ResourceRef("certificate_document", str(document.id)))
+    ]
 
 
 def test_write_requires_csrf_token_even_with_session(sdk: Sdk, no_db: MagicMock) -> None:
@@ -546,30 +554,195 @@ def test_request_id_bound_never_exceeds_what_the_sdk_forwards() -> None:
 
 
 def test_routes_outside_slice_need_session_but_no_pep(sdk: Sdk, no_db: MagicMock) -> None:
+    """仅依赖会话自身、无业务资源语义的端点（探针 / /me）不挂 PEP。"""
     no_db.scalar.return_value = 0
-    response = sdk.client.get("/api/v1/audit-logs", headers=sdk.headers(sdk.login(SUN)))
-    assert response.status_code != 403
+    assert sdk.client.get("/api/v1/health").status_code != 403
+    assert sdk.authorizer.calls == []
+    me = sdk.client.get("/api/v1/me", headers=sdk.headers(sdk.login(SUN)))
+    assert me.status_code == 200
     assert sdk.authorizer.calls == []
 
 
+# --- S-01 补齐：六模块业务 PEP --------------------------------------------------
+
+_EMPLOYEE_ID = str(uuid.UUID(int=31))
+_POLICY_ID = str(uuid.UUID(int=32))
+_REMINDER_TASK_ID = str(uuid.UUID(int=33))
+_CERTIFICATE_TYPE_ID = str(uuid.UUID(int=34))
+
+MODULE_PEP_CASES = [
+    # (method, path, permission, resource_type, resource_id)
+    ("GET", "/api/v1/employees", "employee.view", "employee", "collection"),
+    ("GET", "/api/v1/employees/page", "employee.view", "employee", "collection"),
+    ("GET", "/api/v1/employees/export.csv", "employee.manage", "employee", "collection"),
+    ("GET", "/api/v1/employees/import-template.csv", "employee.view", "employee", "collection"),
+    ("POST", "/api/v1/employees/import.csv", "employee.manage", "employee", "collection"),
+    ("GET", f"/api/v1/employees/{_EMPLOYEE_ID}/trace", "employee.view", "employee", _EMPLOYEE_ID),
+    ("POST", "/api/v1/employees", "employee.manage", "employee", "collection"),
+    ("PATCH", f"/api/v1/employees/{_EMPLOYEE_ID}", "employee.manage", "employee", _EMPLOYEE_ID),
+    ("GET", "/api/v1/audit-logs", "audit.view", "audit_log", "collection"),
+    ("GET", "/api/v1/reports/certificate-coverage", "report.view", "report", "collection"),
+    ("GET", "/api/v1/reports/certificate-coverage/export.csv", "report.manage", "report", "collection"),
+    ("GET", "/api/v1/dashboard/summary", "dashboard.view", "dashboard", "collection"),
+    (
+        "GET",
+        "/api/v1/dashboard/risk-items/expired-certificates/trace",
+        "dashboard.view",
+        "dashboard",
+        "collection",
+    ),
+    ("GET", "/api/v1/reminders/policies", "reminder.view", "reminder", "collection"),
+    ("POST", "/api/v1/reminders/policies", "reminder.manage", "reminder", "collection"),
+    ("PATCH", f"/api/v1/reminders/policies/{_POLICY_ID}", "reminder.manage", "reminder", _POLICY_ID),
+    ("GET", "/api/v1/reminders/tasks", "reminder.view", "reminder", "collection"),
+    ("GET", "/api/v1/reminders/tasks/page", "reminder.view", "reminder", "collection"),
+    ("GET", "/api/v1/reminders/tasks/export.csv", "reminder.manage", "reminder", "collection"),
+    ("POST", "/api/v1/reminders/tasks/scan", "reminder.manage", "reminder", "collection"),
+    (
+        "GET",
+        f"/api/v1/reminders/tasks/{_REMINDER_TASK_ID}/timeline",
+        "reminder.view",
+        "reminder",
+        _REMINDER_TASK_ID,
+    ),
+    (
+        "POST",
+        f"/api/v1/reminders/tasks/{_REMINDER_TASK_ID}/dispatch",
+        "reminder.manage",
+        "reminder",
+        _REMINDER_TASK_ID,
+    ),
+    (
+        "POST",
+        f"/api/v1/reminders/tasks/{_REMINDER_TASK_ID}/feedback",
+        "reminder.manage",
+        "reminder",
+        _REMINDER_TASK_ID,
+    ),
+    ("GET", "/api/v1/certificate-types", "certificate_type.view", "certificate_type", "collection"),
+    ("GET", "/api/v1/certificate-types/page", "certificate_type.view", "certificate_type", "collection"),
+    ("GET", "/api/v1/certificate-types/export.csv", "certificate_type.manage", "certificate_type", "collection"),
+    (
+        "GET",
+        "/api/v1/certificate-types/import-template.csv",
+        "certificate_type.view",
+        "certificate_type",
+        "collection",
+    ),
+    ("POST", "/api/v1/certificate-types/import.csv", "certificate_type.manage", "certificate_type", "collection"),
+    (
+        "GET",
+        f"/api/v1/certificate-types/{_CERTIFICATE_TYPE_ID}/trace",
+        "certificate_type.view",
+        "certificate_type",
+        _CERTIFICATE_TYPE_ID,
+    ),
+    ("POST", "/api/v1/certificate-types", "certificate_type.manage", "certificate_type", "collection"),
+    (
+        "PATCH",
+        f"/api/v1/certificate-types/{_CERTIFICATE_TYPE_ID}",
+        "certificate_type.manage",
+        "certificate_type",
+        _CERTIFICATE_TYPE_ID,
+    ),
+]
+
+
 @pytest.mark.parametrize(
-    ("method", "path", "resource_id", "json_body"),
+    ("method", "path", "permission", "resource_type", "resource_id"),
+    MODULE_PEP_CASES,
+)
+def test_module_routes_require_pep(
+    sdk: Sdk,
+    no_db: MagicMock,
+    method: str,
+    path: str,
+    permission: str,
+    resource_type: str,
+    resource_id: str,
+) -> None:
+    """S-01：employees/audit/reports/dashboard/reminders/certificate-types 每条路由都先过对应权限点。"""
+    record = sdk.login(SUN)  # SUN 无任何授权
+    request_kwargs: dict[str, object] = {"headers": sdk.headers(record, write=method != "GET")}
+    if method != "GET":
+        request_kwargs["json"] = {}
+
+    response = sdk.client.request(method, path, **request_kwargs)
+
+    assert response.status_code == 403, response.text
+    assert response.json() == {"detail": {"code": "FORBIDDEN", "requestId": "req-1"}}
+    assert sdk.authorizer.calls[-1] == (SUN.sub, permission, ResourceRef(resource_type, resource_id))
+    assert no_db.mock_calls == []
+
+
+def test_module_reads_allowed_with_view_grants(sdk: Sdk, no_db: MagicMock) -> None:
+    """持有各模块 view 授权后，读列表端点正常返回（PEP 放行、业务层照常执行）。"""
+    principal = Principal(ISSUER_KEY, "module-reader", None, None, (), "ACTIVE", "oidc")
+    sdk.authorizer.allow.update(
+        {
+            (principal.sub, "employee.view", "employee"),
+            (principal.sub, "audit.view", "audit_log"),
+            (principal.sub, "report.view", "report"),
+            (principal.sub, "dashboard.view", "dashboard"),
+            (principal.sub, "reminder.view", "reminder"),
+            (principal.sub, "certificate_type.view", "certificate_type"),
+        }
+    )
+    no_db.scalar.return_value = 0
+    no_db.scalars.return_value.all.return_value = []
+
+    headers = sdk.headers(sdk.login(principal))
+    for path in (
+        "/api/v1/employees",
+        "/api/v1/employees/import-template.csv",
+        "/api/v1/audit-logs",
+        "/api/v1/reports/certificate-coverage",
+        "/api/v1/dashboard/summary",
+        "/api/v1/reminders/policies",
+        "/api/v1/reminders/tasks",
+        "/api/v1/certificate-types",
+    ):
+        response = sdk.client.get(path, headers=headers)
+        assert response.status_code == 200, f"{path}: {response.text}"
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "resource_type", "resource_id", "json_body"),
     [
-        ("GET", "/api/v1/reviews", "collection", None),
-        ("GET", f"/api/v1/reviews/{uuid.UUID(int=19)}/trace", str(uuid.UUID(int=19)), None),
-        ("GET", "/api/v1/documents", "collection", None),
-        ("GET", "/api/v1/documents/page", "collection", None),
-        ("GET", "/api/v1/documents/export.csv", "collection", None),
-        ("GET", f"/api/v1/documents/{uuid.UUID(int=20)}/trace", str(uuid.UUID(int=20)), None),
+        ("GET", "/api/v1/reviews", "certificate", "collection", None),
+        ("GET", f"/api/v1/reviews/{uuid.UUID(int=19)}/trace", "review_task", str(uuid.UUID(int=19)), None),
+        ("GET", "/api/v1/documents", "certificate", "collection", None),
+        ("GET", "/api/v1/documents/page", "certificate", "collection", None),
+        ("GET", "/api/v1/documents/export.csv", "certificate", "collection", None),
+        ("GET", f"/api/v1/documents/{uuid.UUID(int=20)}/trace", "certificate_document", str(uuid.UUID(int=20)), None),
         (
             "POST",
             "/api/v1/documents/upload-intents",
+            "certificate",
             "collection",
             {"original_filename": "certificate.pdf", "content_type": "application/pdf", "file_size": 123},
         ),
-        ("POST", f"/api/v1/documents/{uuid.UUID(int=20)}/confirm-upload", str(uuid.UUID(int=20)), None),
-        ("POST", f"/api/v1/documents/{uuid.UUID(int=20)}/recognize-async", str(uuid.UUID(int=20)), None),
-        ("GET", f"/api/v1/documents/{uuid.UUID(int=20)}/recognition-status", str(uuid.UUID(int=20)), None),
+        (
+            "POST",
+            f"/api/v1/documents/{uuid.UUID(int=20)}/confirm-upload",
+            "certificate_document",
+            str(uuid.UUID(int=20)),
+            None,
+        ),
+        (
+            "POST",
+            f"/api/v1/documents/{uuid.UUID(int=20)}/recognize-async",
+            "certificate_document",
+            str(uuid.UUID(int=20)),
+            None,
+        ),
+        (
+            "GET",
+            f"/api/v1/documents/{uuid.UUID(int=20)}/recognition-status",
+            "certificate_document",
+            str(uuid.UUID(int=20)),
+            None,
+        ),
     ],
 )
 def test_reviews_and_documents_require_manage_before_business_logic(
@@ -577,10 +750,15 @@ def test_reviews_and_documents_require_manage_before_business_logic(
     no_db: MagicMock,
     method: str,
     path: str,
+    resource_type: str,
     resource_id: str,
     json_body: dict[str, object] | None,
 ) -> None:
-    """仅持有 view 也不能读取复核/材料详情，PEP 必须先于业务查询执行。"""
+    """仅持有 view 也不能读取复核/材料详情，PEP 必须先于业务查询执行。
+
+    S-06 修复：文档/复核以各自的真实资源类型（certificate_document / review_task）送判，
+    不再用 certificate 类型包文档/复核 UUID。
+    """
     sdk.authorizer.allow.add((SUN.sub, "certificate.view", "certificate"))
     record = sdk.login(SUN)
     request_kwargs: dict[str, object] = {"headers": sdk.headers(record, write=method != "GET")}
@@ -594,7 +772,7 @@ def test_reviews_and_documents_require_manage_before_business_logic(
     assert sdk.authorizer.calls[-1] == (
         SUN.sub,
         "certificate.manage",
-        ResourceRef("certificate", resource_id),
+        ResourceRef(resource_type, resource_id),
     )
     assert no_db.mock_calls == []
 
@@ -647,20 +825,21 @@ def test_review_and_document_details_follow_manage_revocation(
     record = sdk.login(PAN)
 
     allowed_paths = [
-        (f"/api/v1/reviews/{review_task.id}/trace", str(review_task.id)),
-        (f"/api/v1/documents/{document.id}/trace", str(document.id)),
+        (f"/api/v1/reviews/{review_task.id}/trace", "review_task", str(review_task.id)),
+        (f"/api/v1/documents/{document.id}/trace", "certificate_document", str(document.id)),
     ]
-    for path, resource_id in allowed_paths:
+    for path, resource_type, resource_id in allowed_paths:
         allowed = sdk.client.get(path, headers=sdk.headers(record))
         assert allowed.status_code == 200, allowed.text
         assert sdk.authorizer.calls[-1] == (
             PAN.sub,
             "certificate.manage",
-            ResourceRef("certificate", resource_id),
+            ResourceRef(resource_type, resource_id),
         )
 
-    sdk.authorizer.allow.discard((PAN.sub, "certificate.manage", "certificate"))
-    for path, resource_id in allowed_paths:
+    for resource_type in ("certificate", "certificate_document", "review_task"):
+        sdk.authorizer.allow.discard((PAN.sub, "certificate.manage", resource_type))
+    for path, resource_type, resource_id in allowed_paths:
         denied = sdk.client.get(path, headers=sdk.headers(record))
         assert denied.status_code == 403
         assert denied.json() == {"detail": {"code": "FORBIDDEN", "requestId": "req-1"}}
@@ -669,11 +848,12 @@ def test_review_and_document_details_follow_manage_revocation(
         assert sdk.authorizer.calls[-1] == (
             PAN.sub,
             "certificate.manage",
-            ResourceRef("certificate", resource_id),
+            ResourceRef(resource_type, resource_id),
         )
 
-    sdk.authorizer.allow.add((PAN.sub, "certificate.manage", "certificate"))
-    for path, _ in allowed_paths:
+    sdk.authorizer.allow.add((PAN.sub, "certificate.manage", "certificate_document"))
+    sdk.authorizer.allow.add((PAN.sub, "certificate.manage", "review_task"))
+    for path, _resource_type, _resource_id in allowed_paths:
         restored = sdk.client.get(path, headers=sdk.headers(record))
         assert restored.status_code == 200, restored.text
 
@@ -721,7 +901,7 @@ def test_document_mutations_allow_manage(sdk: Sdk, db_session: Session, monkeypa
     assert sdk.authorizer.calls[-1] == (
         PAN.sub,
         "certificate.manage",
-        ResourceRef("certificate", str(document.id)),
+        ResourceRef("certificate_document", str(document.id)),
     )
 
 # --- 写操作 actor（需要 PostgreSQL） -------------------------------------------
@@ -851,7 +1031,7 @@ def test_review_approve_with_manage_records_session_actor(sdk: Sdk, db_session: 
     )
 
     assert response.status_code == 200, response.text
-    assert sdk.authorizer.calls == [(PAN.sub, "certificate.manage", ResourceRef("certificate", str(review_task.id)))]
+    assert sdk.authorizer.calls == [(PAN.sub, "certificate.manage", ResourceRef("review_task", str(review_task.id)))]
     db_session.expire_all()
     refreshed = db_session.get(ReviewTask, review_task.id)
     assert refreshed is not None
@@ -885,19 +1065,19 @@ def test_review_reject_requires_manage_and_revocation_is_honoured(sdk: Sdk, db_s
     headers = sdk.headers(record, write=True)
 
     # 撤权（从授权集里移除 manage）：PEP 拒绝且业务层完全不执行。
-    sdk.authorizer.allow.discard((PAN.sub, "certificate.manage", "certificate"))
+    sdk.authorizer.allow.discard((PAN.sub, "certificate.manage", "review_task"))
     revoked = sdk.client.post(f"/api/v1/reviews/{review_task.id}/reject", json=payload, headers=headers)
     assert revoked.status_code == 403
     assert revoked.json() == {"detail": {"code": "FORBIDDEN", "requestId": "req-1"}}
-    assert sdk.authorizer.calls[-1] == (PAN.sub, "certificate.manage", ResourceRef("certificate", str(review_task.id)))
+    assert sdk.authorizer.calls[-1] == (PAN.sub, "certificate.manage", ResourceRef("review_task", str(review_task.id)))
     db_session.expire_all()
     assert db_session.get(ReviewTask, review_task.id).status == ReviewStatus.PENDING
 
     # 重新授权：放行并记录审计。
-    sdk.authorizer.allow.add((PAN.sub, "certificate.manage", "certificate"))
+    sdk.authorizer.allow.add((PAN.sub, "certificate.manage", "review_task"))
     allowed = sdk.client.post(f"/api/v1/reviews/{review_task.id}/reject", json=payload, headers=headers)
     assert allowed.status_code == 200, allowed.text
-    assert sdk.authorizer.calls[-1] == (PAN.sub, "certificate.manage", ResourceRef("certificate", str(review_task.id)))
+    assert sdk.authorizer.calls[-1] == (PAN.sub, "certificate.manage", ResourceRef("review_task", str(review_task.id)))
     db_session.expire_all()
     refreshed = db_session.get(ReviewTask, review_task.id)
     assert refreshed is not None

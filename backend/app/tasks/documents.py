@@ -12,6 +12,7 @@ from app.db.session import SessionLocal
 from app.domain.enums import DocumentStatus
 from app.models import CertificateDocument
 from app.services.recognition_service import (
+    RECOGNITION_FAILED_REASON,
     RecognitionContext,
     RecognitionDocumentNotFoundError,
     RecognitionInvalidStateError,
@@ -114,13 +115,12 @@ def run_certificate_recognition(
         return _mark_failed_or_skip(
             db, document_id=document_id, user=user, actor_source=actor_source, reason=reason
         )
-    except Exception as exc:
-        # 兜底:未预期的异常标 FAILED,记录详细日志便于排查
+    except Exception:
+        # 兜底:未预期的异常标 FAILED,原始细节只记详细日志便于排查（S-07）
         db.rollback()
         logger.exception("Unexpected error recognizing document %s", document_id)
-        reason = f"{exc.__class__.__name__}: {str(exc).splitlines()[0]}"[:500]
         return _mark_failed_or_skip(
-            db, document_id=document_id, user=user, actor_source=actor_source, reason=reason
+            db, document_id=document_id, user=user, actor_source=actor_source, reason=RECOGNITION_FAILED_REASON
         )
     finally:
         db.close()

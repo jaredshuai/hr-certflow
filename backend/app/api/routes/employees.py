@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.api.access import employee_collection, employee_item, require_permission
 from app.api.deps import RequestContext, audit_context_kwargs, get_request_context
 from app.db.session import get_db
 from app.domain.enums import CertificateStatus, EmploymentStatus
@@ -41,6 +42,13 @@ from app.services.audit import record_audit
 from app.services.certificates import close_reminder_tasks_for_employee
 
 router = APIRouter()
+
+# S-01 补齐的业务 PEP（jxccs-access 启用时生效，未启用时为空操作）：
+# 读 employee.view；写/导入/导出 employee.manage。导出含全量 PII（手机/邮箱），从 manage。
+_VIEW_COLLECTION = [Depends(require_permission("employee.view", employee_collection))]
+_VIEW_ITEM = [Depends(require_permission("employee.view", employee_item))]
+_MANAGE_COLLECTION = [Depends(require_permission("employee.manage", employee_collection))]
+_MANAGE_ITEM = [Depends(require_permission("employee.manage", employee_item))]
 
 _EMPLOYEE_IMPORT_FIELD_ALIASES = {
     "工号": "employee_no",
@@ -314,7 +322,7 @@ def build_employee_import_template_csv() -> str:
     return "\ufeff" + output.getvalue()
 
 
-@router.get("", response_model=list[EmployeeRead])
+@router.get("", response_model=list[EmployeeRead], dependencies=_VIEW_COLLECTION)
 def list_employees(
     db: Session = Depends(get_db),
     limit: int = 100,
@@ -324,7 +332,7 @@ def list_employees(
     return list(db.scalars(statement).all())
 
 
-@router.get("/page", response_model=EmployeePageRead)
+@router.get("/page", response_model=EmployeePageRead, dependencies=_VIEW_COLLECTION)
 def page_employees(
     db: Session = Depends(get_db),
     current: int = 1,
@@ -357,7 +365,7 @@ def page_employees(
     return EmployeePageRead(data=[EmployeeRead.model_validate(row) for row in rows], total=total)
 
 
-@router.get("/export.csv")
+@router.get("/export.csv", dependencies=_MANAGE_COLLECTION)
 def export_employees_csv(
     db: Session = Depends(get_db),
     keyword: str | None = None,
@@ -388,7 +396,7 @@ def export_employees_csv(
     )
 
 
-@router.get("/import-template.csv")
+@router.get("/import-template.csv", dependencies=_VIEW_COLLECTION)
 def export_employee_import_template_csv() -> Response:
     return Response(
         content=build_employee_import_template_csv(),
@@ -397,7 +405,7 @@ def export_employee_import_template_csv() -> Response:
     )
 
 
-@router.post("/import.csv", response_model=EmployeeImportResultRead)
+@router.post("/import.csv", response_model=EmployeeImportResultRead, dependencies=_MANAGE_COLLECTION)
 async def import_employees_csv(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -433,7 +441,7 @@ def _load_employee_trace_audit_logs(
     return load_audit_logs_for_resources(db, resource_ids)
 
 
-@router.get("/{employee_id}/trace", response_model=EmployeeTraceRead)
+@router.get("/{employee_id}/trace", response_model=EmployeeTraceRead, dependencies=_VIEW_ITEM)
 def get_employee_trace(
     employee_id: UUID,
     db: Session = Depends(get_db),
@@ -589,7 +597,12 @@ def get_employee_trace(
     )
 
 
-@router.post("", response_model=EmployeeRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=EmployeeRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_MANAGE_COLLECTION,
+)
 def create_employee(
     payload: EmployeeCreate,
     db: Session = Depends(get_db),
@@ -611,7 +624,7 @@ def create_employee(
     return employee
 
 
-@router.patch("/{employee_id}", response_model=EmployeeRead)
+@router.patch("/{employee_id}", response_model=EmployeeRead, dependencies=_MANAGE_ITEM)
 def update_employee(
     employee_id: UUID,
     payload: EmployeeUpdate,
