@@ -48,7 +48,7 @@
 | `scripts/parse_mutmut_report.py` | `.mutmut-cache` + `mutmut show all` → 统一变异体报告。配方分发。 |
 | `scripts/create-mutation-issues.mjs` | 统一报告 → 按文件分组的补测 issue + `.mutation-queue/` 队列文件。配方分发。 |
 | `scripts/nightly-mutation-runner.sh` | 本地一条龙包装脚本（cron / systemd 触发面）。配方分发。 |
-| `.github/workflows/nightly-mutation-py.yml` | GitHub Actions 夜跑闭环，手动触发 + 每日 03:00（北京时间）定时；定时默认 `--dry-run`。 |
+| `.github/workflows/nightly-mutation-py.yml` | GitHub Actions 夜跑闭环，手动触发 + 每日 03:00（北京时间）定时；定时自动建按文件分组的补测 issue（同名 open issue 去重）。 |
 | `docs/setup/mutation-testing.{service,timer}`、`docs/setup/crontab.example` | 本地定时模板，默认不启用。 |
 | `.mutation-baseline.json` | 变异分数基线，**提交进版本库**（棘轮依赖它）。 |
 | `.equivalent-mutants.json` | 可选，等价变异体豁免清单，评审后提交。 |
@@ -138,10 +138,11 @@ node scripts/mutation-baseline.mjs check --input mutmut-results-export.json --la
 （`workflow_dispatch`），并已开启每日定时：`cron: "0 19 * * *"`（UTC，
 即北京时间次日 03:00）。
 
-- 定时与手动默认都是 `--dry-run`：零 gh 调用，只上传 `.mutation-queue/` 预览与报告产物。
-- 手动触发勾选 `create_issues` 才真正建 issue（凭据用仓库自带的 `GITHUB_TOKEN`，无需额外 secret）。
-- 定时事件没有 inputs，当前由步骤内的 `SCHEDULE_CREATES_ISSUES` 决定模式，值为
-  `false`（保持 `--dry-run`）；要让定时实建 issue，把该值改为 `true`。
+- 定时事件自动建**按文件分组**的补测 issue（`SCHEDULE_CREATES_ISSUES=true`）：
+  与 open 状态的同名 issue 去重，重复夜跑只跳过不重复建；凭据用仓库自带的
+  `GITHUB_TOKEN`，无需额外 secret。设为 `false` 可退回零 gh 调用的 `--dry-run`。
+- 手动触发默认 `--dry-run`（只上传 `.mutation-queue/` 预览与报告产物），勾选
+  `create_issues` 才真正建 issue。
 
 ### 本机 cron / systemd
 
