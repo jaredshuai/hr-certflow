@@ -40,10 +40,7 @@ PATH=/home/jxccs/codespace/hr-certflow/backend/.venv/bin:/home/jxccs/.local/bin:
 # 14:00 EST = 北京时间 03:00，夏令时（EDT）期间 = 北京时间 02:00。要钉死「UTC
 # 19:00」这一个时刻请改用 systemd timer 模板（OnCalendar 支持 UTC 后缀）。
 # 控制台输出丢弃以免 cron 邮件刷屏——完整日志已由脚本写入 --log-dir。
-# 命令依次是：清缓存 -> 脏工作区保护（被变异目录 / 测试目录 / 变异配置有未提交
-# 改动时直接不跑，因为 mutmut 会就地改写源文件再还原）-> 夜跑闭环。
-0 14 * * * rm -f /home/jxccs/codespace/hr-certflow/.mutmut-cache && git -C /home/jxccs/codespace/hr-certflow diff --quiet HEAD -- backend/app backend/tests setup.cfg pytest-mutation.ini && /home/jxccs/codespace/hr-certflow/scripts/nightly-mutation-runner.sh --lang py --project-dir /home/jxccs/codespace/hr-certflow --log-dir /home/jxccs/.local/state/nightly-mutation --dry-run >/dev/null 2>&1
-
-# 可选：防止上一轮没跑完时重叠（cron 本身不防重叠）。需要时在上面那条命令前加
-# flock -n（util-linux）：
-# 0 14 * * * flock -n /tmp/nightly-mutation-py.lock <同上命令>
+# 命令依次是：flock 防重叠（cron 本身不防，而 mutmut 会就地改写源文件再还原，
+# 上一轮没跑完时这一轮直接退出）-> 清缓存 -> 脏工作区保护（被变异目录 / 测试
+# 目录 / 变异配置有未提交改动时直接不跑）-> 夜跑闭环。
+0 14 * * * flock -n /tmp/nightly-mutation-py.lock rm -f /home/jxccs/codespace/hr-certflow/.mutmut-cache && git -C /home/jxccs/codespace/hr-certflow diff --quiet HEAD -- backend/app backend/tests setup.cfg pytest-mutation.ini && /home/jxccs/codespace/hr-certflow/scripts/nightly-mutation-runner.sh --lang py --project-dir /home/jxccs/codespace/hr-certflow --log-dir /home/jxccs/.local/state/nightly-mutation --dry-run >/dev/null 2>&1

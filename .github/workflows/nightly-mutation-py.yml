@@ -31,7 +31,7 @@ on:
         default: false
   # 确认夜跑效果稳定后再放开。GitHub Actions 的 cron 按 UTC：19:00 UTC = 北京时间 03:00。
   # 定时事件没有 inputs，默认仍走 --dry-run；要让定时实建 issue，把下面
-  # 「Create per-file mutation issues」步骤里的 schedule 分支改为 true。
+  # 「Create per-file mutation issues」步骤里的 SCHEDULE_CREATES_ISSUES 改为 true。
   # schedule:
   #   - cron: "0 19 * * *"
 
@@ -145,10 +145,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.create_issues == true }}" == "true" ]]; then
+          # 手动触发：勾选 create_issues 才实建。定时事件没有 inputs，
+          # 由 SCHEDULE_CREATES_ISSUES 决定是否实建（默认 false = --dry-run）。
+          SCHEDULE_CREATES_ISSUES="false"
+          mode="dry-run"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "${SCHEDULE_CREATES_ISSUES}" = "true" ]; then
+              mode="create"
+            fi
+          elif [ "${{ inputs.create_issues }}" = "true" ]; then
             mode="create"
-          else
-            mode="dry-run"
           fi
           args=(--input unified-mutation-report.json --output .mutation-queue/manifest.json)
           if [ -f .equivalent-mutants.json ]; then

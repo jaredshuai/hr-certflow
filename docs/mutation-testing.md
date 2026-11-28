@@ -8,7 +8,7 @@
 - **工具**：mutmut 2.5.1（`mutmut<3`；3.x 不再写 `.mutmut-cache`，配方链路读不到）。
 - **来源**：[lazypack-discipline](https://github.com/jaredshuai/lazypack-discipline) 的
   `mutation-testing` 配方（recipe v1.0.0）。`scripts/` 下 5 个工具脚本由配方**逐字分发**
-  （文件头 `@version 1.0.0`），升级方式见文末。格式契约与运营手册：
+  （其中 4 个核心脚本文件头带 `@version 1.0.0`），升级方式见文末。格式契约与运营手册：
   [运营手册](https://github.com/jaredshuai/lazypack-discipline/blob/main/docs/quality-gates/mutation-testing.md)、
   [夜跑闭环](https://github.com/jaredshuai/lazypack-discipline/blob/main/docs/quality-gates/nightly-mutation-loop.md)。
 
@@ -66,7 +66,8 @@ uv sync --project backend --extra dev --extra mutation --locked
 # 2. 只跑变异测试（必须在仓库根目录）。想让结果全量重算就先删 .mutmut-cache
 PATH="$PWD/backend/.venv/bin:$PATH" mutmut run
 
-# 3. 或者一条龙：实跑 -> 解析 -> 基线 -> 补测 issue（--dry-run = 零 gh 调用）。
+# 3. 或者一条龙：实跑 -> 解析 -> 基线（默认跳过，见「夜跑闭环」）-> 补测 issue
+#    （--dry-run = 零 gh 调用）。
 #    必须先删缓存：结果全部命中缓存时 mutmut 不会重写 .mutmut-cache，runner
 #    脚本会把它误判成「陈旧缓存」并以退出码 2 失败（实测）
 rm -f .mutmut-cache && PATH="$PWD/backend/.venv/bin:$PATH" scripts/nightly-mutation-runner.sh --lang py --dry-run
@@ -96,7 +97,7 @@ mutmut run
   -> create-mutation-issues.mjs         （按文件分组：GitHub issue + .mutation-queue/*.json）
 ```
 
-- **分数口径**：`score = (killed + timeout) / total`。Timeout 计入检出，
+- **分数口径**：`score = (killed + timeout) / total × 100`（百分制）。Timeout 计入检出，
   Suspicious（测试明显变慢但没超时）不计入。
 - **基线**：`.mutation-baseline.json` 记录 score / killed / survived / total。
   补测合入让分数上涨后执行 `mutation-baseline.mjs update` 再提交基线；
@@ -141,7 +142,8 @@ node scripts/mutation-baseline.mjs check --input mutmut-results-export.json --la
 - 默认 `--dry-run`：零 gh 调用，只上传 `.mutation-queue/` 预览与报告产物。
 - 勾选 `create_issues` 才真正建 issue（凭据用仓库自带的 `GITHUB_TOKEN`，无需额外 secret）。
 - 要定时跑：取消文件头 `schedule` 的注释（cron 按 UTC）。定时事件没有 inputs，
-  默认仍是 `--dry-run`；要让定时实建 issue，把 issue 步骤里的 `schedule` 分支改为 true。
+  默认仍是 `--dry-run`；要让定时实建 issue，把 issue 步骤里的
+  `SCHEDULE_CREATES_ISSUES` 改为 true。
 
 ### 本机 cron / systemd
 

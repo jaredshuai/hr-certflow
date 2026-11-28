@@ -43,6 +43,10 @@
 #     runner 脚本按「缓存文件是否比本轮新」判断新鲜度，会把它误判成陈旧缓存并以
 #     退出码 2 失败（代码没变化的夜里必现）。所以 ExecStartPre 先删缓存，每轮
 #     都是完整实跑（首轮试点范围约 4.5 分钟）。
+#   - 路径按 jxccs 上这份 checkout 写死（/home/jxccs/codespace/hr-certflow），
+#     换机器时整体替换仓库根路径；
+#   - ExecStopPost 兜底还原：超时或被杀时 mutmut 可能停在「源文件已改写、.bak
+#     还在」的中间态，服务停止后把每个 X.bak 还原回 X。
 # =============================================================================
 
 [Unit]
@@ -63,6 +67,9 @@ ExecStartPre=/usr/bin/env uv sync --project /home/jxccs/codespace/hr-certflow/ba
 ExecStartPre=/usr/bin/rm -f /home/jxccs/codespace/hr-certflow/.mutmut-cache
 # ExecStart 经 /usr/bin/env bash 调用：模板阶段也能通过 systemd-analyze verify
 ExecStart=/usr/bin/env bash /home/jxccs/codespace/hr-certflow/scripts/nightly-mutation-runner.sh --lang py --project-dir /home/jxccs/codespace/hr-certflow --log-dir %h/.local/state/nightly-mutation --dry-run
+# 兜底还原：超时或被杀时 mutmut 可能停在「源文件已改写、.bak 还在」的中间态。
+# ExecStopPost 在服务停止后执行，成功、失败、超时都会跑；把每个 X.bak 还原回 X。
+ExecStopPost=/usr/bin/env bash -c 'find /home/jxccs/codespace/hr-certflow/backend/app -name "*.py.bak" -print0 | while IFS= read -r -d "" bak; do mv -f "$bak" "${bak%.bak}"; echo "restored ${bak%.bak}"; done'
 # issue 创建需要 gh 凭据：默认用 gh auth login 的持久凭据；无人值守环境可
 # 取消下行注释改用显式 token（不要把真实 token 提交进仓库）
 #Environment=GH_TOKEN=YOUR_TOKEN_HERE
