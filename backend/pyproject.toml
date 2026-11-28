@@ -38,6 +38,12 @@ dev = [
     "ruff>=0.6.9",
     "ty>=0.0.34",
 ]
+# 夜跑变异测试工具（lazypack mutation-testing 配方）。固定 2.x：3.x 不再写
+# .mutmut-cache，配方链路的解析器与夜跑脚本都按 2.x 口径读取。日常开发不安装，
+# 夜跑/手动实跑时显式叠加：uv sync --project backend --extra dev --extra mutation
+mutation = [
+    "mutmut<3",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

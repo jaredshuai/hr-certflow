@@ -55,6 +55,18 @@ Backend Docker images must also install runtime dependencies with `uv sync --loc
 
 Alembic is the production schema path. CI runs `alembic upgrade head` against a PostgreSQL service with `AUTO_CREATE_TABLES=false`; release workloads must not rely on automatic table creation.
 
+## Mutation Testing
+
+Mutation testing is a nightly-only supplement to the four CI gates; it is never a pre-commit or PR gate. `docs/mutation-testing.md` records the pilot scope, commands, measured results, and known pitfalls.
+
+| Item | Decision |
+| --- | --- |
+| Tool | mutmut 2.x (`mutmut<3`) through the backend `mutation` extra; 3.x no longer writes `.mutmut-cache` |
+| Install | `uv sync --project backend --extra dev --extra mutation --locked`; `--extra dev` alone does not install it |
+| Toolchain | the 5 scripts under `scripts/` (`mutation-baseline.mjs`, `parse-stryker-report.mjs`, `parse_mutmut_report.py`, `create-mutation-issues.mjs`, `nightly-mutation-runner.sh`) are distributed verbatim from the lazypack-discipline `mutation-testing` recipe (`@version 1.0.0`); upgrade by re-copying, never by editing in place |
+| Config | `setup.cfg` (`[mutmut]`) and `pytest-mutation.ini` at the repository root; mutmut 2.x only reads the current directory |
+| Baseline | `.mutation-baseline.json` is committed and only ratchets upward; re-init it whenever the mutate scope changes |
+
 ## GitHub Actions
 
 Baseline:

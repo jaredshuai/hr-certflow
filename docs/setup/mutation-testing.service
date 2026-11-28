@@ -1,0 +1,70 @@
+# =============================================================================
+# 夜跑变异测试闭环 systemd service 模板（user 级，无需 root）—— hr-certflow 适配版
+# =============================================================================
+# 作用：由 mutation-testing.timer 每天定时触发的一次性任务，执行
+#       scripts/nightly-mutation-runner.sh --lang py，串起完整闭环：mutmut 实跑 ->
+#       解析存活变异体 -> 基线 -> 补测 issue（流程与前置条件见该脚本头注释）。
+#
+# 状态：只是模板，默认不启用。等主人看过手动实跑的效果（.mutation-queue/ 预览、
+#       unified-mutation-report.json）之后，再决定是否挂定时。启用步骤：
+#   1. 对齐环境并手动跑通一次（仓库根目录执行）：
+#        uv sync --project backend --extra dev --extra mutation --locked
+#        PATH="$PWD/backend/.venv/bin:$PATH" \
+#          scripts/nightly-mutation-runner.sh --lang py --dry-run
+#   2. 把本文件与 mutation-testing.timer 复制到 ~/.config/systemd/user/；
+#   3. systemctl --user daemon-reload
+#      systemctl --user enable --now mutation-testing.timer
+#      systemctl --user list-timers                        # 确认调度生效
+#      systemctl --user start mutation-testing.service     # 立即手动跑一次
+#      journalctl --user -u mutation-testing.service       # 查看运行日志
+#
+# 说明：
+#   - user 级服务随用户会话运行；常关机的机器建议 loginctl enable-linger $USER，
+#     让 timer 在未登录时也能触发；
+#   - 本仓的 Python 环境由 uv 管理（backend/.venv），mutmut<3 只在叠加 pyproject
+#     的 mutation extra 时才安装。ExecStartPre 每轮按 uv.lock 对齐环境，PATH 把
+#     .venv/bin 放到最前，runner 脚本里的裸 `mutmut run` 和 runner 命令里的
+#     `python` 才会落到这个环境；
+#   - node 由 fnm 管理：systemd 环境里没有 fnm 的 multishell 路径，下面指向 fnm
+#     的 default 别名（.mjs 工具脚本要求 Node.js 24+）。换机器时用
+#     `fnm default` 与 `ls ~/.local/share/fnm/aliases/default/bin/node` 核对；
+#   - mutmut 会就地改写被测源文件再还原。ExecStartPre 先确认被变异目录、测试目录
+#     与变异配置没有未提交改动，有则拒绝启动：既不拿脏工作区当基线，也避免
+#     mutmut 中途崩溃时把变异体留在未提交的代码里。本模板不负责 git pull，
+#     checkout 停在哪个提交就测哪个提交；
+#   - 配方已知缺口：runner 脚本的 py 链路不会生成 mutmut-results-export.json，
+#     基线步骤会被跳过并记一条 WARN（GitHub Actions 版 workflow 是完整的）。
+#     需要在本地做基线检查时，跑完后手动执行 docs/mutation-testing.md 里的
+#     两条命令；
+#   - 默认带 --dry-run：只产出 .mutation-queue/ 预览，不调用 gh、不建 issue。
+#     要实建 issue 时去掉该参数，并保证 gh auth login 的持久凭据可用，或取消
+#     下面 GH_TOKEN 的注释（用 systemctl --user show-environment 核对注入）。
+#   - 每轮都从空缓存开始：mutmut 在结果全部命中缓存时不会重写 .mutmut-cache，
+#     runner 脚本按「缓存文件是否比本轮新」判断新鲜度，会把它误判成陈旧缓存并以
+#     退出码 2 失败（代码没变化的夜里必现）。所以 ExecStartPre 先删缓存，每轮
+#     都是完整实跑（首轮试点范围约 4.5 分钟）。
+# =============================================================================
+
+[Unit]
+Description=Nightly mutation test loop (run -> parse -> baseline -> issues)
+# 由同名 mutation-testing.timer 触发；本单元不设 [Install]，
+# 避免被误 enable 成开机自跑
+
+[Service]
+Type=oneshot
+# systemd 环境的 PATH 很短，按实际安装位置补齐（which uv node gh 逐个核对）；
+# .venv/bin 必须在最前，否则 mutmut / python 会落到系统解释器
+Environment=PATH=/home/jxccs/codespace/hr-certflow/backend/.venv/bin:/home/jxccs/.local/bin:/home/jxccs/.local/share/fnm/aliases/default/bin:/usr/local/bin:/usr/bin:/bin
+# 被变异目录 / 测试目录 / 变异配置有未提交改动时拒绝启动（退出码 1）
+ExecStartPre=/usr/bin/env git -C /home/jxccs/codespace/hr-certflow diff --quiet HEAD -- backend/app backend/tests setup.cfg pytest-mutation.ini
+# 按 uv.lock 对齐 backend 虚拟环境（含 mutation extra 的 mutmut<3）
+ExecStartPre=/usr/bin/env uv sync --project /home/jxccs/codespace/hr-certflow/backend --extra dev --extra mutation --locked
+# 清掉上一轮的 .mutmut-cache，避免 runner 把「全部命中缓存、未重写缓存」误判成失败
+ExecStartPre=/usr/bin/rm -f /home/jxccs/codespace/hr-certflow/.mutmut-cache
+# ExecStart 经 /usr/bin/env bash 调用：模板阶段也能通过 systemd-analyze verify
+ExecStart=/usr/bin/env bash /home/jxccs/codespace/hr-certflow/scripts/nightly-mutation-runner.sh --lang py --project-dir /home/jxccs/codespace/hr-certflow --log-dir %h/.local/state/nightly-mutation --dry-run
+# issue 创建需要 gh 凭据：默认用 gh auth login 的持久凭据；无人值守环境可
+# 取消下行注释改用显式 token（不要把真实 token 提交进仓库）
+#Environment=GH_TOKEN=YOUR_TOKEN_HERE
+# 变异测试耗时随试点范围增长，超时按项目规模调整；超时按失败处理并中止闭环
+TimeoutStartSec=4h

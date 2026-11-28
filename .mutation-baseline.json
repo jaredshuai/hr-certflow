@@ -1,0 +1,10 @@
+{
+  "version": "1.0",
+  "updated": "2026-11-28T00:20:21Z",
+  "baseline": {
+    "score": 71.49,
+    "killed": 178,
+    "survived": 71,
+    "total": 249
+  }
+}

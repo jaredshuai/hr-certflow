@@ -123,6 +123,10 @@ rtk npm run build
 - If `DATABASE_URL` is missing, DB-backed pytest cases may skip. Report skipped
   integration coverage honestly and do not treat it as full DB evidence.
 - Use `rtk git diff --check` before finalizing broad edits.
+- Mutation testing is a nightly-only quality layer, never a pre-commit or PR gate.
+  `docs/mutation-testing.md` holds the pilot scope (audit and notification
+  redaction), commands, measured results, and known pitfalls. mutmut is only
+  installed by `uv sync --project backend --extra dev --extra mutation`.
 
 <!-- CODEGRAPH_START -->
 ## CodeGraph And Fast Context Routing

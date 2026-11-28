@@ -1,0 +1,26 @@
+# =============================================================================
+# 夜跑变异测试闭环 systemd timer 模板（user 级）—— hr-certflow 适配版
+# =============================================================================
+# 作用：每天定时触发同名的 mutation-testing.service（安装步骤见其文件头）。
+#
+# 状态：只是模板，默认不启用；启用时机与方式见 mutation-testing.service 头注释。
+# 本仓只有 Python 一条链路（frontend 用 node:test，Stryker 没有对应 runner），
+# 所以不存在与 TypeScript 版错峰的问题。
+# =============================================================================
+
+[Unit]
+Description=Nightly schedule for mutation testing loop
+
+[Timer]
+# 每天北京时间 03:00 触发。时间带 UTC 后缀是刻意的：不带后缀时 systemd 按本机
+# 时区解释，而这台机器的时区是 America/New_York（EST，UTC-5），写 02:00 会在
+# 北京时间 15:00 跑。带后缀后与 GitHub Actions 版 workflow 的 cron（19:00 UTC）
+# 是同一时刻，两边要错开时改这里即可。
+OnCalendar=*-*-* 19:00:00 UTC
+# 因关机/休眠错过的触发在下次启动后补跑一次（配合 oneshot service）
+Persistent=true
+# 在触发时刻上加 0~15 分钟随机延迟，避免整点集中跑；不需要可删除此行
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target
