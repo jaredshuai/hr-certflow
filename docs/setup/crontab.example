@@ -1,0 +1,46 @@
+# =============================================================================
+# 夜跑变异测试闭环 crontab 示例 —— hr-certflow 适配版
+# =============================================================================
+# 作用：每天定时运行 scripts/nightly-mutation-runner.sh（完整闭环见该脚本头注：
+#       变异测试 -> 解析 -> 基线 -> issues；日志写 --log-dir 并按 --log-keep
+#       自动清理）。
+#
+# 状态：只是示例，默认不装。等主人看过手动实跑的效果后再决定是否挂定时；
+#       与 systemd timer 二选一即可（systemd timer 天然防重叠，优先用它）。
+#
+# 安装：
+#   1. 对齐环境并手动跑通一次（仓库根目录）：
+#        uv sync --project backend --extra dev --extra mutation --locked
+#        PATH="$PWD/backend/.venv/bin:$PATH" \
+#          scripts/nightly-mutation-runner.sh --lang py --dry-run
+#   2. crontab -e 粘贴下面内容，按实际安装位置核对路径；
+#   3. crontab -l 核对已生效。
+#
+# cron 三个最常见的坑（务必核对）：
+#   1. PATH 很短（通常只有 /usr/bin:/bin）：本仓的 mutmut / pytest 装在
+#      backend/.venv，uv 在 ~/.local/bin，node 由 fnm 管理，都必须补 PATH，
+#      否则第一步就失败；
+#   2. cron 不加载 .bashrc/.profile，环境靠下面这类显式声明；
+#   3. 时间按本机时区解释（GitHub Actions 的 cron 按 UTC，两边不同）。
+#
+# gh 凭据：包装脚本优先读环境变量 GH_TOKEN，其次 gh auth login 的持久凭据
+# （cron 默认带正确 HOME，一般可直接读）。下面这行保持 --dry-run：不调用 gh，
+# 只产出 .mutation-queue/ 预览。要实建 issue 时去掉 --dry-run 再补凭据。
+#
+# 每轮都从空缓存开始：mutmut 在结果全部命中缓存时不会重写 .mutmut-cache，runner
+# 脚本按「缓存文件是否比本轮新」判断新鲜度，会把它误判成陈旧缓存并以退出码 2
+# 失败（代码没变化的夜里必现）。所以下面的命令先删缓存再跑。
+# =============================================================================
+
+# 按实际安装位置补齐（which uv node gh 逐个核对；node 取 fnm 的 default 别名）
+PATH=/home/jxccs/codespace/hr-certflow/backend/.venv/bin:/home/jxccs/.local/bin:/home/jxccs/.local/share/fnm/aliases/default/bin:/usr/local/bin:/usr/bin:/bin
+
+# 每天本地时间 14:00 跑 Python（mutmut）。cron 按本机时区解释小时字段，而这台
+# 机器的时区是 America/New_York，且本机 cron（3.0pl1-200ubuntu1）不支持 CRON_TZ：
+# 14:00 EST = 北京时间 03:00，夏令时（EDT）期间 = 北京时间 02:00。要钉死「UTC
+# 19:00」这一个时刻请改用 systemd timer 模板（OnCalendar 支持 UTC 后缀）。
+# 控制台输出丢弃以免 cron 邮件刷屏——完整日志已由脚本写入 --log-dir。
+# 命令依次是：flock 防重叠（cron 本身不防，而 mutmut 会就地改写源文件再还原，
+# 上一轮没跑完时这一轮直接退出）-> 清缓存 -> 脏工作区保护（被变异目录 / 测试
+# 目录 / 变异配置有未提交改动时直接不跑）-> 夜跑闭环。
+0 14 * * * flock -n /tmp/nightly-mutation-py.lock rm -f /home/jxccs/codespace/hr-certflow/.mutmut-cache && git -C /home/jxccs/codespace/hr-certflow diff --quiet HEAD -- backend/app backend/tests setup.cfg pytest-mutation.ini && /home/jxccs/codespace/hr-certflow/scripts/nightly-mutation-runner.sh --lang py --project-dir /home/jxccs/codespace/hr-certflow --log-dir /home/jxccs/.local/state/nightly-mutation --dry-run >/dev/null 2>&1

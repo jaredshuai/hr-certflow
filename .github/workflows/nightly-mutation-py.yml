@@ -1,0 +1,183 @@
+# =============================================================================
+# 夜跑变异测试闭环（Python / mutmut 2.x）—— 首轮试点
+# =============================================================================
+# 由 lazypack-discipline `mutation-testing` 配方的
+# skills/lazypack-setup/assets/mutation/workflows/nightly-mutation-py.yml 适配而来。
+# 与配方模板的差异（均为适配本仓基线，见 docs/engineering-baseline.md）：
+#   - 触发面：默认只手动触发（workflow_dispatch）；schedule 先注释掉，等主人看过
+#     实测效果后再放开；
+#   - 补测 issue 默认只做 --dry-run 预览（零 gh 调用，只产出 .mutation-queue/），
+#     手动触发时勾选 create_issues 才真正建 issue；
+#   - 安装走 uv（backend 的 mutation extra + uv.lock），不引入 pip 安装路径；
+#   - mutmut run 的退出码在本步裁决：致命错误位（奇数）或越界码直接失败，
+#     不带着残缺缓存进入解析（与配方 scripts/nightly-mutation-runner.sh 同一口径）。
+#
+# 试点范围由仓库根 setup.cfg [mutmut] 与 pytest-mutation.ini 定义（首轮 2 个
+# 核心文件，见文件头注释；实测数据与踩坑见 docs/mutation-testing.md）。
+# 完整的夜跑闭环：
+#   实跑 mutmut -> 导出结果计数 -> 解析存活变异体 -> 基线只涨不跌 -> 补测 issue
+# 工具脚本（scripts/ 下 5 个）由配方逐字分发，版本标记见各文件头 @version 1.0.0。
+# =============================================================================
+
+name: Nightly mutation tests (Python)
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_issues:
+        description: "真实创建补测 issue；不勾选时只做 --dry-run 预览（零 gh 调用）"
+        type: boolean
+        required: false
+        default: false
+  # 确认夜跑效果稳定后再放开。GitHub Actions 的 cron 按 UTC：19:00 UTC = 北京时间 03:00。
+  # 定时事件没有 inputs，默认仍走 --dry-run；要让定时实建 issue，把下面
+  # 「Create per-file mutation issues」步骤里的 SCHEDULE_CREATES_ISSUES 改为 true。
+  # schedule:
+  #   - cron: "0 19 * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+# 同一时刻只跑一轮；上一轮没跑完时，新一轮排队而不是并行改写同一批源文件
+concurrency:
+  group: nightly-mutation-py
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  mutation-py:
+    name: Mutation tests (pilot scope)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      # 基线工具、issue 创建工具是 Node 程序（.mjs，要求 Node.js 24+）
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - uses: astral-sh/setup-uv@v8.1.0
+
+      # mutmut<3 装在 backend 的 uv 虚拟环境里（pyproject 的 mutation extra）。
+      # 日常 uv sync --extra dev 不会安装它，也不会影响 CI / 镜像构建。
+      - name: Install backend (dev + mutation extras)
+        run: uv sync --project backend --extra dev --extra mutation --locked --python 3.12
+
+      # mutmut 2.x 的退出码是结果类别的按位或：
+      #   0 全部杀死；2 有存活；4 有超时；8 有可疑；1 致命错误。
+      # 偶数退出码（存在存活/超时/可疑）是夜跑要处理的预期输入，不让本步失败；
+      # 奇数（致命错误位）或 >=16（越界，多为信号终止）才是真实失败。
+      # mutmut 会就地改写被测源文件再还原，所以必须在干净的工作区里串行运行。
+      - name: Run mutation tests (mutmut 2.x)
+        run: |
+          set +e
+          uv run --no-sync --project backend --extra dev --extra mutation mutmut run 2>&1 | tee .mutmut-run-output.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "mutmut exit code: ${rc}"
+          if grep -q "Traceback (most recent call last)" .mutmut-run-output.txt; then
+            echo "::error::mutmut run 中途崩溃（输出含 Python traceback），缓存可能残缺"
+            [ "${rc}" -ne 0 ] || rc=1
+            exit "${rc}"
+          fi
+          if [ "$((rc & 1))" -ne 0 ] || [ "${rc}" -ge 16 ]; then
+            echo "::error::mutmut run 真实执行失败（退出码 ${rc}）"
+            exit "${rc}"
+          fi
+          if [ ! -f .mutmut-cache ]; then
+            echo "::error::mutmut run 没有写出 .mutmut-cache（多为 setup.cfg 的 paths_to_mutate 未命中）"
+            exit 1
+          fi
+
+      # 基线工具不读 .mutmut-cache，需要六类状态的 id 清单。
+      # 用官方 `mutmut result-ids <status>` 逐类取 id，组装成基线工具认的导出形态
+      # （各类别为字符串数组；空类输出空行，split 后自然得到空数组）。
+      # 该步不做容忍：缓存缺失或 result-ids 失败时直接失败，不静默跳过基线检查。
+      - name: Export mutmut results JSON (baseline input)
+        run: |
+          uv run --no-sync --project backend --extra dev --extra mutation python - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          statuses = ("killed", "timeout", "survived", "suspicious", "skipped", "untested")
+          export = {}
+          for status in statuses:
+              proc = subprocess.run(["mutmut", "result-ids", status], capture_output=True, text=True)
+              if proc.returncode != 0:
+                  sys.exit(f"mutmut result-ids {status} failed: {proc.stderr.strip()}")
+              export[status] = proc.stdout.split()
+          with open("mutmut-results-export.json", "w", encoding="utf-8") as f:
+              json.dump(export, f, indent=2)
+              f.write("\n")
+          print({status: len(ids) for status, ids in export.items()})
+          PY
+
+      # 缓存只存状态与坐标，不存替换片段；存活/可疑变异体要配 `mutmut show all`
+      # 的 diff 才能写出 original/mutated，所以先落盘 show 输出再经 --show 传入解析器。
+      # 两份产物都落项目根（解析器 --output 不创建父目录）。
+      - name: Parse surviving mutants into unified report
+        run: |
+          uv run --no-sync --project backend --extra dev --extra mutation mutmut show all > .mutmut-show-all.txt
+          uv run --no-sync --project backend --extra dev --extra mutation python scripts/parse_mutmut_report.py --input .mutmut-cache --show .mutmut-show-all.txt --output unified-mutation-report.json
+
+      # 首次运行（仓库里还没有基线文件）：把本轮分数冻结为基线，跑完后提交
+      # .mutation-baseline.json。之后每轮做只涨不跌检查：回归时退出码 2，
+      # 本步失败并中止后面的 issue 创建（回归先由人处理，不自动放行）。
+      - name: Initialize baseline (first run only)
+        if: hashFiles('.mutation-baseline.json') == ''
+        run: node scripts/mutation-baseline.mjs init --input mutmut-results-export.json --lang py
+
+      - name: Check baseline (ratchet; exit 2 on regression)
+        if: hashFiles('.mutation-baseline.json') != ''
+        run: node scripts/mutation-baseline.mjs check --input mutmut-results-export.json --lang py
+
+      # 按文件分组产出补测 issue（人读）+ .mutation-queue/ 队列文件（agent 读）。
+      #   - gh CLI 从 GH_TOKEN 读凭据，用仓库自带的 GITHUB_TOKEN，无需额外 secret；
+      #   - 实建模式与 open 状态的同名 issue 去重，重复夜跑只跳过不重复建；
+      #   - 存在 .equivalent-mutants.json 时自动应用等价变异体豁免；
+      #   - 默认 --dry-run：不调用 gh，只写队列文件与 body 预览。
+      - name: Create per-file mutation issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 手动触发：勾选 create_issues 才实建。定时事件没有 inputs，
+          # 由 SCHEDULE_CREATES_ISSUES 决定是否实建（默认 false = --dry-run）。
+          SCHEDULE_CREATES_ISSUES="false"
+          mode="dry-run"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "${SCHEDULE_CREATES_ISSUES}" = "true" ]; then
+              mode="create"
+            fi
+          elif [ "${{ inputs.create_issues }}" = "true" ]; then
+            mode="create"
+          fi
+          args=(--input unified-mutation-report.json --output .mutation-queue/manifest.json)
+          if [ -f .equivalent-mutants.json ]; then
+            args+=(--exemptions .equivalent-mutants.json)
+          fi
+          if [ "${mode}" = "create" ]; then
+            node scripts/create-mutation-issues.mjs "${args[@]}"
+          else
+            node scripts/create-mutation-issues.mjs "${args[@]}" --dry-run
+          fi
+
+      # 即便中途失败也上传本轮全部报告，便于排查；路径不存在时只告警不失败
+      - name: Upload mutation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-reports-py
+          path: |
+            .mutmut-cache
+            .mutmut-run-output.txt
+            .mutmut-show-all.txt
+            mutmut-results-export.json
+            unified-mutation-report.json
+            .mutation-queue/
+          if-no-files-found: warn
+          retention-days: 30

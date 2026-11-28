@@ -26,6 +26,15 @@ data/
 uploads/
 .tmp/
 
+# Mutation testing (lazypack mutation-testing recipe) per-run artifacts.
+# .mutation-baseline.json and .equivalent-mutants.json are tracked on purpose.
+.mutmut-cache
+.mutmut-run-output.txt
+.mutmut-show-all.txt
+mutmut-results-export.json
+unified-mutation-report.json
+.mutation-queue/
+
 # Local agent/editor artifacts
 .agent/
 .agent-jobs/
