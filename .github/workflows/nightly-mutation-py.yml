@@ -4,10 +4,11 @@
 # 由 lazypack-discipline `mutation-testing` 配方的
 # skills/lazypack-setup/assets/mutation/workflows/nightly-mutation-py.yml 适配而来。
 # 与配方模板的差异（均为适配本仓基线，见 docs/engineering-baseline.md）：
-#   - 触发面：默认只手动触发（workflow_dispatch）；schedule 先注释掉，等主人看过
-#     实测效果后再放开；
+#   - 触发面：workflow_dispatch 手动触发 + 每日定时（03:00 北京时间，cron 按
+#     UTC 写作 19:00）；定时事件实建按文件分组的补测 issue；
 #   - 补测 issue 默认只做 --dry-run 预览（零 gh 调用，只产出 .mutation-queue/），
-#     手动触发时勾选 create_issues 才真正建 issue；
+#     手动触发时勾选 create_issues 才真正建 issue；定时事件由
+#     SCHEDULE_CREATES_ISSUES 决定（当前 true = 实建）；
 #   - 安装走 uv（backend 的 mutation extra + uv.lock），不引入 pip 安装路径；
 #   - mutmut run 的退出码在本步裁决：致命错误位（奇数）或越界码直接失败，
 #     不带着残缺缓存进入解析（与配方 scripts/nightly-mutation-runner.sh 同一口径）。
@@ -29,11 +30,11 @@ on:
         type: boolean
         required: false
         default: false
-  # 确认夜跑效果稳定后再放开。GitHub Actions 的 cron 按 UTC：19:00 UTC = 北京时间 03:00。
-  # 定时事件没有 inputs，默认仍走 --dry-run；要让定时实建 issue，把下面
-  # 「Create per-file mutation issues」步骤里的 SCHEDULE_CREATES_ISSUES 改为 true。
-  # schedule:
-  #   - cron: "0 19 * * *"
+  # GitHub Actions 的 cron 按 UTC：19:00 UTC = 北京时间 03:00。
+  # 定时事件没有 inputs，是否实建补测 issue 由下面「Create per-file mutation issues」
+  # 步骤里的 SCHEDULE_CREATES_ISSUES 决定（当前 true = 实建；同名 open issue 自动去重）。
+  schedule:
+    - cron: "0 19 * * *"
 
 permissions:
   contents: read
@@ -140,14 +141,17 @@ jobs:
       #   - gh CLI 从 GH_TOKEN 读凭据，用仓库自带的 GITHUB_TOKEN，无需额外 secret；
       #   - 实建模式与 open 状态的同名 issue 去重，重复夜跑只跳过不重复建；
       #   - 存在 .equivalent-mutants.json 时自动应用等价变异体豁免；
-      #   - 默认 --dry-run：不调用 gh，只写队列文件与 body 预览。
+      #   - 模式（见步骤内 SCHEDULE_CREATES_ISSUES）：定时事件实建 issue；
+      #     手动触发只有勾选 create_issues 才实建，否则 --dry-run（不调用 gh，
+      #     只写队列文件与 body 预览）。
       - name: Create per-file mutation issues
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # 手动触发：勾选 create_issues 才实建。定时事件没有 inputs，
-          # 由 SCHEDULE_CREATES_ISSUES 决定是否实建（默认 false = --dry-run）。
-          SCHEDULE_CREATES_ISSUES="false"
+          # 由 SCHEDULE_CREATES_ISSUES 决定是否实建（当前 true = 实建；
+          # 与 open 状态的同名 issue 去重，重复夜跑只跳过不重复建）。
+          SCHEDULE_CREATES_ISSUES="true"
           mode="dry-run"
           if [ "${{ github.event_name }}" = "schedule" ]; then
             if [ "${SCHEDULE_CREATES_ISSUES}" = "true" ]; then

@@ -48,7 +48,7 @@
 | `scripts/parse_mutmut_report.py` | `.mutmut-cache` + `mutmut show all` → 统一变异体报告。配方分发。 |
 | `scripts/create-mutation-issues.mjs` | 统一报告 → 按文件分组的补测 issue + `.mutation-queue/` 队列文件。配方分发。 |
 | `scripts/nightly-mutation-runner.sh` | 本地一条龙包装脚本（cron / systemd 触发面）。配方分发。 |
-| `.github/workflows/nightly-mutation-py.yml` | GitHub Actions 夜跑闭环，默认只手动触发。 |
+| `.github/workflows/nightly-mutation-py.yml` | GitHub Actions 夜跑闭环，手动触发 + 每日 03:00（北京时间）定时；定时自动建按文件分组的补测 issue（同名 open issue 去重）。 |
 | `docs/setup/mutation-testing.{service,timer}`、`docs/setup/crontab.example` | 本地定时模板，默认不启用。 |
 | `.mutation-baseline.json` | 变异分数基线，**提交进版本库**（棘轮依赖它）。 |
 | `.equivalent-mutants.json` | 可选，等价变异体豁免清单，评审后提交。 |
@@ -130,20 +130,19 @@ node scripts/mutation-baseline.mjs check --input mutmut-results-export.json --la
   重写 `.mutmut-cache`，所以代码没变化的夜里重跑会被误判成失败（退出码 2）。
   调用前先删 `.mutmut-cache`。
 
-## 启用夜跑（待决定）
-
-当前**没有启用任何定时任务**，只交付了配置与模板。
+## 启用夜跑
 
 ### GitHub Actions
 
-`.github/workflows/nightly-mutation-py.yml` 合入 `main` 后可在 Actions 页面手动触发
-（`workflow_dispatch`；GitHub 不允许 dispatch 还没进默认分支的新 workflow）。
+`.github/workflows/nightly-mutation-py.yml` 在 Actions 页面可手动触发
+（`workflow_dispatch`），并已开启每日定时：`cron: "0 19 * * *"`（UTC，
+即北京时间次日 03:00）。
 
-- 默认 `--dry-run`：零 gh 调用，只上传 `.mutation-queue/` 预览与报告产物。
-- 勾选 `create_issues` 才真正建 issue（凭据用仓库自带的 `GITHUB_TOKEN`，无需额外 secret）。
-- 要定时跑：取消文件头 `schedule` 的注释（cron 按 UTC）。定时事件没有 inputs，
-  默认仍是 `--dry-run`；要让定时实建 issue，把 issue 步骤里的
-  `SCHEDULE_CREATES_ISSUES` 改为 true。
+- 定时事件自动建**按文件分组**的补测 issue（`SCHEDULE_CREATES_ISSUES=true`）：
+  与 open 状态的同名 issue 去重，重复夜跑只跳过不重复建；凭据用仓库自带的
+  `GITHUB_TOKEN`，无需额外 secret。设为 `false` 可退回零 gh 调用的 `--dry-run`。
+- 手动触发默认 `--dry-run`（只上传 `.mutation-queue/` 预览与报告产物），勾选
+  `create_issues` 才真正建 issue。
 
 ### 本机 cron / systemd
 
@@ -256,3 +255,7 @@ mutmut 2.5.1：
 `scripts/` 下的工具脚本不是托管配置，升级靠手动：从 lazypack-discipline 的
 `skills/lazypack-setup/assets/mutation/scripts/` 重新复制，核对 4 个核心脚本的
 `@version` 一致，再删 `.mutmut-cache` 重跑一轮。
+
+**本仓本地修补**（重新复制脚本时必须保留）：`create-mutation-issues.mjs` 的
+`fetchOpenMutationIssues` 给 `gh issue list` 加了 `--limit 1000`，否则 gh 默认只返回
+30 条 open issue，补测 issue 超过 30 个后去重会漏判并重复建单。
