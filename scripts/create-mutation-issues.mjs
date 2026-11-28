@@ -722,7 +722,7 @@ function ensureLabels() {
  * @returns {{number: number, title: string}[]}
  */
 function fetchOpenMutationIssues() {
-  const stdout = runGh(['issue', 'list', '--state', 'open', '--label', 'mutation', '--json', 'number,title']);
+  const stdout = runGh(['issue', 'list', '--state', 'open', '--label', 'mutation', '--limit', '1000', '--json', 'number,title']);
   try {
     const parsed = JSON.parse(stdout);
     if (!Array.isArray(parsed)) {

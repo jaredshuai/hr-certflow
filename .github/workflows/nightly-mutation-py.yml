@@ -141,7 +141,9 @@ jobs:
       #   - gh CLI 从 GH_TOKEN 读凭据，用仓库自带的 GITHUB_TOKEN，无需额外 secret；
       #   - 实建模式与 open 状态的同名 issue 去重，重复夜跑只跳过不重复建；
       #   - 存在 .equivalent-mutants.json 时自动应用等价变异体豁免；
-      #   - 默认 --dry-run：不调用 gh，只写队列文件与 body 预览。
+      #   - 模式（见步骤内 SCHEDULE_CREATES_ISSUES）：定时事件实建 issue；
+      #     手动触发只有勾选 create_issues 才实建，否则 --dry-run（不调用 gh，
+      #     只写队列文件与 body 预览）。
       - name: Create per-file mutation issues
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

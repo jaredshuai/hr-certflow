@@ -255,3 +255,7 @@ mutmut 2.5.1：
 `scripts/` 下的工具脚本不是托管配置，升级靠手动：从 lazypack-discipline 的
 `skills/lazypack-setup/assets/mutation/scripts/` 重新复制，核对 4 个核心脚本的
 `@version` 一致，再删 `.mutmut-cache` 重跑一轮。
+
+**本仓本地修补**（重新复制脚本时必须保留）：`create-mutation-issues.mjs` 的
+`fetchOpenMutationIssues` 给 `gh issue list` 加了 `--limit 1000`，否则 gh 默认只返回
+30 条 open issue，补测 issue 超过 30 个后去重会漏判并重复建单。
